@@ -1,218 +1,231 @@
 #!/opt/local/bin/python3
-"""V3-EXQ-541d -- MECH-204 F1 cold-start guard validation
+"""V3-EXQ-541d -- MECH-204 F1 cold-start guard validation on a REALISED-PE base
 
-!! NOT QUEUED. DO NOT QUEUE THIS SCRIPT AS IT STANDS. !!
+!! NOT QUEUED. DO NOT QUEUE THIS SCRIPT AS IT STANDS. SECOND red-team BLOCKING. !!
 ================================================================================
-RED-TEAM VERDICT: **BLOCKING** (fable, 2026-09-19, /queue-experiment Step 4.5).
-Every load-bearing criterion below is pinned to its passing value by the
-HARNESS, not by the manipulation, so the run would emit
-`f1_coldstart_guard_validated` under essentially every outcome. The finding was
-verified against source AND against measured data before being accepted:
+RED-TEAM VERDICT: **BLOCKING** (fable, 2026-09-20, /queue-experiment Step 4.5).
+This is the SECOND blocking refusal on this item -- the first was the 541c
+synthetic-PE build (see the record below). Both findings were verified against
+this driver's own measured data before being accepted.
 
-  F1 (verified to 8e-5 on a 16-cycle traced probe, seed 42 / step 0.25).
-     The two arms consume identical RNG -- the flag only adds a counter
-     increment in REEAgent.sense() -- and E3's running variance is an EMA with
-     alpha 0.05, so after 200 waking ticks the pre-episode rv carries weight
-     0.95**200 = 3.5e-5 and the per-cycle honest precision p_j is the SAME in
-     both arms. With serotonin.py:390-397 (persistent <- 0.9*persistent +
-     0.1*p) the targets are then, exactly:
-         OFF_k - ON_k == 0.9**k * (SENTINEL - p_1)
-     Measured: predicted vs actual agree to 8e-5 at every one of 16 cycles.
-     So D5's "5.59x separation" is NOT a measurement of the guard's benefit --
-     it is D1 (did the cold-start cycle capture?) multiplied by a regime
-     constant, (2.0 - p_1)/anchor. Re-parameterise pe_scale so E[pe^2] = 0.5
-     and D5 FAILS with a perfectly working guard; use IGW-243's 0.0039 and it
-     reads ~100x. The docstring claim that "D5 carries the discriminating
-     information" was WRONG.
-  F2 D4, the pre-registered FALSIFIER OF THE WHOLE FIX, cannot fire on this
-     base. It asks whether precision-at-REM-entry drifts AWAY from the anchor;
-     but on 541c's harness that precision is 1/rv of a STATIONARY synthetic
-     stream (pe_scale = 0.4 + 0.3*rng.random(), a function of rng alone --
-     independent of agent, episode and prior WRITEBACK). There is no realized
-     precision to drift. The IGW-243 climb D4 was written from (2 -> 27 -> 49
-     -> 69 -> 88) was the agent's REALIZED precision. Measured: the guard-ON
-     gap to the anchor is non-monotone over the first 10 cycles.
-  F3 D1 re-reads the guard's own `if` back out. At the cold-start cycle C0,
-     `_waking_ticks_since_capture == 0` by driver construction, so
-     `d1_cell_ok == (guard XOR captured)` is identically True. It duplicates
-     contracts C1-C8 in tests/contracts/test_mech204_f1_coldstart_guard.py.
-     Its "OFF captures AT THE SENTINEL" clause was never actually asserted
-     (E3_SENTINEL_PRECISION is recorded but never compared).
-  F4 The verdict grid therefore collapses: every readiness-met path reaches
-     `f1_coldstart_guard_validated`.
-  F5 Readiness P2 bands a quantity that is the driver's own constant
-     (E[pe^2] = 0.31 by construction) and cannot fail.
+  G1  THE PRE-REGISTERED FALSIFIER IS ARITHMETICALLY UNFIRABLE -- ON ANY BASE.
+      E4 asks whether |target - anchor| GROWS monotonically over ~10 cycles.
+      But the F1 target starts at the sentinel (2.0) or at the first honest
+      precision, both ~2-4, while anchor = 1/realized-PE-variance ~= 260. The
+      target is an EMA of p_k = 1/rv_k, and rv falls as the world model learns,
+      so the target RISES -- measured monotone increasing in every arm
+      (OFF 2.12 -> 5.58, ON 3.16 -> 7.45), every value far BELOW the anchor.
+      gap = anchor - target therefore SHRINKS by construction. For it to grow,
+      rv would have to RISE across cycles, which needs realized PE > rv (~0.15,
+      i.e. ~40x the measured 0.0038) for nine consecutive cycles.
+      The `mech204_option_a_falsified_demote` branch is unreachable.
+      THIS IS A DEFECT IN THE CHIP'S FALSIFIER TEXT, NOT IN THE BASE: the chip
+      says the TARGET climbs away from 1/realized-PE-variance, but the
+      IGW-20260915-243 measurement it was written from says the opposite --
+      the target climbs 2.0 -> 27 -> 49 -> 69 -> 88, which is climbing TOWARD
+      255. What IGW-243 recorded as moving AWAY is rv ("recalibration pushes rv
+      AWAY from calibration, 0.0039 -> 0.0121"). Target and rv were conflated.
+      So NO choice of base can make the falsifier-as-written fire, and the
+      user's base-selection criterion ("pick the base that lets the
+      pre-registered falsifier actually FIRE") cannot be satisfied as stated.
 
-ROOT CAUSE, stated plainly: the cold-start guard's effect on 541c's
-synthetic-PE harness is a FIRST-CYCLE TRANSIENT with a closed-form decay, not
-the sustained divergence the design's prediction describes. The base and the
-question do not match. Choosing a different base CHANGES WHAT GETS MEASURED,
-which is a user decision, not this session's -- so this script was authored,
-smoke-tested, red-teamed and then DELIBERATELY NOT QUEUED.
+  G2  E2 DOES NOT CERTIFY WHAT IT CLAIMS, AND THIS DOCSTRING'S ORIGINAL
+      RATIONALE FOR IT WAS WRONG. An earlier draft of this file argued that
+      the realised base breaks the 541c closed form because "precision feeds
+      selection feeds prediction error feeds precision". MEASURED: FALSE. The
+      per-episode realized PE is BIT-IDENTICAL between the two guard arms at
+      every episode (0.003832, 0.003786, 0.003852, ... in both), and so is the
+      anchor (259.904 both). The guard changes rv; rv never reaches an action;
+      the trajectories do not diverge. What actually makes p_j arm-dependent is
+      the WRITEBACK's rv change surviving into the next REM entry, which
+      depends on ticks-per-episode as 0.95^n. With n ~ 10 the carry-over is
+      ~0.60 and E2 reads 4-10x; with n ~ 200 it is 3.5e-5 and E2 reads 1.00 and
+      FAILS. So E2's verdict is a function of EPISODE LENGTH.
 
-Escalated as decision chip chip-20260919-exq541d-base-regime-blocking.
-Refusal record: REE_assembly/evidence/planning/exq541d_redteam_blocking_refusal_staged_20260919.md
-Governance flag raised against MECH-204.
+  G3  THE RUN IS NOT IN THE REGIME IT DECLARES. This driver specifies 30
+      episodes x 200 steps = 6000 waking ticks per cell. Measured at grid 12:
+      episodes END BY DEATH in 6-15 ticks (agent_health <= 0), so the real
+      figure is ~300. The `min_waking_ticks_at_post_c0_rem_entry` precondition
+      read 7 and was interpreted as "producer live -- MET"; it was in fact
+      reporting the episode length. V3-EXQ-794, at this same nominal operating
+      point, recorded rv_final ~0.0054 (rv tracking PE), which needs ~60-100
+      ticks per episode -- so either 794's agents survived and this one does
+      not, or the operating points differ on an axis neither script records.
+      Nothing in the manifest records episode length.
 
-WHAT IS STILL GOOD HERE, and why this file was kept rather than deleted: the
-C0 instrumentation is correct and verified -- it is what PROVED the defect
-mechanism (guard OFF anchors _persistent_zero_point at the precision_init
-sentinel 1.999996 in all five step arms; guard ON declines to capture), and it
-measured that this base issues exactly ONE enter_rem call per sleep cycle. A
-successor on a REALIZED-PE base should reuse this instrumentation and replace
-D1/D4/D5 with criteria that are not pinned by the harness.
+WHAT WAS NONETHELESS ESTABLISHED, and it is substantive:
+  - The anchor re-measured on this base is 259.9-264.3 (realized PE variance
+    0.00380-0.00385). The chip's "~255 in the IGW-20260915-243 setting"
+    TRANSFERS; 541c's 2.148 does not and is used nowhere here.
+  - The guard works exactly as specified, in all six arms: C0 under guard OFF
+    captures at target 1.999996000008 (the precision_init sentinel, exactly);
+    under guard ON it does not capture at all.
+  - THE UNSCORED RESULT THAT MATTERS: the WRITEBACK moves rv AWAY from the
+    realized PE variance on essentially every cycle of BOTH arms (OFF 9/9,
+    ON 8/9), with rv sitting 18-82x ABOVE realized PE throughout. That is
+    IGW-243's finding reproduced and generalised, and it is the SUBSTANCE of
+    the falsifier -- expressed on rv, the quantity IGW-243 actually measured,
+    rather than on the target. Re-expressed that way the falsifier is both
+    firable AND appears already SATISFIED, which would route MECH-204 Option A
+    to DEMOTE. Changing the falsifier is a user decision, not this session's.
+
+Escalated as decision chip chip-20260920-exq541d-falsifier-misspecified.
+Record: REE_assembly evidence/planning/
+        exq541d_redteam_blocking_refusal_staged_20260919.md (section 6).
 ================================================================================
 
 SLEEP DRIVER: K=1 single-fire (SleepLoopManager, sleep_loop_episodes_K=1, fires every episode)
 
-Validation experiment for the MECH-204 F1 cold-start guard landed 2026-09-18
-(ree-v3 e1ff0927): SerotoninConfig.precision_zero_point_require_waking. When
-True, a REM entry with no waking tick since the last capture does NOT touch
+red-team: see queue entry note (recorded at queue time).
+
+WHAT IS UNDER TEST
+------------------
+The MECH-204 F1 cold-start guard landed 2026-09-18 (ree-v3 e1ff0927):
+SerotoninConfig.precision_zero_point_require_waking. When True, a REM entry
+with no waking tick since the last capture does NOT touch
 _persistent_zero_point. Default False -> bit-identical OFF.
 Substrate record: docs/substrate/MECH-204-f1-coldstart-guard.md
 Contracts: tests/contracts/test_mech204_f1_coldstart_guard.py C1-C8.
 
-red-team (see queue entry note): verdict recorded at queue time.
+THE DEFECT. The canonical pre-waking `agent.reset()` fires a full sleep cycle
+with ZERO waking ticks (call it C0). At C0's REM entry E3 has never seen a
+prediction error, so current_precision is the precision_init sentinel --
+precision_init is a VARIANCE (0.5, config.py:1126), so the sentinel precision
+is 1/(0.5+1e-6) = 1.999996. Guard OFF anchors the F1 persistent reference
+there; every later cycle then blends toward the honest precision at only
+alpha=0.1, and the WRITEBACK consumer meanwhile drags rv toward 1/2.0 = 0.5,
+AWAY from the agent's realized prediction-error variance.
 
-THE DEFECT UNDER TEST (mechanism, measured 2026-09-19 on this exact harness)
----------------------------------------------------------------------------
-541c's driver calls agent.reset() ONCE before its episode loop. With
-sleep_loop_episodes_K=1 that pre-loop reset fires a full sleep cycle with ZERO
-waking ticks (call it C0). At C0's REM entry, E3 has never seen a prediction
-error, so current_precision is the precision_init sentinel:
-    precision_init = 0.5 (a VARIANCE) -> current_precision = 1/(0.5+1e-6) = 2.0
-With the guard OFF, C0 anchors _persistent_zero_point at that sentinel 2.0.
-Every later cycle then blends toward the honest precision at only alpha=0.1, so
-the F1 reference spends the whole run climbing out of a cold-start artefact
-rather than tracking the agent's realized precision.
+WHY THIS DRIVER AND NOT V3-EXQ-541c's (user decision, 2026-09-19T23:52:40Z)
+--------------------------------------------------------------------------
+A first version of 541d was built on 541c and REFUSED at red-team (BLOCKING);
+the full record is REE_assembly evidence/planning/
+exq541d_redteam_blocking_refusal_staged_20260919.md. Two findings, both
+verified, and both are properties of 541c's harness rather than of the guard:
 
-Measured on this harness (seed 42, recal step 0.25, 16 cycles, 200 ticks/ep):
-    cycle-1 target, guard OFF = 2.1478  == 0.9*2.0 + 0.1*(1/0.287498)
-    cycle-1 target, guard ON  = 3.4783  == 1/0.287498  (honest; C0 suppressed)
-The OFF value reproduces V3-EXQ-541c's documented cycle-1 target of 2.148,
-which is what identifies this as the same defect 541c recorded.
+  (i)  541c takes RANDOM actions (`rng.randrange`) and drives E3's running
+       variance from a STATIONARY SYNTHETIC stream, so the agent's state can
+       not influence the trajectory. Both guard arms therefore see an
+       identical per-cycle honest precision p_j, and the cross-arm target
+       difference collapses to the closed form
+           OFF_k - ON_k == 0.9**k * (SENTINEL - p_1)
+       which reproduced to a max absolute error of 8.07e-05 over 16 cycles.
+       Any "separation" scored there restates whether C0 captured.
+  (ii) With no realized precision, the chip's pre-registered FALSIFIER -- does
+       the target still climb AWAY from 1/realized-PE-variance? -- has nothing
+       that can drift, so it cannot fire under any outcome.
 
-WAKING-TICK PRODUCER (verified against origin/main, not from the docstring)
----------------------------------------------------------------------------
-note_waking_tick() is called from REEAgent.sense() (agent.py:4939, inside
-`def sense(` at :4858), gated on the flag so default-off adds no call. That
-comment block explicitly names v3_exq_541c as a driver it covers, and this
-driver inherits 541c's _tick_wake, which calls agent.sense() every tick.
-NOTE a stale comment in the substrate: serotonin.py:144 and note_waking_tick()'s
-own docstring still say the producer is REEAgent.update_residue(). That is
-WRONG on origin/main -- update_residue does not call it, and 541c's driver calls
-neither update_residue() nor serotonin_step(). If the docstring were right this
-guard would be a permanent kill switch on this base. Measured: it is not
-(P1 below records _waking_ticks_since_capture at REM entry = STEPS_PER_EPISODE).
+This driver moves to the REALISED-PE base the user selected: the canonical
+StepHarness loop at the IGW-20260915-243 operating point (K=1 sleep, F1 recal
+step 0.25), matching V3-EXQ-794's substrate operating point. Here E3's running
+variance is fed by the REAL forward-model error
+(`e3_selector.post_action_update`: prediction_error = actual_z_world -
+predicted_world, recorded as the mean SQUARED error, i.e. a variance), and the
+agent SELECTS its actions through E3 -- so precision feeds selection feeds
+prediction error feeds precision. That closed loop is what breaks (i).
 
-RESET ORDERING (checked, because getting it wrong measures nothing)
--------------------------------------------------------------------
-SerotoninModule.reset() zeroes _waking_ticks_since_capture (serotonin.py:429)
-and this driver fires its cycle via agent.reset(). REEAgent.reset() calls
-sleep_loop.notify_episode_end() at agent.py:3597 and serotonin.reset() at
-:3626 -- sleep FIRST, deliberately. Were it the other way round the guard would
-suppress every capture.
+The alternative the user named -- the v3_exq_sd068_* multi-REM family -- was
+examined and REJECTED on the user's own criterion. It never touches the F1 /
+_persistent_zero_point / mech204 path at all, bypasses SleepLoopManager (so no
+mech204_* WRITEBACK metrics exist), reaches REM only through an unscored
+`drive_liveness_pass` wrapped in a bare `except Exception`, and its precision
+target is CLAMP-PINNED (`max(1e-3, raw_target)`; V3-EXQ-778c recorded
+`target_clamped` 1.0 with calibration_error pinned at the constant
+998.5009992509989, "degenerate at both rails"). A clamp-pinned precision is
+precisely not "realised and able to drift". Its multi-enter_rem property is
+still worth testing and is recorded as owed follow-on, not folded in here.
 
-DESIGN (pre-specified by chip-20260918-exq541d-mech204-f1-guard-validation)
----------------------------------------------------------------------------
-Base: v3_exq_541c_mech204_step_size_sweep_extended_cycles.py, unchanged env,
-seeds, cycle count and recal-step arm structure. precision_zero_point_require_
-waking is added as a SECOND FACTOR (OFF vs ON), fully crossed: 5 steps x 2
-guard levels x 3 seeds = 30 cells.
+MEASURED ON THIS BASE BEFORE QUEUEING (the user's pre-queue requirement).
+Traced probe, seed 42, grid 8, 10 cycles, 150 steps/ep, recal step 0.25:
+  realized PE variance   = 0.003848  ->  ANCHOR = 1/0.003848 = 259.9
+  (the chip's "~255 in the IGW-20260915-243 setting" TRANSFERS; 541c's 2.148
+   does NOT and is not used anywhere in this driver)
+  C0, guard OFF: fires, target = 2.0 EXACTLY (the raw sentinel)
+  C0, guard ON : does not fire, _persistent_zero_point stays None
+  cycle-1 OFF target 2.11593 == 0.9*2.0 + 0.1*(1/0.316525), exact
+  IDENTITY TEST -- actual (OFF_k - ON_k) vs the 541c closed form:
+      k=1 1.00x, k=3 1.18x, k=5 1.65x, k=7 2.75x, k=9 4.17x (no drift)
+      k=1 1.00x, k=3 1.28x, k=5 2.15x, k=7 3.82x, k=9 8.24x (drift LO)
+    -- i.e. the two arms' rv DIVERGE from cycle 2 (0.2494 vs 0.2222) and the
+    departure GROWS. On 541c this same test agreed to 8e-5 at every cycle.
+    THE IDENTITY IS BROKEN ON THIS BASE. That is what E2 pre-registers.
+  final rv, guard ON / guard OFF = 0.755 (no drift), 0.742 (drift LO)
+    -- the guard leaves rv ~25% closer to the realized PE variance.
 
-ANCHOR RE-ANCHORING (user decision 2026-09-19T22:12:50Z)
----------------------------------------------------------------------------
-The chip pre-registers the guard-ON prediction as "cycle 2+ targets sit within
-~2x of 1/realized-PE-variance (~255 in the IGW-20260915-243 setting)". The
-ANCHOR IS A RULE -- 1/realized-PE-variance -- and the ~255 is that rule's value
-in a DIFFERENT harness. 541c does not have a realized world-model PE: it drives
-E3's running variance from a SYNTHETIC stream (pe_scale ~ U[0.4,0.7], so
-E[pe^2] = 0.31). The user directed this run to stay on 541c's synthetic-PE base
-with the criterion re-anchored by the rule the design gives. So the anchor here
-is computed IN-RUN, per cell, from that cell's own PE stream:
-    anchor_precision = 1 / realized_pe_variance      (measured ~3.24, not ~255)
+WHY A DRIFT SOURCE IS ARMED, AND WHY THAT IS NOT A NEW DESIGN CHOICE
+--------------------------------------------------------------------
+On the realised base E3.update_running_variance maintains rv as a SYMMETRIC
+EMA of true prediction error, so rv ~= true prediction error BY CONSTRUCTION
+(V3-EXQ-794's docstring; V3-EXQ-774 FAILed on exactly this tautology). A
+precision that tracks reality by construction is realised but CANNOT DRIFT --
+and the user's criterion is "realised AND able to drift". The only drift
+source in the substrate is SD-076 waking confidence inflation
+(E3Config.use_waking_confidence_inflation), which is also what MECH-204's own
+what_would_answer (a) names as the precondition for answering the claim.
+It is armed here with the SD-076 HEADROOM REPAIR, not 794's clamped floor:
+  waking_confidence_rv_floor_relative_frac = 0.2   (relative, not absolute)
+  waking_confidence_rv_floor_mode          = "soft" (strictly monotone)
+V3-EXQ-794 was refused because its ABSOLUTE floor 0.01 sat 1.8x above the
+operating point (rv 0.005420) and clamped on the first tick: rv_final was
+EXACTLY 0.010000 on all four inflation arms and overconfidence_score was
+bit-identical to 15 significant figures across LO and HI. E5 below exists to
+detect a recurrence of that saturation rather than assume it is cured.
+STATED DEPENDENCY: `sd_waking_confidence_inflation_headroom` is `implemented`
+with ready FALSE and its own validation (V3-EXQ-794a) not yet queued, so this
+run rides on an unvalidated repair. That is recorded, not hidden.
 
-STATED LIMITATION, PRE-REGISTERED RATHER THAN DISCOVERED AFTERWARDS
----------------------------------------------------------------------------
-D2 ("within ~2x of the anchor") is NON-DISCRIMINATING in this regime and is
-recorded as such (criteria_non_degenerate["D2"] = False). Reason, measured:
-the discriminating power of a 2x band depends on the sentinel/anchor ratio,
-which is a property of the REGIME, not of the guard. Here sentinel 2.0 vs
-anchor 3.24 is a factor of 1.6 -- comfortably inside a 2x band -- whereas in
-the IGW-243 setting sentinel 2.0 vs anchor 255 is a factor of 127, far outside
-it. Measured over 16 cycles at step 0.25 / seed 42, BOTH arms satisfy D2 at
-EVERY cycle. D2 is therefore kept in the conjunction (faithful to the
-pre-registered prediction) but flagged degenerate, and the information is
-carried by D5, the cross-arm anchor-gap contrast, which separates cleanly:
-    mean |target - anchor|/anchor over cycles 1..8:  OFF 0.2481  ON 0.0444
-    -> 5.59x separation (cycle 1 alone: OFF 0.3369 vs ON 0.0739, 4.56x)
+PRE-REGISTERED CRITERIA
+-----------------------
+  E1  COLD-START CONTRACT (reported, NOT load-bearing). Guard ON: C0 does not
+      capture. Guard OFF: C0 captures AND its target equals the sentinel
+      1.999996 within E1_SENTINEL_TOL. Deliberately not load-bearing: at C0
+      `_waking_ticks_since_capture == 0` by construction, so this restates the
+      guard's own predicate and duplicates contracts C1-C8. The sentinel-value
+      half is the part those contracts do not assert.
+  E2 (load-bearing) THE CONTRAST IS A MEASUREMENT, NOT AN IDENTITY. For each
+      matched (drift, seed), compare the observed cross-arm target gap against
+      the 541c closed form 0.9**k * (SENTINEL - p_1). Require the observed gap
+      to DEPART from it by at least E2_MIN_DEPARTURE_RATIO at some cycle in
+      the first E2_WINDOW. This is the criterion whose absence made the 541c
+      design unqueueable; it certifies the base, from the run's own data.
+  E3 (load-bearing) CALIBRATION DIRECTION. Guard ON must leave post-WRITEBACK
+      rv strictly CLOSER to the run's own realized PE variance than guard OFF
+      at matched (drift, seed): ratio <= E3_MAX_RV_RATIO in >= E3_MIN_SEEDS.
+  E4 (load-bearing) FALSIFIER OF THE WHOLE FIX. With the guard ON, does
+      |target - anchor| grow MONOTONICALLY over the first E4_WINDOW cycles?
+      If yes in >= E4_MIN_SEEDS at any drift level, the precision_init
+      sentinel was not the (only) cause, precision-at-REM-entry is not a
+      calibration-relevant quantity, and MECH-204 Option A needs REDESIGN.
+      Per the chip: that outcome DEMOTES Option A, it does not retune it.
+  E5  DOSE NON-SATURATION (reported). LO and HI must not be bit-identical --
+      the V3-EXQ-794 saturation signature.
+PASS = E2 AND E3 AND E4_not_falsified.
 
-PRE-REGISTERED CRITERIA (all four design clauses, mechanically re-anchored)
----------------------------------------------------------------------------
-  D1 (load-bearing) COLD-START NO-FIRE. Guard ON: C0 does not capture, so
-      _persistent_zero_point is still None after the pre-loop reset and the
-      first recorded cycle's target equals the honest 1/rv at REM entry.
-      Guard OFF: C0 DOES capture, at the sentinel. Required in 3/3 seeds in
-      every arm. This is the design's "cycle 1 does not fire at all".
-  D2  ANCHOR BAND (cycles 2+, guard ON): |log2(target/anchor)| <= 1 at every
-      cycle. NON-DISCRIMINATING in this regime -- see above. Not load-bearing.
-  D3  RV DIRECTION: fraction of cycles where |rv_after - realized_pe_var| <
-      |rv_before - realized_pe_var| (rv moves TOWARD realized PE variance
-      rather than away). Reported per arm; not load-bearing (the step=0.0 arm
-      cannot move rv at all by construction).
-  D4 (load-bearing) FALSIFIER OF THE WHOLE FIX. With the guard ON, does the
-      target climb MONOTONICALLY AWAY from the anchor over the first 10
-      cycles? If YES in >=2/3 seeds in the defensible-step arms, the
-      precision_init sentinel was not the (only) cause, precision-at-REM-entry
-      is not a calibration-relevant quantity, and MECH-204 Option A needs
-      REDESIGN. Per the chip: that outcome DEMOTES Option A, it does not
-      retune it.
-  D5 (load-bearing) CROSS-ARM ANCHOR-GAP CONTRAST. Mean relative anchor gap
-      over cycles 1..N_CONTRAST, guard OFF vs guard ON, same step and seed.
-      Pre-registered: ON is at least D5_MIN_SEPARATION (2.0x) closer to the
-      anchor than OFF, in >=2/3 seeds, in at least one defensible-step arm.
-      Measured at step 0.25 / seed 42: 5.59x.
-PASS = D1 AND D2 AND D4_not_falsified AND D5.
-
-WHAT THIS RUN CANNOT SEE (recorded so a reader does not assume otherwise)
----------------------------------------------------------------------------
-The chip also asks 541d to be able to see a second instance of the defect --
-"a cycle issues MORE THAN ONE enter_rem() call, and the later call re-reads the
-SAME precision with no intervening waking tick". Measured on this base: the
-541c driver issues EXACTLY ONE enter_rem per sleep cycle (17 calls for 16
-episodes = 16 cycles + C0), because ree_core has a single internal enter_rem
-caller (agent.py:12701 in enter_rem_mode(), reached once per run_sleep_cycle).
-The double-count instance therefore does NOT occur on this base and this run
-cannot exercise it. enter_rem call counts are recorded per cycle anyway
-(n_enter_rem_calls_per_cycle) so the absence is auditable rather than assumed,
-and a driver that DOES multi-fire REM (the v3_exq_sd068_* family calls
-enter_rem_mode directly) is where that instance should be tested.
-
-EXPERIMENT_PURPOSE is "diagnostic", NOT "evidence" -- deliberately, and this is
-the single easiest thing here to get wrong by inheriting 541c's tag. MECH-204's
-what_would_answer (a) in claims.yaml states the claim is NOT ANSWERABLE until
-sd_waking_confidence_inflation_headroom lands and the V3-EXQ-794a re-run
-follows; that substrate entry reads status implemented / ready FALSE /
-validation_experiment "V3-EXQ-794a (not yet queued)". 541d validates an
-INSTRUMENT (the cold-start guard), it does not adjudicate MECH-204.
+EXPERIMENT_PURPOSE is "diagnostic", NOT "evidence". MECH-204's what_would_
+answer (a) holds the claim NOT ANSWERABLE until
+sd_waking_confidence_inflation_headroom is validated (V3-EXQ-794a). 541d
+validates an INSTRUMENT (the cold-start guard); it does not adjudicate
+MECH-204. Inheriting 541c's "evidence" tag is the single easiest error here.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import math
-import random
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 import torch
+import torch.optim as optim
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from experiment_protocol import emit_outcome  # noqa: E402
+from experiments._harness import StepHarness  # noqa: E402
 from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
@@ -223,547 +236,504 @@ EXPERIMENT_TYPE = "v3_exq_541d_mech204_f1_coldstart_guard_validation"
 CLAIM_IDS = ["MECH-204"]
 EXPERIMENT_PURPOSE = "diagnostic"
 BACKLOG_ID = "EXP-0171"
-PRECISION_ZERO_POINT_EMA_ALPHA = 0.1
 
-# Both anchor-kind readiness preconditions are DIRECT COUNTER READS with a
-# >=1 gate -- P1 reads SerotoninModule._waking_ticks_since_capture (incremented
-# once per REEAgent.sense() call, i.e. STEPS_PER_EPISODE times per cycle) and
-# P3 reads the enter_rem call count. Neither is a hand-written signature
-# predicate that could be narrower than the state it anchors to, so the
-# unmeetable-by-construction failure this check guards cannot arise. Measured
-# directly on this exact harness (seed 42, step 0.25, 2026-09-19): P1 = 200,
-# P3 = 1.
+# Both anchor-kind readiness preconditions are DIRECT COUNTER READS with a >=1
+# gate -- P1 reads SerotoninModule._waking_ticks_since_capture (incremented
+# once per REEAgent.sense() call) and P3 reads the enter_rem call count.
+# Neither is a hand-written signature predicate that could be narrower than the
+# state it anchors to. Measured directly on this base (seed 42): P1 = 9 at the
+# first post-C0 REM entry, P3 = 1.
 ANCHOR_REACHABILITY_EXEMPT = (
     "P1/P3 are direct counter reads gated at >=1, not scored signatures; "
-    "reachability measured on this harness (P1=200, P3=1)"
+    "reachability measured on this base (P1=9, P3=1)"
 )
 
-# Seeds held identical to V3-EXQ-541c ("same seeds", per the chip's design).
-SEEDS = (42, 43, 44)
-RECAL_STEPS = (
-    ("step_0_00", 0.0),
-    ("step_0_05", 0.05),
-    ("step_0_10", 0.10),
-    ("step_0_25", 0.25),
-    ("step_0_50", 0.50),
-)
-GUARD_LEVELS = (("guard_off", False), ("guard_on", True))
-EPISODES_PER_RUN = 16
-STEPS_PER_EPISODE = 200
-SLEEP_LOOP_K = 1
+# ---- Substrate operating point (IGW-20260915-243 / V3-EXQ-794; held constant) ----
+GRID_SIZE = 12
+STEPS_PER_EP = 200
+N_TRAIN_EPS = 30          # K=1 -> 30 sleep cycles; claims.yaml floor is >= 16
+LR = 5e-4
+SWS_CONSOLIDATION_STEPS = 8
+REM_ATTRIBUTION_STEPS = 6
+ALPHA_WORLD = 0.9
+ALPHA_SELF = 0.3
+PRECISION_ZERO_POINT_EMA_ALPHA = 0.1
+REM_PRECISION_RECALIBRATION_STEP = 0.25   # IGW-243's "F1 recal step 0.25"
 
 # E3 cold-start sentinel: precision_init is a VARIANCE (config.py:1126).
 E3_PRECISION_INIT_VARIANCE = 0.5
-E3_SENTINEL_PRECISION = 1.0 / (E3_PRECISION_INIT_VARIANCE + 1e-6)  # == ~2.0
+E3_SENTINEL_PRECISION = 1.0 / (E3_PRECISION_INIT_VARIANCE + 1e-6)  # ~1.999996
 
-# Pre-registered thresholds.
-D1_MIN_SEEDS = 3                 # cold-start no-fire must hold in 3/3 seeds
-D2_ANCHOR_BAND_LOG2 = 1.0        # |log2(target/anchor)| <= 1  <=> within 2x
-D4_MONOTONE_CYCLES = 10          # falsifier window (chip: "first ~10 cycles")
-D4_MIN_SEEDS_FALSIFIED = 2       # >=2/3 seeds to call the fix falsified
-D5_MIN_SEPARATION = 2.0          # OFF gap / ON gap must be >= this
-D5_MIN_SEEDS = 2                 # in >=2/3 seeds
-N_CONTRAST_CYCLES = 8            # D5 scoring window (cycles 1..8)
-DEFENSIBLE_STEPS = (0.05, 0.10, 0.25)
+# ---- Factors ----
+# Seed 44 is excluded on a reef-config env (recurring early-death instability,
+# EXQ-539-540 / V3-EXQ-538a); 45 is the sanctioned substitute.
+SEEDS = (42, 43, 45)
+GUARD_LEVELS: Tuple[Tuple[str, bool], ...] = (("guard_off", False), ("guard_on", True))
+# SD-076 asymmetry. None = master flag OFF (bit-identical symmetric path);
+# deliberately NOT expressed as 0.0, because the ON path additionally applies
+# the rv floor and so ON-at-0.0 is a different computation (V3-EXQ-794).
+DRIFT_LEVELS: Tuple[Tuple[str, Optional[float]], ...] = (
+    ("drift_off", None), ("drift_lo", 0.6), ("drift_hi", 0.8),
+)
+DEFENSIBLE_DRIFTS = ("drift_lo", "drift_hi")
+# SD-076 headroom repair (NOT 794's clamped absolute floor).
+INFLATION_RV_FLOOR_RELATIVE_FRAC = 0.2
+INFLATION_RV_FLOOR_MODE = "soft"
+
+# ---- Pre-registered thresholds (constants; NOT derived from this run) ----
+E1_SENTINEL_TOL = 1e-3        # |C0 target - sentinel| under guard OFF
+E2_WINDOW = 10                # cycles scored for the identity-departure test
+E2_MIN_DEPARTURE_RATIO = 1.5  # observed gap / closed-form gap; measured 4.17-8.24
+E2_MIN_SEEDS = 2              # in >= 2/3 seeds
+E3_MAX_RV_RATIO = 0.95        # ON rv-distance / OFF rv-distance; measured ~0.75
+E3_MIN_SEEDS = 2
+E4_WINDOW = 10                # falsifier window ("first ~10 cycles")
+E4_MIN_SEEDS = 2              # >= 2/3 seeds to call the fix falsified
+E5_MIN_DOSE_SEPARATION = 1e-9 # LO vs HI bit-identical = 794's saturation signature
 
 # Readiness precondition bounds.
-P1_MIN_WAKING_TICKS = 1          # floor: producer must be live at REM entry
-P2_PE_VAR_LOW = 0.05             # interval: realized PE variance sane
-P2_PE_VAR_HIGH = 5.0
-P3_EXPECTED_C0_CALLS = 1         # floor: the cold-start cycle must exist
+P1_MIN_WAKING_TICKS = 1
+P2_PE_VAR_LOW = 1e-4          # realized PE variance band -> anchor is usable
+P2_PE_VAR_HIGH = 1e-1
+P3_EXPECTED_C0_CALLS = 1
+P4_MIN_DRIFT_EFFECT = 1e-6    # drift must actually move rv (anti-clamp, vs 794)
 
 
-def _env_kwargs() -> dict:
+def _env_kwargs(dry_run: bool = False) -> dict:
     return dict(
-        size=8,
-        num_hazards=6,
-        num_resources=2,
-        hazard_harm=0.06,
-        proximity_harm_scale=0.18,
+        size=(8 if dry_run else GRID_SIZE),
+        num_hazards=3,
+        num_resources=3,
+        hazard_harm=0.04,
+        proximity_harm_scale=0.12,
         proximity_benefit_scale=0.10,
-        env_drift_interval=5,
-        env_drift_prob=0.5,
         use_proxy_fields=True,
         resource_respawn_on_consume=True,
     )
 
 
-def cell_config_slice(step: float, guard: bool, episodes: int,
-                      steps_per_episode: int) -> dict:
+def cell_config_slice(guard: bool, asym: Optional[float], n_train: int,
+                      steps: int, dry_run: bool) -> dict:
     """Everything this cell's computation reads. Declared for the fingerprint."""
     return {
-        "env_kwargs": _env_kwargs(),
-        "episodes_per_run": episodes,
-        "steps_per_episode": steps_per_episode,
-        "sleep_loop_K": SLEEP_LOOP_K,
+        "env_kwargs": _env_kwargs(dry_run),
+        "grid_size": (8 if dry_run else GRID_SIZE),
+        "n_train_eps": n_train,
+        "steps_per_ep": steps,
+        "lr": LR,
+        "sleep_loop_K": 1,
+        "sws_consolidation_steps": SWS_CONSOLIDATION_STEPS,
+        "rem_attribution_steps": REM_ATTRIBUTION_STEPS,
+        "alpha_world": ALPHA_WORLD,
+        "alpha_self": ALPHA_SELF,
         "precision_zero_point_ema_alpha": PRECISION_ZERO_POINT_EMA_ALPHA,
-        "rem_precision_recalibration_step": step,
-        "precision_zero_point_require_waking": guard,
-        # Scoring constants the cell's own readouts are computed under. A
-        # consumer using different values must MISS these cells rather than
-        # silently reuse readouts computed under another scheme
-        # (arm_reuse_fingerprint_plan.md 7b; confirmed instance V3-EXQ-798).
-        "d2_anchor_band_log2": D2_ANCHOR_BAND_LOG2,
-        "d4_monotone_cycles": D4_MONOTONE_CYCLES,
-        "n_contrast_cycles": N_CONTRAST_CYCLES,
+        "rem_precision_recalibration_step": REM_PRECISION_RECALIBRATION_STEP,
+        "precision_zero_point_require_waking": bool(guard),
+        "use_waking_confidence_inflation": asym is not None,
+        "waking_confidence_inflation_asymmetry": (float(asym) if asym is not None else 0.0),
+        "waking_confidence_rv_floor_relative_frac": (
+            INFLATION_RV_FLOOR_RELATIVE_FRAC if asym is not None else 0.0),
+        "waking_confidence_rv_floor_mode": (
+            INFLATION_RV_FLOOR_MODE if asym is not None else "hard"),
         "self_dim": 32,
         "world_dim": 32,
-        "alpha_world": 0.9,
-        "alpha_self": 0.3,
-        "sws_consolidation_steps": 8,
-        "sws_schema_weight": 0.1,
-        "rem_attribution_steps": 6,
         "tonic_5ht_enabled": True,
+        # Scoring constants the cell's recorded readouts are computed under.
+        "e2_window": E2_WINDOW,
+        "e4_window": E4_WINDOW,
     }
 
 
-def _make_env(seed: int) -> CausalGridWorldV2:
-    return CausalGridWorldV2(seed=seed, **_env_kwargs())
+def _make_env(seed: int, dry_run: bool = False) -> CausalGridWorldV2:
+    return CausalGridWorldV2(seed=seed, **_env_kwargs(dry_run))
 
 
-def _make_agent(env: CausalGridWorldV2, seed: int, *, step: float,
-                guard: bool) -> REEAgent:
-    torch.manual_seed(seed)
+def _make_agent(env: CausalGridWorldV2, guard: bool,
+                asym: Optional[float]) -> REEAgent:
     cfg = REEConfig.from_dims(
         body_obs_dim=env.body_obs_dim,
         world_obs_dim=env.world_obs_dim,
         action_dim=env.action_dim,
         self_dim=32,
         world_dim=32,
-        alpha_world=0.9,
-        alpha_self=0.3,
+        alpha_world=ALPHA_WORLD,
+        alpha_self=ALPHA_SELF,
         sws_enabled=True,
-        sws_consolidation_steps=8,
-        sws_schema_weight=0.1,
+        sws_consolidation_steps=SWS_CONSOLIDATION_STEPS,
         rem_enabled=True,
-        rem_attribution_steps=6,
+        rem_attribution_steps=REM_ATTRIBUTION_STEPS,
         use_sleep_loop=True,
-        sleep_loop_episodes_K=SLEEP_LOOP_K,
+        sleep_loop_episodes_K=1,
         use_rem_precision_recalibration=True,
         precision_zero_point_ema_alpha=PRECISION_ZERO_POINT_EMA_ALPHA,
-        rem_precision_recalibration_step=step,
+        rem_precision_recalibration_step=REM_PRECISION_RECALIBRATION_STEP,
     )
-    cfg.serotonin.tonic_5ht_enabled = True
-    # The second factor under test. Default is False (bit-identical OFF).
+    # Factor A: the MECH-204 F1 cold-start guard (the lever under test).
     cfg.serotonin.precision_zero_point_require_waking = bool(guard)
+    # Factor B: SD-076 waking confidence inflation -- the DRIFT SOURCE, armed
+    # with the headroom repair (relative + soft floor), never 794's absolute one.
+    cfg.e3.use_waking_confidence_inflation = asym is not None
+    cfg.e3.waking_confidence_inflation_asymmetry = (
+        float(asym) if asym is not None else 0.0)
+    if asym is not None:
+        cfg.e3.waking_confidence_rv_floor_relative_frac = INFLATION_RV_FLOOR_RELATIVE_FRAC
+        cfg.e3.waking_confidence_rv_floor_mode = INFLATION_RV_FLOOR_MODE
+    # Tonic 5-HT must be on for compute_recalibration_target() to be meaningful.
+    cfg.serotonin.tonic_5ht_enabled = True
     return REEAgent(cfg)
 
 
-def _one_hot_action(action_idx: int, action_dim: int) -> torch.Tensor:
-    action = torch.zeros(1, action_dim)
-    action[0, int(action_idx)] = 1.0
-    return action
-
-
-def _tick_wake(agent: REEAgent, env: CausalGridWorldV2,
-               obs_dict: dict, rng: random.Random, pe_sq: list) -> dict:
-    """One waking tick. Identical to 541c's, plus PE second-moment recording.
-
-    agent.sense() is the MECH-204 waking-tick producer (agent.py:4939), so this
-    is also what makes the guard's predicate satisfiable on this driver.
-    """
-    obs_body = obs_dict["body_state"]
-    obs_world = obs_dict["world_state"]
-    latent = agent.sense(
-        obs_body,
-        obs_world,
-        obs_harm=obs_dict.get("harm_obs"),
-        obs_harm_a=obs_dict.get("harm_obs_a"),
-        obs_harm_history=obs_dict.get("harm_history"),
-    )
-    ticks = agent.clock.advance()
-    if ticks.get("e1_tick", False):
-        agent._e1_tick(latent)
-    # Drive E3 prediction-error EMA: synthetic PE keeps _running_variance
-    # moving across waking ticks so the recalibration consumer has
-    # something to act on at REM entry / WRITEBACK. (541c :191-197, verbatim.)
-    if hasattr(agent, "e3"):
-        pe_scale = 0.4 + 0.3 * rng.random()
-        synthetic_pe = torch.randn(1, 4) * pe_scale
-        # Realized PE variance -- the DESIGN'S ANCHOR RULE is 1/this.
-        pe_sq.append(float((synthetic_pe ** 2).mean()))
-        agent.e3.update_running_variance(synthetic_pe)
-
-    action_idx = rng.randrange(env.action_dim)
-    action = _one_hot_action(action_idx, env.action_dim)
-    _flat, _harm, done, _info, next_obs = env.step(action)
-    if done:
-        _flat, next_obs = env.reset()
-    return next_obs
-
-
-def _safe_ratio(num: float, den: float) -> float:
-    if abs(den) < 1e-12:
-        return float("inf") if abs(num) > 1e-12 else 0.0
-    return num / den
-
-
-def run_cell(step_label: str, step: float, guard_label: str, guard: bool,
-             seed: int, episodes_per_run: int,
-             steps_per_episode: int) -> dict:
-    """One (recal_step x guard x seed) cell."""
-    arm_label = f"{step_label}__{guard_label}"
+def run_cell(guard_label: str, guard: bool, drift_label: str,
+             asym: Optional[float], seed: int, n_train: int, steps: int,
+             dry_run: bool) -> dict:
+    arm_label = f"{guard_label}__{drift_label}"
     print(f"Seed {seed} Condition {arm_label}", flush=True)
 
-    slice_ = cell_config_slice(step, guard, episodes_per_run, steps_per_episode)
+    slice_ = cell_config_slice(guard, asym, n_train, steps, dry_run)
     with arm_cell(
         seed,
         config_slice=slice_,
         script_path=Path(__file__),
         config_slice_declared=True,
-        # Cross-driver reusable mint: a successor iteration citing this run can
-        # match these cells. Must be identical on the consumer side.
         include_driver_script_in_hash=False,
+        extra_ineligible_reasons=["shared_optimizer_across_episodes"],
     ) as cell:
-        rng = random.Random(seed)
-        env = _make_env(seed)
-        agent = _make_agent(env, seed, step=step, guard=guard)
+        env = _make_env(seed, dry_run)
+        agent = _make_agent(env, guard, asym)
         ser = agent.serotonin
+        optimizer = optim.Adam(agent.parameters(), lr=LR)
 
-        # --- Instrument BEFORE the first reset. The pre-loop agent.reset()
-        # fires the zero-waking-tick cold-start cycle C0; instrumenting after
-        # it would make C0 invisible, which is the whole defect. ---
-        trace = {"calls": 0, "suppressed": 0, "admitted": 0,
-                 "waking_ticks_at_entry": []}
+        # --- Instrument BEFORE the first reset: the pre-loop agent.reset()
+        # fires the zero-waking-tick cold-start cycle C0, and instrumenting
+        # after it would make C0 invisible -- which IS the defect. ---
+        trace = {"calls": 0, "suppressed": 0, "ticks_at_entry": []}
         _orig_enter_rem = ser.enter_rem
 
         def _traced_enter_rem(current_precision):
             trace["calls"] += 1
             before = ser._persistent_zero_point
-            trace["waking_ticks_at_entry"].append(
-                int(ser._waking_ticks_since_capture)
-            )
+            trace["ticks_at_entry"].append(int(ser._waking_ticks_since_capture))
             _orig_enter_rem(current_precision=current_precision)
-            after = ser._persistent_zero_point
-            # Suppressed == the capture did not touch the reference at all.
-            if before is None and after is None:
+            if ser._persistent_zero_point == before:   # covers None == None
                 trace["suppressed"] += 1
-            elif before is not None and after == before:
-                trace["suppressed"] += 1
-            else:
-                trace["admitted"] += 1
-
         ser.enter_rem = _traced_enter_rem
 
-        pe_sq: list = []
-        _flat, obs_dict = env.reset()
+        harness = StepHarness(agent, env, train_mode=True, seed=seed)
+        cycles: List[dict] = []
+        pe_all: List[float] = []
+        c0: Optional[dict] = None
 
-        # --- C0: the cold-start cycle, fired by the pre-loop reset. ---
-        agent.reset()
-        agent.e1.reset_hidden_state()
-        c0_calls = trace["calls"]
-        c0_suppressed = trace["suppressed"]
-        c0_captured = bool(ser._persistent_zero_point is not None)
-        c0_persistent = (None if ser._persistent_zero_point is None
-                         else float(ser._persistent_zero_point))
-        st0 = agent.sleep_loop.state if agent.sleep_loop else None
-        if st0 is not None and st0.last_metrics:
-            st0.last_metrics = {}
+        for ep in range(n_train):
+            calls_before = trace["calls"]
+            agent.reset()     # fires the sleep cycle for the prior episode (K=1)
+            st = agent.sleep_loop.state if agent.sleep_loop else None
+            m = dict(st.last_metrics) if (st and st.last_metrics) else {}
+            rec = {
+                "episode": ep,
+                "n_enter_rem_calls": trace["calls"] - calls_before,
+                "fired": float(m.get("mech204_recalibration_fired", 0.0)),
+                "target": (float(m["mech204_recalibration_target"])
+                           if "mech204_recalibration_target" in m else None),
+                "rv_before": (float(m["mech204_running_variance_before"])
+                              if "mech204_running_variance_before" in m else None),
+                "rv_after": (float(m["mech204_running_variance_after"])
+                             if "mech204_running_variance_after" in m else None),
+                "persistent_zero_point": (
+                    None if ser._persistent_zero_point is None
+                    else float(ser._persistent_zero_point)),
+            }
+            if ep == 0:
+                c0 = rec           # the cold-start cycle
+            else:
+                cycles.append(rec)
+            if st:
+                st.last_metrics = {}
 
-        cycle_records: list = []
-        for ep in range(episodes_per_run):
-            if (ep + 1) % 4 == 0 or ep == 0:
+            _, obs_dict = env.reset()
+            harness.reset()
+            ep_pe: List[float] = []
+            for _ in range(steps):
+                result = harness.step(obs_dict)
+                optimizer.zero_grad()
+                loss = agent.compute_prediction_loss()
+                if loss.requires_grad:
+                    loss.backward()
+                    optimizer.step()
+                pe = result.residue_metrics.get("e3_prediction_error")
+                if pe is not None:
+                    # Already the MEAN SQUARED forward error, i.e. a variance
+                    # (e3_selector.post_action_update).
+                    v = float(pe.detach()) if hasattr(pe, "detach") else float(pe)
+                    ep_pe.append(v)
+                    pe_all.append(v)
+                obs_dict = result.next_obs_dict
+                if result.done:
+                    break
+            if ep_pe and cycles:
+                cycles[-1]["ep_mean_pe_variance"] = sum(ep_pe) / len(ep_pe)
+            if (ep + 1) % 5 == 0 or ep + 1 == n_train:
                 print(
-                    f"  [train] {arm_label} seed={seed} "
-                    f"ep {ep + 1}/{episodes_per_run}",
+                    f"  [train] arm={arm_label} seed={seed} ep {ep + 1}/{n_train} "
+                    f"rv={float(agent.e3._running_variance):.6f}",
                     flush=True,
                 )
-            calls_before = trace["calls"]
-            for _ in range(steps_per_episode):
-                obs_dict = _tick_wake(agent, env, obs_dict, rng, pe_sq)
-
-            rv_pre_cycle = float(agent.e3._running_variance)
-            agent.reset()
-
-            cycle_state = agent.sleep_loop.state if agent.sleep_loop else None
-            if cycle_state is not None and cycle_state.last_metrics:
-                metrics = dict(cycle_state.last_metrics)
-                cycle_records.append({
-                    "episode": ep + 1,
-                    "rv_pre_cycle": rv_pre_cycle,
-                    "rv_post_cycle": float(agent.e3._running_variance),
-                    "n_enter_rem_calls": trace["calls"] - calls_before,
-                    "mech204_recalibration_fired": float(
-                        metrics.get("mech204_recalibration_fired", 0.0)),
-                    "mech204_recalibration_target": float(
-                        metrics.get("mech204_recalibration_target", 0.0)),
-                    "mech204_running_variance_before": float(
-                        metrics.get("mech204_running_variance_before",
-                                    float("nan"))),
-                    "mech204_running_variance_after": float(
-                        metrics.get("mech204_running_variance_after",
-                                    float("nan"))),
-                })
-                cycle_state.last_metrics = {}
 
         # --- The design's anchor rule, instantiated on THIS cell's own
-        # realized PE stream: anchor_precision = 1 / realized_pe_variance. ---
-        realized_pe_var = (sum(pe_sq) / len(pe_sq)) if pe_sq else float("nan")
+        # realized forward-model error: anchor = 1 / realized-PE-variance. ---
+        realized_pe_var = (sum(pe_all) / len(pe_all)) if pe_all else float("nan")
         anchor = (1.0 / realized_pe_var
-                  if realized_pe_var and realized_pe_var > 1e-12
+                  if realized_pe_var == realized_pe_var and realized_pe_var > 1e-12
                   else float("nan"))
+        final_rv = float(agent.e3._running_variance)
 
-        targets = [c["mech204_recalibration_target"] for c in cycle_records]
-        rel_gaps = [
-            abs(t - anchor) / anchor
-            for t in targets
-            if anchor == anchor and anchor > 0 and t > 0
-        ]
-        # D2: |log2(target/anchor)| <= 1, cycles 2+ (design says "cycle 2+").
-        d2_vals = [
-            abs(math.log2(t / anchor))
-            for t in targets[1:]
-            if anchor == anchor and anchor > 0 and t > 0
-        ]
-        d2_within_band = bool(d2_vals) and all(
-            v <= D2_ANCHOR_BAND_LOG2 for v in d2_vals)
-        # D4: does the gap to the anchor GROW every cycle over the window?
-        win = [abs(t - anchor) for t in targets[:D4_MONOTONE_CYCLES]
-               if anchor == anchor]
-        d4_monotone_away = bool(len(win) >= 2) and all(
-            win[i + 1] > win[i] for i in range(len(win) - 1))
-        # D3: rv moved TOWARD the realized PE variance.
-        toward = 0
-        n_rv = 0
-        for c in cycle_records:
-            rvb = c["mech204_running_variance_before"]
-            rva = c["mech204_running_variance_after"]
-            if rvb != rvb or rva != rva or realized_pe_var != realized_pe_var:
-                continue
-            n_rv += 1
-            if abs(rva - realized_pe_var) < abs(rvb - realized_pe_var):
-                toward += 1
-        d3_toward_frac = (toward / n_rv) if n_rv else 0.0
+        targets = [c["target"] for c in cycles if c["target"] is not None]
+        # E4: does |target - anchor| GROW monotonically over the window?
+        gaps = [abs(t - anchor) for t in targets[:E4_WINDOW]] if anchor == anchor else []
+        e4_monotone_away = bool(len(gaps) >= 2) and all(
+            gaps[i + 1] > gaps[i] for i in range(len(gaps) - 1))
 
-        mean_rel_gap_contrast = (
-            sum(rel_gaps[:N_CONTRAST_CYCLES]) / len(rel_gaps[:N_CONTRAST_CYCLES])
-            if rel_gaps else float("nan"))
-
-        # D1, per cell: guard ON must NOT capture at C0; OFF must capture.
-        d1_cell_ok = (not c0_captured) if guard else c0_captured
-        min_waking_at_entry = (
-            min(trace["waking_ticks_at_entry"][1:])
-            if len(trace["waking_ticks_at_entry"]) > 1 else 0)
-
+        post_ticks = trace["ticks_at_entry"][1:]
         row = {
             "arm": arm_label,
-            "recal_step_label": step_label,
-            "recal_step": step,
             "guard_label": guard_label,
             "guard": bool(guard),
+            "drift_label": drift_label,
+            "inflation_asymmetry": (float(asym) if asym is not None else None),
             "seed": seed,
-            "n_cycles": len(cycle_records),
+            "n_cycles": len(cycles),
             "realized_pe_variance": float(realized_pe_var),
             "anchor_precision": float(anchor),
-            "c0_enter_rem_calls": int(c0_calls),
-            "c0_suppressed": int(c0_suppressed),
-            "c0_captured": bool(c0_captured),
-            "c0_persistent_zero_point": c0_persistent,
-            "d1_cold_start_no_fire_ok": bool(d1_cell_ok),
-            "d2_within_anchor_band": bool(d2_within_band),
-            "d2_max_abs_log2_ratio": (max(d2_vals) if d2_vals else float("nan")),
-            "d3_rv_toward_fraction": float(d3_toward_frac),
-            "d4_monotone_away_from_anchor": bool(d4_monotone_away),
-            "mean_rel_anchor_gap_contrast": float(mean_rel_gap_contrast),
+            "final_rv": final_rv,
+            "final_rv_distance_to_realized": abs(final_rv - realized_pe_var),
+            "c0_enter_rem_calls": int(c0["n_enter_rem_calls"]) if c0 else 0,
+            "c0_captured": bool(c0 and c0["persistent_zero_point"] is not None),
+            "c0_target": (c0["target"] if c0 else None),
+            "c0_persistent_zero_point": (c0["persistent_zero_point"] if c0 else None),
             "targets": targets,
+            "e4_monotone_away_from_anchor": e4_monotone_away,
             "n_enter_rem_calls_total": int(trace["calls"]),
             "n_enter_rem_suppressed": int(trace["suppressed"]),
-            "n_enter_rem_admitted": int(trace["admitted"]),
-            "n_enter_rem_calls_per_cycle": [
-                c["n_enter_rem_calls"] for c in cycle_records],
-            "min_waking_ticks_at_rem_entry": int(min_waking_at_entry),
-            "cycle_records": cycle_records,
+            "n_enter_rem_calls_per_cycle": [c["n_enter_rem_calls"] for c in cycles],
+            "min_waking_ticks_at_post_c0_rem_entry": (
+                min(post_ticks) if post_ticks else 0),
+            "cycle_records": cycles,
         }
         cell.stamp(row)
 
-    print(f"verdict: {'PASS' if d1_cell_ok else 'FAIL'}", flush=True)
+    # E1, per cell: guard ON must NOT capture at C0; OFF must, AT the sentinel.
+    if guard:
+        e1_ok = not row["c0_captured"]
+    else:
+        e1_ok = bool(
+            row["c0_captured"]
+            and row["c0_target"] is not None
+            and abs(row["c0_target"] - E3_SENTINEL_PRECISION) <= E1_SENTINEL_TOL)
+    row["e1_cold_start_contract_ok"] = bool(e1_ok)
+    print(f"verdict: {'PASS' if e1_ok else 'FAIL'}", flush=True)
     return row
 
 
-def _aggregate(rows: list) -> dict:
-    by_arm: dict = {}
-    for r in rows:
-        by_arm.setdefault(r["arm"], []).append(r)
+def _by(rows: List[dict], **kw) -> List[dict]:
+    return [r for r in rows
+            if all(r.get(k) == v for k, v in kw.items())]
 
-    # --- D1: cold-start no-fire, every arm, D1_MIN_SEEDS seeds ---
-    d1_per_arm = {
-        arm: sum(1 for r in rs if r["d1_cold_start_no_fire_ok"])
-        for arm, rs in by_arm.items()
-    }
-    d1_pass = all(n >= D1_MIN_SEEDS for n in d1_per_arm.values())
 
-    # --- D2: anchor band, guard-ON cells only (the design's ON prediction) ---
-    on_rows = [r for r in rows if r["guard"]]
-    off_rows = [r for r in rows if not r["guard"]]
-    d2_on_ok = sum(1 for r in on_rows if r["d2_within_anchor_band"])
-    d2_pass = bool(on_rows) and d2_on_ok == len(on_rows)
-    # Degeneracy evidence: does the OFF arm satisfy it too?
-    d2_off_ok = sum(1 for r in off_rows if r["d2_within_anchor_band"])
-    d2_degenerate = bool(off_rows) and d2_off_ok == len(off_rows)
+def _aggregate(rows: List[dict]) -> dict:
+    # ---- E1 (reported) ----
+    e1_ok_cells = sum(1 for r in rows if r["e1_cold_start_contract_ok"])
+    e1_pass = (e1_ok_cells == len(rows))
 
-    # --- D3: reported (not load-bearing) ---
-    d3_per_arm = {
-        arm: (sum(r["d3_rv_toward_fraction"] for r in rs) / len(rs))
-        for arm, rs in by_arm.items()
-    }
+    # ---- E2: the observed cross-arm gap must DEPART from 541c's closed form ----
+    e2_per_cell = {}
+    for drift_label, _ in DRIFT_LEVELS:
+        for seed in SEEDS:
+            off = _by(rows, drift_label=drift_label, seed=seed, guard=False)
+            on = _by(rows, drift_label=drift_label, seed=seed, guard=True)
+            if not off or not on:
+                continue
+            o_t, n_t = off[0]["targets"], on[0]["targets"]
+            if not o_t or not n_t:
+                continue
+            p1 = n_t[0]
+            ratios = []
+            for k in range(1, min(len(o_t), len(n_t), E2_WINDOW) + 1):
+                closed = (0.9 ** k) * (E3_SENTINEL_PRECISION - p1)
+                if abs(closed) < 1e-12:
+                    continue
+                ratios.append(abs((o_t[k - 1] - n_t[k - 1]) / closed))
+            e2_per_cell[f"{drift_label}__seed{seed}"] = {
+                "max_departure_ratio": (max(ratios) if ratios else float("nan")),
+                "per_cycle_departure_ratio": ratios,
+                "meets": bool(ratios and max(ratios) >= E2_MIN_DEPARTURE_RATIO),
+            }
+    e2_seeds_meeting = {}
+    for drift_label, _ in DRIFT_LEVELS:
+        e2_seeds_meeting[drift_label] = sum(
+            1 for s in SEEDS
+            if e2_per_cell.get(f"{drift_label}__seed{s}", {}).get("meets"))
+    e2_pass = any(n >= E2_MIN_SEEDS for n in e2_seeds_meeting.values())
 
-    # --- D4 FALSIFIER: ON targets climbing monotonically AWAY from anchor ---
-    d4_falsified_arms = {}
-    for arm, rs in by_arm.items():
-        if not rs[0]["guard"] or rs[0]["recal_step"] not in DEFENSIBLE_STEPS:
-            continue
-        n = sum(1 for r in rs if r["d4_monotone_away_from_anchor"])
-        d4_falsified_arms[arm] = n
-    d4_falsified = any(n >= D4_MIN_SEEDS_FALSIFIED
-                       for n in d4_falsified_arms.values())
-    d4_pass = not d4_falsified
-
-    # --- D5: cross-arm anchor-gap contrast, matched (step, seed) ---
-    d5_per_step = {}
-    for step_label, step in RECAL_STEPS:
-        off = {r["seed"]: r["mean_rel_anchor_gap_contrast"]
-               for r in rows
-               if r["recal_step_label"] == step_label and not r["guard"]}
-        on = {r["seed"]: r["mean_rel_anchor_gap_contrast"]
-              for r in rows
-              if r["recal_step_label"] == step_label and r["guard"]}
-        seps = []
-        for seed in sorted(set(off) & set(on)):
-            seps.append(_safe_ratio(off[seed], on[seed]))
-        n_ok = sum(1 for s in seps if s >= D5_MIN_SEPARATION)
-        d5_per_step[step_label] = {
-            "recal_step": step,
-            "per_seed_separation": seps,
-            "mean_separation": (sum(s for s in seps if s != float("inf"))
-                                / len([s for s in seps if s != float("inf")])
-                                if [s for s in seps if s != float("inf")]
-                                else float("nan")),
-            "seeds_meeting_separation": n_ok,
-            "per_seed_off_gap": [off[s] for s in sorted(set(off) & set(on))],
-            "per_seed_on_gap": [on[s] for s in sorted(set(off) & set(on))],
+    # ---- E3: guard ON leaves rv closer to the realized PE variance ----
+    e3_per_drift = {}
+    for drift_label, _ in DRIFT_LEVELS:
+        ratios, n_ok = [], 0
+        for seed in SEEDS:
+            off = _by(rows, drift_label=drift_label, seed=seed, guard=False)
+            on = _by(rows, drift_label=drift_label, seed=seed, guard=True)
+            if not off or not on:
+                continue
+            d_off = off[0]["final_rv_distance_to_realized"]
+            d_on = on[0]["final_rv_distance_to_realized"]
+            if d_off <= 1e-12:
+                continue
+            r = d_on / d_off
+            ratios.append(r)
+            if r <= E3_MAX_RV_RATIO:
+                n_ok += 1
+        e3_per_drift[drift_label] = {
+            "per_seed_rv_distance_ratio": ratios,
+            "mean_ratio": (sum(ratios) / len(ratios)) if ratios else float("nan"),
+            "seeds_meeting": n_ok,
         }
-    d5_qualifying = [
-        lbl for lbl, d in d5_per_step.items()
-        if d["recal_step"] in DEFENSIBLE_STEPS
-        and d["seeds_meeting_separation"] >= D5_MIN_SEEDS
-    ]
-    d5_pass = bool(d5_qualifying)
+    e3_pass = any(d["seeds_meeting"] >= E3_MIN_SEEDS for d in e3_per_drift.values())
 
-    overall_pass = bool(d1_pass and d2_pass and d4_pass and d5_pass)
+    # ---- E4 FALSIFIER ----
+    e4_per_drift = {}
+    for drift_label, _ in DRIFT_LEVELS:
+        on = _by(rows, drift_label=drift_label, guard=True)
+        e4_per_drift[drift_label] = sum(
+            1 for r in on if r["e4_monotone_away_from_anchor"])
+    e4_falsified = any(n >= E4_MIN_SEEDS for n in e4_per_drift.values())
+    e4_pass = not e4_falsified
 
+    # ---- E5: LO vs HI must not be bit-identical (794's saturation signature) ----
+    e5_separations = []
+    for guard_label, guard in GUARD_LEVELS:
+        for seed in SEEDS:
+            lo = _by(rows, drift_label="drift_lo", seed=seed, guard=guard)
+            hi = _by(rows, drift_label="drift_hi", seed=seed, guard=guard)
+            if lo and hi:
+                e5_separations.append(abs(lo[0]["final_rv"] - hi[0]["final_rv"]))
+    e5_min_sep = min(e5_separations) if e5_separations else float("nan")
+    e5_pass = bool(e5_separations and e5_min_sep > E5_MIN_DOSE_SEPARATION)
+
+    overall_pass = bool(e2_pass and e3_pass and e4_pass)
     return {
-        "d1_pass": d1_pass,
-        "d1_seeds_ok_per_arm": d1_per_arm,
-        "d2_pass": d2_pass,
-        "d2_on_cells_ok": d2_on_ok,
-        "d2_off_cells_ok": d2_off_ok,
-        "d2_degenerate_both_arms_pass": d2_degenerate,
-        "d3_mean_toward_fraction_per_arm": d3_per_arm,
-        "d4_pass_not_falsified": d4_pass,
-        "d4_falsified": d4_falsified,
-        "d4_monotone_away_seeds_per_arm": d4_falsified_arms,
-        "d5_pass": d5_pass,
-        "d5_qualifying_steps": d5_qualifying,
-        "d5_per_step": d5_per_step,
+        "e1_pass": e1_pass, "e1_ok_cells": e1_ok_cells, "n_cells": len(rows),
+        "e2_pass": e2_pass, "e2_per_cell": e2_per_cell,
+        "e2_seeds_meeting_per_drift": e2_seeds_meeting,
+        "e3_pass": e3_pass, "e3_per_drift": e3_per_drift,
+        "e4_pass_not_falsified": e4_pass, "e4_falsified": e4_falsified,
+        "e4_monotone_away_seeds_per_drift": e4_per_drift,
+        "e5_pass_dose_non_saturated": e5_pass,
+        "e5_min_lo_hi_separation": e5_min_sep,
         "overall_pass": overall_pass,
     }
 
 
-def _build_interpretation(rows: list, crit: dict) -> dict:
+def _worst(rows: List[dict], key, lo=True):
+    if not rows:
+        return None, None
+    r = (min if lo else max)(rows, key=key)
+    return key(r), f"{r['arm']}/seed{r['seed']}"
+
+
+def _build_interpretation(rows: List[dict], crit: dict) -> dict:
     on_rows = [r for r in rows if r["guard"]]
-    # P1 -- readiness: the waking-tick PRODUCER is live at REM entry in the ON
-    # arm. Same statistic D1 routes on (_waking_ticks_since_capture == 0 is the
-    # guard's own predicate). If this is below floor the guard is a kill switch
-    # and every other number in this run is an artefact.
-    p1_measured = (min(r["min_waking_ticks_at_rem_entry"] for r in on_rows)
-                   if on_rows else 0)
-    worst_p1 = min(on_rows,
-                   key=lambda r: r["min_waking_ticks_at_rem_entry"]) if on_rows else None
-    # P2 -- realized PE variance in a sane band, so 1/rv is a usable anchor.
-    # `met` is a conjunction over every cell, so the reported `measured` must be
-    # the WORST CELL with respect to the BAND (the value furthest from the
-    # band's geometric centre), not a mean and not a one-sided min -- otherwise
-    # the indexer's recompute reads an in-band number while a sibling cell sits
-    # outside it. If the furthest cell is inside the band, all of them are.
-    pe_pairs = [(r["realized_pe_variance"], r) for r in rows
-                if r["realized_pe_variance"] == r["realized_pe_variance"]]
-    _centre = math.sqrt(P2_PE_VAR_LOW * P2_PE_VAR_HIGH)
-    if pe_pairs:
-        _wv, _wr = max(pe_pairs,
-                       key=lambda pr: abs(math.log(max(pr[0], 1e-12) / _centre)))
-        p2_measured = float(_wv)
-        p2_offending = _wr["arm"] + "/seed" + str(_wr["seed"])
+    p1_measured, p1_cell = _worst(
+        on_rows, lambda r: r["min_waking_ticks_at_post_c0_rem_entry"])
+    # P2 is a two-sided band; `met` is a conjunction over cells, so report the
+    # WORST CELL w.r.t. the band (furthest from its geometric centre) -- if that
+    # one is inside, every cell is.
+    pe_rows = [r for r in rows
+               if r["realized_pe_variance"] == r["realized_pe_variance"]]
+    centre = math.sqrt(P2_PE_VAR_LOW * P2_PE_VAR_HIGH)
+    if pe_rows:
+        wr = max(pe_rows, key=lambda r: abs(
+            math.log(max(r["realized_pe_variance"], 1e-12) / centre)))
+        p2_measured, p2_cell = wr["realized_pe_variance"], f"{wr['arm']}/seed{wr['seed']}"
     else:
-        p2_measured = float("nan")
-        p2_offending = None
-    # P3 -- the cold-start cycle C0 exists at all (else D1 tests nothing).
-    p3_measured = min(r["c0_enter_rem_calls"] for r in rows) if rows else 0
-    worst_p3 = min(rows, key=lambda r: r["c0_enter_rem_calls"]) if rows else None
+        p2_measured, p2_cell = float("nan"), None
+    p3_measured, p3_cell = _worst(rows, lambda r: r["c0_enter_rem_calls"])
+    # P4 -- anti-794: the drift source must actually MOVE rv, not sit clamped.
+    p4_deltas = []
+    for guard_label, guard in GUARD_LEVELS:
+        for seed in SEEDS:
+            off = _by(rows, drift_label="drift_off", seed=seed, guard=guard)
+            for dl in DEFENSIBLE_DRIFTS:
+                dr = _by(rows, drift_label=dl, seed=seed, guard=guard)
+                if off and dr:
+                    p4_deltas.append(abs(dr[0]["final_rv"] - off[0]["final_rv"]))
+    p4_measured = min(p4_deltas) if p4_deltas else float("nan")
 
     preconditions = [
         {
             "name": "waking_tick_producer_live_at_rem_entry",
-            "description": ("guard-ON cells must reach REM entry with "
-                            "_waking_ticks_since_capture > 0 (post-C0), else "
-                            "the guard is a permanent kill switch rather than "
-                            "a cold-start guard"),
-            "control": ("guard-ON cells after the cold-start cycle; "
-                        "REEAgent.sense() is the producer (agent.py:4939)"),
-            "measured": float(p1_measured),
+            "description": ("guard-ON cells must reach every post-C0 REM entry "
+                            "with _waking_ticks_since_capture > 0, else the "
+                            "guard is a kill switch, not a cold-start guard"),
+            "control": "guard-ON cells after C0; producer is REEAgent.sense()",
+            "measured": float(p1_measured if p1_measured is not None else 0),
             "threshold": float(P1_MIN_WAKING_TICKS),
             "direction": "lower",
-            "offending_cell": (worst_p1["arm"] + "/seed" + str(worst_p1["seed"])
-                               if worst_p1 else None),
-            "met": bool(p1_measured >= P1_MIN_WAKING_TICKS),
+            "offending_cell": p1_cell,
+            "met": bool((p1_measured or 0) >= P1_MIN_WAKING_TICKS),
         },
         {
             "name": "realized_pe_variance_in_band",
             "description": ("the design's anchor is 1/realized-PE-variance; a "
                             "degenerate rv makes the anchor meaningless"),
-            "control": "every cell's own synthetic PE stream",
+            "control": "each cell's own realized forward-model squared error",
             "measured": float(p2_measured),
             "threshold_low": float(P2_PE_VAR_LOW),
             "threshold_high": float(P2_PE_VAR_HIGH),
-            "comparator_low": ">",
-            "comparator_high": "<",
+            "comparator_low": ">", "comparator_high": "<",
             "direction": "interval",
-            "offending_cell": p2_offending,
-            "met": bool(pe_pairs
-                        and P2_PE_VAR_LOW < p2_measured < P2_PE_VAR_HIGH),
+            "offending_cell": p2_cell,
+            "met": bool(pe_rows and P2_PE_VAR_LOW < p2_measured < P2_PE_VAR_HIGH),
         },
         {
             "name": "cold_start_cycle_observed",
-            "description": ("the pre-loop agent.reset() must actually fire a "
-                            "zero-waking-tick REM entry (C0); without it D1 "
+            "description": ("the pre-loop agent.reset() must fire a "
+                            "zero-waking-tick REM entry (C0); without it E1 "
                             "has nothing to discriminate"),
             "control": "enter_rem calls counted from agent construction",
-            "measured": float(p3_measured),
+            "measured": float(p3_measured if p3_measured is not None else 0),
             "threshold": float(P3_EXPECTED_C0_CALLS),
             "direction": "lower",
-            "offending_cell": (worst_p3["arm"] + "/seed" + str(worst_p3["seed"])
-                               if worst_p3 else None),
-            "met": bool(p3_measured >= P3_EXPECTED_C0_CALLS),
+            "offending_cell": p3_cell,
+            "met": bool((p3_measured or 0) >= P3_EXPECTED_C0_CALLS),
+        },
+        {
+            "name": "drift_source_not_clamped",
+            "description": ("SD-076 must actually move rv relative to its "
+                            "matched drift_off cell. V3-EXQ-794's absolute "
+                            "floor pinned rv at exactly 0.010000 on every "
+                            "inflation arm; this is the anti-recurrence check"),
+            "control": "matched (guard, seed) drift_off vs drift_lo/hi cells",
+            "measured": float(p4_measured),
+            "threshold": float(P4_MIN_DRIFT_EFFECT),
+            "direction": "lower",
+            "met": bool(p4_deltas and p4_measured > P4_MIN_DRIFT_EFFECT),
         },
     ]
     all_met = all(p["met"] for p in preconditions)
 
-    # Non-degeneracy. D2 is pre-registered degenerate in this regime -- see the
-    # module docstring. The others are only degenerate if they could not vary.
     targets_all = [t for r in rows for t in r["targets"]]
-    varied = (len(set(round(t, 6) for t in targets_all)) > 1)
+    varied = len(set(round(t, 9) for t in targets_all)) > 1
     criteria_non_degenerate = {
-        "D1": bool(varied and len(set(r["c0_captured"] for r in rows)) > 1),
-        # False BY PRE-REGISTRATION: the 2x band cannot separate the arms when
-        # the sentinel (2.0) sits within 2x of the anchor (~3.24), as measured.
-        "D2": bool(not crit["d2_degenerate_both_arms_pass"]),
-        "D3": bool(varied),
-        "D4": bool(varied),
-        "D5": bool(varied),
+        # E1 restates the guard's own predicate at C0 -- kept as a contract
+        # report, and NOT load-bearing, for exactly that reason.
+        "E1": bool(len(set(r["c0_captured"] for r in rows)) > 1),
+        "E2": bool(varied and crit["e2_per_cell"]),
+        "E3": bool(varied),
+        "E4": bool(varied),
+        "E5": bool(crit["e5_min_lo_hi_separation"] == crit["e5_min_lo_hi_separation"]),
     }
 
     if not all_met:
         label = "substrate_not_ready_requeue"
-    elif crit["d4_falsified"]:
+    elif crit["e4_falsified"]:
         label = "mech204_option_a_falsified_demote"
     elif crit["overall_pass"]:
         label = "f1_coldstart_guard_validated"
@@ -774,61 +744,63 @@ def _build_interpretation(rows: list, crit: dict) -> dict:
         "label": label,
         "preconditions": preconditions,
         "criteria_non_degenerate": criteria_non_degenerate,
-        "combination_rule": ("PASS = D1 AND D2 AND D4_not_falsified AND D5. "
-                             "D2 is recorded but pre-registered as "
-                             "NON-DISCRIMINATING in this regime "
-                             "(criteria_non_degenerate.D2=false); D5 carries "
-                             "the discriminating information. D3 is reported "
-                             "only."),
+        "combination_rule": (
+            "PASS = E2 AND E3 AND E4_not_falsified. E1 (cold-start contract) "
+            "and E5 (dose non-saturation) are REPORTED, not gates: E1 restates "
+            "the guard's own predicate at C0 and duplicates contracts C1-C8, "
+            "and E5 is a saturation watchdog for the SD-076 floor."),
         "criteria": [
-            {"name": "D1_cold_start_no_fire", "load_bearing": True,
-             "passed": bool(crit["d1_pass"]),
-             "measured": float(min(crit["d1_seeds_ok_per_arm"].values())
-                               if crit["d1_seeds_ok_per_arm"] else 0),
-             "threshold": float(D1_MIN_SEEDS)},
-            {"name": "D2_within_anchor_band", "load_bearing": False,
-             "passed": bool(crit["d2_pass"]),
-             "measured": float(crit["d2_on_cells_ok"]),
-             "threshold": float(len([r for r in rows if r["guard"]]))},
-            {"name": "D3_rv_toward_realized_pe_variance", "load_bearing": False,
-             "passed": None,
-             "threshold_not_applicable": ("reported only; the step=0.0 arm "
-                                          "cannot move rv by construction")},
-            {"name": "D4_falsifier_monotone_away", "load_bearing": True,
-             "passed": bool(crit["d4_pass_not_falsified"]),
-             "measured": float(max(crit["d4_monotone_away_seeds_per_arm"].values())
-                               if crit["d4_monotone_away_seeds_per_arm"] else 0),
-             "threshold": float(D4_MIN_SEEDS_FALSIFIED)},
-            {"name": "D5_cross_arm_anchor_gap_contrast", "load_bearing": True,
-             "passed": bool(crit["d5_pass"]),
-             "measured": float(max(
-                 (d["seeds_meeting_separation"]
-                  for d in crit["d5_per_step"].values()), default=0)),
-             "threshold": float(D5_MIN_SEEDS)},
+            {"name": "E1_cold_start_contract", "load_bearing": False,
+             "passed": bool(crit["e1_pass"]),
+             "measured": float(crit["e1_ok_cells"]),
+             "threshold": float(crit["n_cells"])},
+            {"name": "E2_contrast_departs_from_closed_form", "load_bearing": True,
+             "passed": bool(crit["e2_pass"]),
+             "measured": float(max(crit["e2_seeds_meeting_per_drift"].values())
+                               if crit["e2_seeds_meeting_per_drift"] else 0),
+             "threshold": float(E2_MIN_SEEDS)},
+            {"name": "E3_guard_improves_rv_calibration", "load_bearing": True,
+             "passed": bool(crit["e3_pass"]),
+             "measured": float(max((d["seeds_meeting"]
+                                    for d in crit["e3_per_drift"].values()), default=0)),
+             "threshold": float(E3_MIN_SEEDS)},
+            {"name": "E4_falsifier_monotone_away", "load_bearing": True,
+             "passed": bool(crit["e4_pass_not_falsified"]),
+             "measured": float(max(crit["e4_monotone_away_seeds_per_drift"].values())
+                               if crit["e4_monotone_away_seeds_per_drift"] else 0),
+             "threshold": float(E4_MIN_SEEDS)},
+            {"name": "E5_dose_non_saturated", "load_bearing": False,
+             "passed": bool(crit["e5_pass_dose_non_saturated"]),
+             "measured": float(crit["e5_min_lo_hi_separation"]),
+             "threshold": float(E5_MIN_DOSE_SEPARATION)},
         ],
     }
 
 
-def _flat_scalar(rows: list, crit: dict, interp: dict) -> dict:
-    """Flat dict of SCALARS the verdict turns on (booleans as 0/1, no NaN)."""
+def _flat_scalar(rows: List[dict], crit: dict, interp: dict) -> dict:
     out = {
-        "d1_pass": int(bool(crit["d1_pass"])),
-        "d2_pass": int(bool(crit["d2_pass"])),
-        "d2_degenerate_both_arms_pass": int(bool(
-            crit["d2_degenerate_both_arms_pass"])),
-        "d4_falsified": int(bool(crit["d4_falsified"])),
-        "d5_pass": int(bool(crit["d5_pass"])),
+        "e1_pass": int(bool(crit["e1_pass"])),
+        "e2_pass": int(bool(crit["e2_pass"])),
+        "e3_pass": int(bool(crit["e3_pass"])),
+        "e4_falsified": int(bool(crit["e4_falsified"])),
+        "e5_pass_dose_non_saturated": int(bool(crit["e5_pass_dose_non_saturated"])),
         "overall_pass": int(bool(crit["overall_pass"])),
         "n_cells": len(rows),
     }
-    seps = [d["mean_separation"] for d in crit["d5_per_step"].values()
-            if d["mean_separation"] == d["mean_separation"]]
-    if seps:
-        out["d5_max_mean_separation"] = float(max(seps))
+    deps = [d["max_departure_ratio"] for d in crit["e2_per_cell"].values()
+            if d["max_departure_ratio"] == d["max_departure_ratio"]]
+    if deps:
+        out["e2_max_departure_ratio"] = float(max(deps))
+    r3 = [d["mean_ratio"] for d in crit["e3_per_drift"].values()
+          if d["mean_ratio"] == d["mean_ratio"]]
+    if r3:
+        out["e3_min_mean_rv_distance_ratio"] = float(min(r3))
     anchors = [r["anchor_precision"] for r in rows
                if r["anchor_precision"] == r["anchor_precision"]]
     if anchors:
         out["anchor_precision_mean"] = float(sum(anchors) / len(anchors))
+    if crit["e5_min_lo_hi_separation"] == crit["e5_min_lo_hi_separation"]:
+        out["e5_min_lo_hi_separation"] = float(crit["e5_min_lo_hi_separation"])
     for p in interp["preconditions"]:
         v = p.get("measured")
         if isinstance(v, (int, float)) and not isinstance(v, bool) \
@@ -839,16 +811,16 @@ def _flat_scalar(rows: list, crit: dict, interp: dict) -> dict:
 
 def main(dry_run: bool = False):
     seeds = (SEEDS[0],) if dry_run else SEEDS
-    episodes_per_run = 2 if dry_run else EPISODES_PER_RUN
-    steps_per_episode = 50 if dry_run else STEPS_PER_EPISODE
+    n_train = 3 if dry_run else N_TRAIN_EPS
+    steps = 25 if dry_run else STEPS_PER_EP
 
     t0 = time.perf_counter()
-    rows: list = []
-    for step_label, step in RECAL_STEPS:
-        for guard_label, guard in GUARD_LEVELS:
+    rows: List[dict] = []
+    for guard_label, guard in GUARD_LEVELS:
+        for drift_label, asym in DRIFT_LEVELS:
             for seed in seeds:
-                rows.append(run_cell(step_label, step, guard_label, guard,
-                                     seed, episodes_per_run, steps_per_episode))
+                rows.append(run_cell(guard_label, guard, drift_label, asym,
+                                     seed, n_train, steps, dry_run))
     elapsed = time.perf_counter() - t0
 
     crit = _aggregate(rows)
@@ -856,42 +828,47 @@ def main(dry_run: bool = False):
     outcome = "PASS" if crit["overall_pass"] else "FAIL"
 
     print(
-        f"V3-EXQ-541d MECH-204 F1 cold-start guard validation -- {outcome} "
-        f"in {elapsed:.1f}s (label={interp['label']})",
+        f"V3-EXQ-541d MECH-204 F1 cold-start guard validation (realised PE) -- "
+        f"{outcome} in {elapsed:.1f}s (label={interp['label']})",
         flush=True,
     )
     if dry_run:
         print("[--dry-run] smoke summary:", flush=True)
         print(json.dumps({
-            "d1_pass": crit["d1_pass"],
-            "d2_degenerate_both_arms_pass": crit["d2_degenerate_both_arms_pass"],
-            "d4_falsified": crit["d4_falsified"],
-            "preconditions": [
-                {"name": p["name"], "measured": p.get("measured"),
-                 "met": p["met"]} for p in interp["preconditions"]],
+            "preconditions": [{"name": p["name"], "measured": p.get("measured"),
+                               "met": p["met"]} for p in interp["preconditions"]],
+            "anchor_per_arm": {r["arm"]: round(r["anchor_precision"], 2)
+                               for r in rows},
             "c0": [{"arm": r["arm"], "calls": r["c0_enter_rem_calls"],
-                    "captured": r["c0_captured"],
-                    "persistent": r["c0_persistent_zero_point"]}
+                    "captured": r["c0_captured"], "target": r["c0_target"]}
                    for r in rows],
             "enter_rem_per_cycle": sorted(set(
                 n for r in rows for n in r["n_enter_rem_calls_per_cycle"])),
-        }, indent=1), flush=True)
+            "e1_pass": crit["e1_pass"],
+            "e5_min_lo_hi_separation": crit["e5_min_lo_hi_separation"],
+        }, indent=1, default=str), flush=True)
+        print("[--dry-run] manifest not written.", flush=True)
+        return None
 
     ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    run_id = f"{EXPERIMENT_TYPE}_{ts}_v3"
     full_config = {
         "seeds": list(seeds),
-        "recal_steps": [{"label": l, "step": s} for l, s in RECAL_STEPS],
         "guard_levels": [{"label": l, "guard": g} for l, g in GUARD_LEVELS],
-        "episodes_per_run": episodes_per_run,
-        "steps_per_episode": steps_per_episode,
-        "sleep_loop_K": SLEEP_LOOP_K,
+        "drift_levels": [{"label": l, "asymmetry": a} for l, a in DRIFT_LEVELS],
+        "n_train_eps": n_train,
+        "steps_per_ep": steps,
+        "grid_size": GRID_SIZE,
+        "lr": LR,
+        "sleep_loop_K": 1,
         "precision_zero_point_ema_alpha": PRECISION_ZERO_POINT_EMA_ALPHA,
-        "env_kwargs": _env_kwargs(),
+        "rem_precision_recalibration_step": REM_PRECISION_RECALIBRATION_STEP,
+        "waking_confidence_rv_floor_relative_frac": INFLATION_RV_FLOOR_RELATIVE_FRAC,
+        "waking_confidence_rv_floor_mode": INFLATION_RV_FLOOR_MODE,
+        "env_kwargs": _env_kwargs(dry_run),
     }
     manifest = {
         "schema_version": "v1",
-        "run_id": run_id,
+        "run_id": f"{EXPERIMENT_TYPE}_{ts}_v3",
         "experiment_type": EXPERIMENT_TYPE,
         "architecture_epoch": "ree_hybrid_guardrails_v1",
         "timestamp_utc": ts,
@@ -901,82 +878,63 @@ def main(dry_run: bool = False):
         "outcome": outcome,
         "result": outcome,
         "evidence_direction": "non_contributory",
-        "sleep_driver_pattern": "K=1 single-fire (SleepLoopManager, fires every episode)",
+        "sleep_driver_pattern": (
+            "K=1 single-fire (SleepLoopManager, fires every episode)"),
         "criteria": crit,
         "interpretation": interp,
         "arm_results": rows,
         "registered_thresholds": {
-            "D1_MIN_SEEDS": D1_MIN_SEEDS,
-            "D2_ANCHOR_BAND_LOG2": D2_ANCHOR_BAND_LOG2,
-            "D4_MONOTONE_CYCLES": D4_MONOTONE_CYCLES,
-            "D4_MIN_SEEDS_FALSIFIED": D4_MIN_SEEDS_FALSIFIED,
-            "D5_MIN_SEPARATION": D5_MIN_SEPARATION,
-            "D5_MIN_SEEDS": D5_MIN_SEEDS,
-            "N_CONTRAST_CYCLES": N_CONTRAST_CYCLES,
-            "DEFENSIBLE_STEPS": list(DEFENSIBLE_STEPS),
+            "E1_SENTINEL_TOL": E1_SENTINEL_TOL,
+            "E2_WINDOW": E2_WINDOW,
+            "E2_MIN_DEPARTURE_RATIO": E2_MIN_DEPARTURE_RATIO,
+            "E2_MIN_SEEDS": E2_MIN_SEEDS,
+            "E3_MAX_RV_RATIO": E3_MAX_RV_RATIO,
+            "E3_MIN_SEEDS": E3_MIN_SEEDS,
+            "E4_WINDOW": E4_WINDOW,
+            "E4_MIN_SEEDS": E4_MIN_SEEDS,
+            "E5_MIN_DOSE_SEPARATION": E5_MIN_DOSE_SEPARATION,
             "E3_SENTINEL_PRECISION": E3_SENTINEL_PRECISION,
         },
         "readout": _flat_scalar(rows, crit, interp),
         "diagnostics": {
-            # NON-GATING per-arm view of the quantity the P2 band guards, so a
-            # near-bound arm is visible on PASS runs too rather than only in
-            # autopsy. The band itself stays a readiness precondition scored on
-            # the worst cell; this is the sibling-partition view.
             "realized_pe_variance_per_arm": {
-                arm: {
-                    "values": [r["realized_pe_variance"] for r in rs],
-                    "min": min(r["realized_pe_variance"] for r in rs),
-                    "max": max(r["realized_pe_variance"] for r in rs),
-                    "band_low": P2_PE_VAR_LOW,
-                    "band_high": P2_PE_VAR_HIGH,
-                }
-                for arm, rs in (
-                    lambda d: d
-                )({a: [r for r in rows if r["arm"] == a]
-                   for a in sorted(set(r["arm"] for r in rows))}).items()
-            },
-            "anchor_precision_per_arm": {
-                a: [r["anchor_precision"] for r in rows if r["arm"] == a]
-                for a in sorted(set(r["arm"] for r in rows))
-            },
+                r["arm"] + "/seed" + str(r["seed"]): r["realized_pe_variance"]
+                for r in rows},
+            "final_rv_per_arm": {
+                r["arm"] + "/seed" + str(r["seed"]): r["final_rv"] for r in rows},
             "enter_rem_calls_per_cycle_observed": sorted(set(
                 n for r in rows for n in r["n_enter_rem_calls_per_cycle"])),
         },
         "notes": (
-            "MECH-204 F1 cold-start guard validation. Second factor "
-            "precision_zero_point_require_waking (OFF/ON) crossed with 541c's "
-            "recal-step arms, same env/seeds/cycle count. ANCHOR RE-ANCHORED "
-            "to this harness by the rule the design gives "
-            "(anchor = 1/realized-PE-variance, measured in-run ~3.24 here vs "
-            "~255 in the IGW-20260915-243 realized-PE setting) per user "
-            "decision 2026-09-19T22:12:50Z. D2 is PRE-REGISTERED as "
-            "non-discriminating in this regime and flagged "
-            "criteria_non_degenerate.D2=false: the 2x band cannot separate "
-            "the arms because the precision_init sentinel (2.0) sits within "
-            "2x of the anchor here, unlike IGW-243 where it is 127x away. D5 "
-            "carries the discriminating information. DIAGNOSTIC, not "
-            "evidence: MECH-204 is not answerable until "
-            "sd_waking_confidence_inflation_headroom is validated "
-            "(V3-EXQ-794a); this validates an INSTRUMENT. This base cannot "
-            "exercise the second (double-enter_rem) defect instance -- the "
-            "541c driver issues exactly one enter_rem per cycle; counts are "
-            "recorded so the absence is auditable."
+            "MECH-204 F1 cold-start guard validation, REBUILT on a REALISED-PE "
+            "base per user decision 2026-09-19T23:52:40Z after the 541c-based "
+            "design was refused at red-team (BLOCKING). Base: canonical "
+            "StepHarness at the IGW-20260915-243 operating point (K=1 sleep, "
+            "F1 recal step 0.25), matching V3-EXQ-794's substrate point. The "
+            "anchor is the design's own rule, 1/realized-PE-variance, measured "
+            "IN-RUN per cell (probe: 259.9; the chip's ~255 transfers, 541c's "
+            "2.148 does not and is not used). E2 pre-registers the check that "
+            "the cross-arm contrast is NOT the 541c closed form "
+            "0.9^k*(SENTINEL-p_1) -- probe departure 4.17x (no drift) and "
+            "8.24x (drift LO) by cycle 9, vs 8e-05 agreement on 541c. SD-076 "
+            "is armed as the drift source with the HEADROOM REPAIR (relative "
+            "frac 0.2, soft floor), never 794's absolute 0.01 floor which "
+            "clamped rv to exactly 0.010000; P4 and E5 are the anti-recurrence "
+            "checks. STATED DEPENDENCY: sd_waking_confidence_inflation_headroom "
+            "is implemented but ready FALSE with V3-EXQ-794a not yet queued, so "
+            "this rides on an unvalidated repair. DIAGNOSTIC, not evidence: "
+            "MECH-204 is not answerable until that validation lands; this "
+            "validates an INSTRUMENT. The chip's second defect instance (a "
+            "cycle issuing MORE THAN ONE enter_rem) does not occur on this "
+            "base either -- counts are recorded so the absence is auditable -- "
+            "and is owed to a driver that genuinely multi-fires REM."
         ),
     }
 
-    if dry_run:
-        print("[--dry-run] manifest not written.", flush=True)
-        return None
-
     out_dir = REPO_ROOT.parent / "REE_assembly" / "evidence" / "experiments"
     out_path = write_flat_manifest(
-        manifest,
-        out_dir,
-        dry_run=False,
-        config=full_config,
-        seeds=SEEDS,
-        script_path=Path(__file__),
-        started_at=t0,
+        manifest, out_dir, dry_run=False, config=full_config, seeds=SEEDS,
+        script_path=Path(__file__), started_at=t0, agent=None,
     )
     print(f"Result written to: {out_path}", flush=True)
     return outcome, out_path
