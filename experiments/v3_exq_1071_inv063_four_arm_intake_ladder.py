@@ -428,6 +428,10 @@ class _StartSelectionRecorder:
         self.agent = agent
         self.spreads: List[float] = []
         self.chosen: List[int] = []
+        # A2 as REGISTERED -- "the realised surprise_weight AT THE REPLAY CALL".
+        # drive_state[VALENCE_SURPRISE] is exactly the value agent.py:10838 wrote,
+        # so reading it here is the registered quantity rather than a _pe_ema proxy.
+        self.weights: List[float] = []
         self.n_calls = 0
         self._orig = None
 
@@ -438,6 +442,8 @@ class _StartSelectionRecorder:
         def shim(theta_buffer_recent, drive_state):
             self.n_calls += 1
             try:
+                if drive_state is not None and drive_state.numel() > 3:
+                    self.weights.append(float(drive_state[3].item()))  # VALENCE_SURPRISE
                 rf = self.agent.residue_field
                 if hasattr(rf, "get_valence_priority") and theta_buffer_recent is not None:
                     with torch.no_grad():
@@ -552,8 +558,27 @@ def _e2_train_step(agent, buffer: Deque, opt, rng) -> Optional[float]:
 
 
 def _waking_step(agent, env, obs_dict, sigma, noise_gen, train, buffer, opt, rng,
-                 pending):
-    """798a's _step_cycle, with the observation-noise hook the P1 control needs."""
+                 pending, allow_replay: bool = False):
+    """798a's _step_cycle, plus two additions this claim's leg A requires.
+
+    (1) the observation-noise hook the P1 matched-PE control needs.
+    (2) `allow_replay`: the MECH-092 quiescent-replay branch. THE AUTHORING SMOKE
+        CAUGHT THAT LEG A IS OTHERWISE UNMEASURABLE BY CONSTRUCTION. `_do_replay` is
+        called ONLY from agent.act() / act_with_split_obs() / act_with_log_prob()
+        (agent.py:10750-10751, :10774-10775), gated on ticks["e3_quiescent"]. This
+        driver hand-rolls act()'s body the way 798a does, and 798a omitted the replay
+        branch because 798a had no leg-A DV -- so HippocampalModule.replay() was never
+        called, _select_valence_weighted_start never fired, and A3 read nan in every
+        cell of the first smoke. INV-063's leg A is defined AT the replay call ("the
+        realised surprise_weight AT THE REPLAY CALL", "the replay start-selection
+        distribution"), so the call has to happen. This restores the substrate's OWN
+        behaviour through its OWN gate; it invents nothing.
+
+        Scoped to the MEASUREMENT phase only. P0 stays byte-for-byte 798a's form, so
+        the warmup this run shares with V3-EXQ-1069 is unchanged. The measurement phase
+        does therefore differ from 1069's step form, which is why P1 is re-measured
+        here per seed rather than inherited -- see the P1 precondition.
+    """
     latent = _sense_latent(agent, _apply_obs_noise(obs_dict, sigma, noise_gen))
     if train and buffer is not None:
         pend = pending[0]
@@ -586,6 +611,11 @@ def _waking_step(agent, env, obs_dict, sigma, noise_gen, train, buffer, opt, rng
         metrics = agent.update_residue(harm_signal=float(harm_signal),
                                        world_delta=None, hypothesis_tag=False,
                                        owned=True)
+    if allow_replay and ticks.get("e3_quiescent", False):
+        # MECH-092, via the substrate's own gate. All replay content carries
+        # hypothesis_tag=True and cannot produce residue (MECH-094), so this adds
+        # no DV contamination -- it is what makes leg A's DVs exist at all.
+        agent._do_replay(latent)
     pe = metrics.get("e3_prediction_error")
     pe = (float(pe.detach().item()) if torch.is_tensor(pe)
           else (float(pe) if pe is not None else None))
@@ -655,6 +685,7 @@ def run_cell(arm_id: str, seed: int, p0: Dict[str, Any], n_cycles: int,
     cyc_weights: List[float] = []
     cyc_spreads: List[float] = []
     cyc_entropies: List[float] = []
+    cyc_replay_calls: List[float] = []
     cyc_infonce: List[Dict[str, float]] = []
     sws, rem, fired, finite_ok = [], [], 0, True
     prev_writes = int(getattr(agent, "_surprise_write_count", 0))
@@ -673,7 +704,7 @@ def run_cell(arm_id: str, seed: int, p0: Dict[str, Any], n_cycles: int,
                 for _s in range(steps):
                     pe, obs_dict, done, ssl = _waking_step(
                         agent, env, obs_dict, spec["sigma"], noise_gen,
-                        False, None, None, None, pending)
+                        False, None, None, None, pending, allow_replay=True)
                     if pe is None and done and ssl is None:
                         finite_ok = False
                         break
@@ -688,7 +719,12 @@ def run_cell(arm_id: str, seed: int, p0: Dict[str, Any], n_cycles: int,
                 if not finite_ok:
                     break
             ema = float(getattr(agent, "_pe_ema", 0.0))
-            cyc_weights.append(min(1.0, ema * 5.0) if ema > 0 else 0.3)
+            # A2: prefer the value READ AT the replay call; fall back to the
+            # _pe_ema-derived proxy only if no replay call happened this cycle, and
+            # record which was used so the distinction is auditable.
+            cyc_weights.append(_mean(rec.weights) if rec.weights
+                               else (min(1.0, ema * 5.0) if ema > 0 else 0.3))
+            cyc_replay_calls.append(float(rec.n_calls))
             cyc_spreads.append(_mean(rec.spreads) if rec.spreads else float("nan"))
             cyc_entropies.append(rec.histogram_entropy())
         if not finite_ok:
@@ -729,6 +765,7 @@ def run_cell(arm_id: str, seed: int, p0: Dict[str, Any], n_cycles: int,
           f"A1={dvs['A1_surprise_writes']:.4g} A2={dvs['A2_surprise_weight']:.4g} "
           f"A3={dvs['A3_replay_priority_spread']:.4g} B1={dvs['B1_infonce_delta']:.6g} "
           f"sws={_mean(sws):.3g} rem={_mean(rem):.3g} decay={decay:.4g} "
+          f"replays={sum(cyc_replay_calls):.0f} "
           f"restore={int(restore_ok)}", flush=True)
     print(f"verdict: {'PASS' if ok else 'FAIL'}", flush=True)
 
@@ -741,6 +778,8 @@ def run_cell(arm_id: str, seed: int, p0: Dict[str, Any], n_cycles: int,
                                         if len(ep_pe_means) > 1 else float("nan")),
         "dvs": dvs,
         "a3_start_selection_entropy": _mean(cyc_entropies),
+        "replay_calls_per_cycle": cyc_replay_calls,
+        "replay_calls_total": float(sum(cyc_replay_calls)),
         "surprise_writes_per_cycle": cyc_writes,
         "surprise_weight_per_cycle": cyc_weights,
         "infonce_delta_per_cycle_full_tau_ladder": cyc_infonce,
@@ -892,6 +931,18 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
          "measured": float(min_pe_var), "threshold": 0.0, "direction": "lower",
          "comparator": ">", "control": "per-episode MEL means within a cell",
          "met": bool(_fin(min_pe_var) is not None and min_pe_var > 0.0)},
+        {"name": "P4e_replay_calls_nonzero", "kind": "readiness",
+         "description": ("MECH-092 quiescent replay actually fired, per cell. Leg A's "
+                         "A2 and A3 are defined AT the replay call; the authoring "
+                         "smoke measured A3 = nan in every cell before the quiescent "
+                         "branch was restored, i.e. leg A was unmeasurable by "
+                         "construction"),
+         "measured": float(min(rows[(a, s)]["replay_calls_total"]
+                               for a in ARMS for s in seeds)),
+         "threshold": 0.0, "direction": "lower", "comparator": ">",
+         "control": "agent._do_replay through the substrate's own e3_quiescent gate",
+         "met": bool(min(rows[(a, s)]["replay_calls_total"]
+                         for a in ARMS for s in seeds) > 0.0)},
         {"name": "R2_p0_converged", "kind": "readiness",
          "description": "798a R2, frozen-probe PE drop across P0",
          "measured": float(min_conv), "threshold": MIN_REL_CONV_DROP,
