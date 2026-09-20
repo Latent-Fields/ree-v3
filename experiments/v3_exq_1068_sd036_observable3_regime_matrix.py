@@ -84,9 +84,50 @@ by a different mechanism, and the symmetric rule does not catch it.
       observation divergence between independent per-tone rollouts, not the
       manipulation. So z_harm clears the readiness gate BECAUSE the gate is
       measuring noise.
-      Resolving this changes which streams are scoreable and therefore whether
-      SD-036 can be falsified, so under the consent rule it is a user decision
-      and was NOT made here.
+      RESOLVED by user decision 2026-09-20T09:36:24Z -- see "THE RESOLVABILITY
+      GATE" below. z_harm is expected to be DISQUALIFIED by that gate and
+      recorded `not_resolvable_by_this_instrument_at_n3`, NOT failed.
+
+THE RESOLVABILITY GATE -- "cluster" means the streams the instrument can resolve
+-------------------------------------------------------------------------------
+USER DECISION (2026-09-20T09:36:24Z): make the readiness gate measure the tone
+effect against the MEASURED closed-loop noise floor, and run on the streams that
+clear. A stream is scoreable ONLY if its gaba_tone effect on its own scored DV
+exceeds that floor. A stream below it is DISQUALIFIED and recorded
+`not_resolvable_by_this_instrument_at_n3` -- excluded from C1, never counted as a
+failure, and explicitly NOT a falsification of SD-036.
+
+  HOW THE FLOOR IS MEASURED. On the SAME frozen trained agent, after the tone
+  sweep, NOISE_REPLICATES eval rollouts are run at ONE FIXED tone
+  (BASELINE_TONE), differing only in rollout RNG -- a seeded no-tone-change
+  replicate carrying every source of variation the tone sweep has EXCEPT the
+  tone. It is measured on the SAME DV the stream is scored on (including the
+  negation, for a substituted stream), because a floor denominated in a
+  different quantity than the signal would not be a floor.
+
+  THE MULTIPLE, AND WHY IT IS NOT A CONVENIENT CONSTANT. Under the null "tone has
+  no effect on this DV", the 5 tone-swept values and any 5 replicate values are
+  EXCHANGEABLE. The null distribution of the test statistic (range of 5) is
+  therefore taken directly FROM THE REPLICATES -- the ranges of all
+  NOISE_NULL_SUBSET-sized subsets, C(10,5) = 252 of them -- and the floor is its
+  NOISE_NULL_QUANTILE. The required multiple against that floor is exactly 1.0.
+  No magnitude is chosen anywhere; the only chosen number is the QUANTILE, i.e.
+  the false-admission rate the gate runs at (0.05 per stream per seed). The
+  realized `signal_to_median_noise_ratio` is MEASURED and recorded per stream per
+  seed rather than assumed.
+
+  WHAT IT DOES ON RECORDED NUMBERS. Measured this session on a 60-step tape,
+  tone_range / same-tone replicate_range on each stream's SCORED DV:
+  z_harm 2.50, z_harm_a 7.31, z_beta 32.20. In the 300-step TRAINED eval, where
+  C1 actually reads, z_harm is far worse -- its true tone effect is 1.9e-4 /
+  6.4e-3 / 5.4e-3 against 4.8e-2 to 1.5e-1 of rollout noise -- which is why it is
+  expected to be disqualified there.
+
+  SO THE EXPECTED CLUSTER IS z_harm_a (sustain_ratio, monotonicity bar) AND
+  z_beta (shape_deviation_vs_off, negated, per OPTION B). That is stated here, in
+  the queue-entry note, and in the manifest's `cluster_definition` block so no
+  reader mistakes a two-stream cluster for the full registered set, or a
+  disqualification for a null.
 
   [RECORDED, emit-only] `pag_n_commits` is pinned at ~0 in both PAG arms.
       `duration_input_threshold = 0.4` (freeze_gate.py:67) but V3-EXQ-854's
@@ -250,8 +291,10 @@ alongside so the true denominator is auditable.
 
 CRITERIA (pre-registered; thresholds are constants below, never post-hoc)
 ------------------------------------------------------------------------
-  C1 (LOAD-BEARING) -- observable #3, the multi-stream cluster. For every
-     stream that CLEARS its per-stream readiness gate, Spearman rho between
+  C1 (LOAD-BEARING) -- observable #3, the multi-stream cluster. A stream is in
+     the cluster only if it clears BOTH the substrate-readiness floor AND the
+     measured closed-loop noise floor above (a stream failing either is
+     DISQUALIFIED, never failed). For every stream that clears, Spearman rho between
      gaba_tone and that stream's scored DV across the 5 tones is <= C1_RHO_MAX.
      CONFIRMING requires ALL readiness-clearing streams to be monotone in the
      same run. PASS needs >= C1_SEEDS_REQUIRED of 3 seeds. A stream that FAILS
@@ -404,6 +447,51 @@ C2_HARM_FWD_R2_MIN = 0.60
 C2_SEEDS_REQUIRED = 2
 
 C3_SEEDS_REQUIRED = 2
+
+# --- MEASURED CLOSED-LOOP NOISE FLOOR (user decision, 2026-09-20T09:36:24Z) ---
+#
+# THE PROBLEM THIS SOLVES. C1 is scored on TRAINED agents, and each tone gets its
+# OWN closed-loop eval rollout, so a stream's per-tone DV series carries
+# observation-sequence divergence as well as any tone effect. For z_harm that
+# noise DOMINATES: red-team pass 2 measured its true tone effect at 1.9e-4 /
+# 6.4e-3 / 5.4e-3 (obs and weights held fixed) against the 4.8e-2 to 1.5e-1
+# spread actually recorded in V3-EXQ-854 -- a 10-250x excess that is rollout
+# divergence, not the regulator. A stream in that state cannot be scored either
+# way: failing the monotonicity bar means "unresolvable", not "does not
+# co-degrade", and recording it as the latter is a false falsification of SD-036.
+#
+# HOW THE FLOOR IS MEASURED -- a SEEDED NO-TONE-CHANGE REPLICATE. On the same
+# frozen trained agent, after the tone sweep, NOISE_REPLICATES additional eval
+# rollouts are run at ONE FIXED tone (BASELINE_TONE), differing only in their
+# rollout RNG. Every source of variation the tone sweep has EXCEPT the tone
+# itself is therefore present in them, and their spread is that stream's
+# closed-loop noise on its own scored DV.
+#
+# THE MULTIPLE, AND WHY IT IS NOT A CHOSEN CONSTANT. Under the null "tone has no
+# effect on this DV", the 5 tone-swept values and any 5 replicate values are
+# EXCHANGEABLE -- both are 5 draws from one distribution. So the null
+# distribution of the test statistic (the RANGE of 5) is obtained directly from
+# the replicates: every 5-subset of the NOISE_REPLICATES gives one null range
+# (C(10,5) = 252 of them). The floor is the NULL_QUANTILE of that measured
+# distribution, and the required multiple against it is exactly 1.0. The only
+# number chosen is the QUANTILE -- i.e. the false-admission rate the gate runs
+# at, 1 - 0.95 = 0.05 per stream per seed -- not a magnitude. The realized ratio
+# (tone_range / median null range) is MEASURED and recorded per stream per seed
+# rather than assumed.
+#
+# WHAT IT DOES ON RECORDED NUMBERS. Measured this session on a 60-step tape,
+# tone_range / same-tone replicate_range on each stream's SCORED DV:
+# z_harm 2.50, z_harm_a 7.31, z_beta 32.20. In the 300-step TRAINED eval, where
+# the criterion actually reads, z_harm's ratio is far worse still (its signal is
+# at or below 6.4e-3 against 4.8e-2 to 1.5e-1 of rollout noise, i.e. well under
+# 1.0), which is why it is expected to be DISQUALIFIED rather than failed.
+#
+# A DISQUALIFIED STREAM IS NEVER A FAILURE. It is excluded from C1 and recorded
+# `not_resolvable_by_this_instrument_at_n3`, exactly as a stream below the
+# substrate-readiness floor already is.
+NOISE_REPLICATES = 10
+NOISE_NULL_SUBSET = 5          # = len(TONE_SWEEP); keeps the statistic exchangeable
+NOISE_NULL_QUANTILE = 0.95     # -> false-admission rate 0.05 per stream per seed
 
 # Substrate-readiness floors, carried over from V3-EXQ-854 unchanged.
 VACUITY_CEILING = 1e-5
@@ -616,6 +704,44 @@ def readiness_control(seed: int) -> Dict[str, Any]:
             "dv_ceiling_headroom": float(1.0 - float(np.nanmax(sustain))),
         }
     return {"seed": seed, "tones": list(TONE_SWEEP), "streams": streams}
+
+
+def _null_range_floor(values: List[float]) -> Dict[str, Any]:
+    """The measured closed-loop noise floor for ONE stream's scored DV.
+
+    `values` are the DV measured on NOISE_REPLICATES eval rollouts that differ
+    ONLY in rollout RNG (same frozen agent, same tone). Under the null "tone has
+    no effect on this DV", any NOISE_NULL_SUBSET of them is exchangeable with the
+    tone-swept series, so the ranges of all such subsets ARE the null
+    distribution of the test statistic. The floor is its NOISE_NULL_QUANTILE.
+
+    Nothing here is a chosen magnitude: the only constant is the quantile, i.e.
+    the false-admission rate the gate runs at.
+    """
+    from itertools import combinations
+
+    vals = [float(v) for v in values if np.isfinite(v)]
+    if len(vals) < NOISE_NULL_SUBSET + 1:
+        return {
+            "floor": float("nan"),
+            "n_replicates": len(vals),
+            "n_null_subsets": 0,
+            "median_null_range": float("nan"),
+            "insufficient_replicates": True,
+        }
+    ranges = [
+        float(max(c) - min(c))
+        for c in combinations(vals, NOISE_NULL_SUBSET)
+    ]
+    return {
+        "floor": float(np.quantile(ranges, NOISE_NULL_QUANTILE)),
+        "n_replicates": len(vals),
+        "n_null_subsets": len(ranges),
+        "median_null_range": float(np.median(ranges)),
+        "max_null_range": float(np.max(ranges)),
+        "quantile": NOISE_NULL_QUANTILE,
+        "insufficient_replicates": False,
+    }
 
 
 # --------------------------------------------------------------------------
@@ -889,6 +1015,28 @@ def run_cell(arm: str, seed: int) -> Dict[str, Any]:
                 row[f"{s}_trajectory"] = [float(x) for x in traj[s]]
             per_tone.append(row)
 
+        # ---- MEASURED CLOSED-LOOP NOISE FLOOR (ARM_ON only -- that is the arm
+        # C1 is scored on). Same frozen agent, same tone, rollout RNG varied:
+        # everything the tone sweep varies EXCEPT the tone.
+        noise_replicates: Optional[List[Dict[str, Any]]] = None
+        if arm == ARM_ON:
+            if agent.gabaergic_decay is not None:
+                agent.gabaergic_decay.set_gaba_tone(float(BASELINE_TONE))
+            noise_replicates = []
+            for rep in range(NOISE_REPLICATES):
+                _k = (int(seed) * 7919) + rep * 131 + 5
+                torch.manual_seed(_k)
+                np.random.seed(_k % (2 ** 31 - 1))
+                rep_env = B.make_env(seed)
+                rtraj = B.record_stream_trajectories(
+                    agent, rep_env, steps=B.EVAL_STEPS
+                )
+                rrow: Dict[str, Any] = {"replicate": rep, "gaba_tone": BASELINE_TONE}
+                for st in STREAMS:
+                    rrow[f"{st}_sustain_ratio"] = B.sustain_ratio(rtraj[st])
+                    rrow[f"{st}_trajectory"] = [float(x) for x in rtraj[st]]
+                noise_replicates.append(rrow)
+
         # ---- SD-011 leg: measured in BOTH regimes (OFF = validated-regime
         # positive control, ON = the never-measured decay regime). Not measured
         # on the PAG arms, whose freeze no-ops would confound the DVs.
@@ -916,6 +1064,7 @@ def run_cell(arm: str, seed: int) -> Dict[str, Any]:
             "train_diagnostics": train_diag,
             "sd011_dvs": sd011,
             "mech279_pag": pag,
+            "noise_replicates": noise_replicates,
         }
         cell.stamp(row_out)
         _ZG.observe(agent)
@@ -976,6 +1125,30 @@ def _scored_dv_series(
     ]
 
 
+def _replicate_dv_values(
+    on_row: Dict[str, Any], off_row: Optional[Dict[str, Any]], stream: str, dv: str
+) -> List[float]:
+    """The SAME DV as `_scored_dv_series`, measured on the no-tone-change
+    replicates. Must mirror that function exactly, including the negation, or
+    the floor would be denominated in a different quantity than the signal."""
+    reps = on_row.get("noise_replicates") or []
+    if dv == "sustain_ratio":
+        return [float(r[f"{stream}_sustain_ratio"]) for r in reps]
+    ref = None
+    if off_row is not None and off_row["per_tone"]:
+        ref = np.asarray(
+            off_row["per_tone"][0][f"{stream}_trajectory"], dtype=np.float64
+        )
+    if ref is None:
+        return []
+    return [
+        -B.shape_deviation(
+            np.asarray(r[f"{stream}_trajectory"], dtype=np.float64), ref
+        )
+        for r in reps
+    ]
+
+
 def evaluate(
     arm_results: List[Dict[str, Any]], readiness: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
@@ -1011,8 +1184,60 @@ def evaluate(
             series = _scored_dv_series(r, off_rows.get(seed), s, dv)
             rho = spearman(TONE_SWEEP, series)
             spread = float(np.nanmax(series) - np.nanmin(series))
+
+            # --- MEASURED CLOSED-LOOP NOISE FLOOR (user decision 2026-09-20) ---
+            # The stream is scoreable only if its tone effect exceeds the
+            # measured no-tone-change replicate noise on the SAME DV. Below it,
+            # the stream is DISQUALIFIED -- not failed -- because a monotonicity
+            # verdict on a signal buried in rollout noise is unattributable.
+            rep_vals = _replicate_dv_values(r, off_rows.get(seed), s, dv)
+            floor_info = _null_range_floor(rep_vals)
+            floor = floor_info.get("floor")
+            resolvable = bool(
+                not floor_info.get("insufficient_replicates", True)
+                and np.isfinite(floor)
+                and spread > floor
+            )
+            snr = (
+                float(spread / floor_info["median_null_range"])
+                if floor_info.get("median_null_range")
+                and np.isfinite(floor_info["median_null_range"])
+                and floor_info["median_null_range"] > 0
+                else float("nan")
+            )
+            if not resolvable:
+                per_stream[s] = {
+                    "scored": False,
+                    "reason": "not_resolvable_by_this_instrument_at_n3",
+                    "scored_dv": dv,
+                    "dv_substituted": info.get("dv_substituted"),
+                    "dv_substitution_trigger": info.get("dv_substitution_trigger"),
+                    "measured_tone_range": spread,
+                    "threshold_noise_floor": floor,
+                    "noise_floor_detail": floor_info,
+                    "signal_to_median_noise_ratio": (
+                        snr if np.isfinite(snr) else None
+                    ),
+                    "measured_rho_not_scored": rho,
+                    "note": (
+                        "The tone-swept range of this stream's scored DV does not "
+                        "exceed the measured no-tone-change replicate noise floor "
+                        "at the "
+                        f"{NOISE_NULL_QUANTILE:.2f} null quantile, so a monotonicity "
+                        "verdict on it would be unattributable. EXCLUDED from C1 and "
+                        "recorded as unresolvable -- this is NOT a failure of the "
+                        "stream to co-degrade and must NOT be read as falsifying "
+                        "SD-036."
+                    ),
+                }
+                continue
+
             per_stream[s] = {
                 "scored": True,
+                "measured_tone_range": spread,
+                "threshold_noise_floor": floor,
+                "noise_floor_detail": floor_info,
+                "signal_to_median_noise_ratio": snr if np.isfinite(snr) else None,
                 "scored_dv": dv,
                 # The pre-registered DV substitution, recorded per stream per
                 # seed so a reader can see the rule fired rather than a choice.
@@ -1304,6 +1529,46 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "readiness_control": readiness,
         "sd011_regime_declaration": regime,
         "sd011_instrument_control_ok": bool(_sd011_control_ok),
+        # WHAT "CLUSTER" MEANS IN THIS RUN (user decision 2026-09-20T09:36:24Z).
+        "cluster_definition": {
+            "meaning": (
+                "'Cluster' here means THE STREAMS THIS INSTRUMENT CAN RESOLVE, not "
+                "all three registered decay streams. A stream is scoreable only if "
+                "its gaba_tone effect on its scored DV exceeds the MEASURED "
+                "closed-loop noise floor for that same DV. A stream below the floor "
+                "is DISQUALIFIED and recorded "
+                "'not_resolvable_by_this_instrument_at_n3' -- it is EXCLUDED from "
+                "C1 and must NOT be read as a stream that failed to co-degrade, and "
+                "therefore NOT as falsifying SD-036."
+            ),
+            "noise_floor_method": (
+                "NOISE_REPLICATES eval rollouts on the SAME frozen trained agent at "
+                "ONE FIXED tone (BASELINE_TONE), differing only in rollout RNG -- a "
+                "seeded no-tone-change replicate. Every source of variation the tone "
+                "sweep has EXCEPT the tone. The null distribution of the test "
+                "statistic (range of 5) is then taken from the ranges of ALL "
+                "NOISE_NULL_SUBSET-sized subsets of those replicates, and the floor "
+                "is its NOISE_NULL_QUANTILE."
+            ),
+            "multiple_required": (
+                "1.0 against the measured null quantile -- no magnitude constant is "
+                "chosen. The only chosen number is the QUANTILE (the false-admission "
+                "rate, 0.05 per stream per seed). The realized "
+                "signal_to_median_noise_ratio is MEASURED and recorded per stream "
+                "per seed."
+            ),
+            "noise_replicates": NOISE_REPLICATES,
+            "null_subset_size": NOISE_NULL_SUBSET,
+            "null_quantile": NOISE_NULL_QUANTILE,
+            "prior_measurement_motivating_this": (
+                "red-team pass 2: z_harm's true tone effect is 1.9e-4 / 6.4e-3 / "
+                "5.4e-3 with observations and weights held fixed, while the spread "
+                "recorded in V3-EXQ-854 is 4.8e-2 to 1.5e-1 -- a 10-250x excess that "
+                "is closed-loop rollout divergence, not the regulator. On a 60-step "
+                "tape this session measured tone_range/replicate_range on each "
+                "stream's scored DV at z_harm 2.50, z_harm_a 7.31, z_beta 32.20."
+            ),
+        },
         "registered_taus": dict(REGISTERED_TAUS),
         # PRE-REGISTERED per-stream DV substitution (user OPTION B,
         # 2026-09-20T03:47:20Z). Declared before the run, applied by rule, and
@@ -1428,6 +1693,20 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         readout[f"dv_substituted_{s}"] = int(
             all(k["streams"][s]["dv_substituted"] for k in readiness)
         )
+        # Resolvability against the measured noise floor, per stream: how many
+        # seeds admitted this stream into the cluster at all.
+        _res = [
+            1 if (sd.get("per_stream", {}).get(s, {}).get("scored")) else 0
+            for sd in c1["per_seed"]
+        ]
+        readout[f"resolvable_seeds_{s}"] = int(sum(_res))
+        _snr = [
+            sd.get("per_stream", {}).get(s, {}).get("signal_to_median_noise_ratio")
+            for sd in c1["per_seed"]
+        ]
+        _snr = [v for v in _snr if isinstance(v, (int, float)) and np.isfinite(v)]
+        if _snr:
+            readout[f"signal_to_noise_min_{s}"] = float(np.min(_snr))
     pag_rows = [r for r in arm_results if r["arm_id"] in PAG_THETAS]
     for r in pag_rows:
         p = r.get("mech279_pag") or {}
