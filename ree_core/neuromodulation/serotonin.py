@@ -142,11 +142,19 @@ class SerotoninModule:
 
         # MECH-204 F1 cold-start guard: waking ticks since the last capture
         # into _persistent_zero_point. Incremented by note_waking_tick(),
-        # which is driven from REEAgent.update_residue()'s waking
-        # (hypothesis_tag=False) branch -- the one per-tick call the canonical
-        # StepHarness contract guarantees -- and also from serotonin_step()
-        # for drivers that call it. Zeroed on capture and by reset(). Read
-        # ONLY when config.precision_zero_point_require_waking is True.
+        # which is driven from REEAgent.sense() -- the one per-tick call EVERY
+        # waking driver makes (StepHarness, act_with_split_obs, and the
+        # hand-rolled per-tick loops alike). Zeroed on capture and by reset().
+        # Read ONLY when config.precision_zero_point_require_waking is True.
+        # CORRECTED 2026-09-20: this comment previously named
+        # REEAgent.update_residue() as the producer. That was never true on
+        # main -- update_residue() does not call note_waking_tick(), and a
+        # hand-rolled driver that calls neither update_residue() nor
+        # serotonin_step() (e.g. v3_exq_541c) would then have had the counter
+        # pinned at 0, turning this guard into a permanent kill switch. The
+        # shipped wiring in agent.py has always been sense(); only the comment
+        # was wrong. Verified by call-site grep: agent.py:4939 is the sole
+        # caller.
         self._waking_ticks_since_capture: int = 0
 
     @property
@@ -233,20 +241,35 @@ class SerotoninModule:
     def note_waking_tick(self) -> None:
         """MECH-204 F1 cold-start guard: record one waking tick.
 
-        Driven from REEAgent.update_residue()'s waking (hypothesis_tag=False)
-        branch, which the canonical StepHarness per-tick contract calls exactly
-        once per env step. That is the load-bearing producer: serotonin_step()
-        is called by experiment DRIVERS, not from inside ree_core, and
-        StepHarness never calls it -- so a counter fed only by serotonin_step()
-        would stay at 0 forever on the canonical loop and turn the guard into a
-        permanent kill switch for MECH-204 recalibration rather than a
-        cold-start guard.
+        Driven from REEAgent.sense() (agent.py, gated on
+        config.precision_zero_point_require_waking so the default-off path adds
+        no call at all). sense() is the load-bearing producer because it is the
+        ONE call every waking tick makes on every driver -- StepHarness,
+        act_with_split_obs, and the hand-rolled per-tick loops (e.g.
+        v3_exq_541c) alike. serotonin_step() is NOT a usable producer: it is
+        called by experiment DRIVERS, never from inside ree_core, and
+        StepHarness never calls it -- a counter fed only from there would stay
+        at 0 forever on the canonical loop and turn the guard into a permanent
+        kill switch for MECH-204 recalibration rather than a cold-start guard.
 
-        serotonin_step() increments too. Double-counting is harmless by
-        construction: the guard's predicate is only ever
-        `_waking_ticks_since_capture == 0`, so over-counting cannot change a
-        decision, while under-counting silently suppresses every capture.
-        Two independent producers make the dangerous direction unlikely.
+        No sleep pass calls sense() (its only internal callers are the waking
+        wrappers sense_flat() and act_with_split_obs()), and this method
+        additionally no-ops outside the waking phase, so replay / REM ticks
+        cannot satisfy the guard.
+
+        Over-counting would be harmless by construction -- the guard's
+        predicate is only ever `_waking_ticks_since_capture == 0`, so it cannot
+        change a decision, while under-counting silently suppresses every
+        capture.
+
+        CORRECTED 2026-09-20: this docstring previously named
+        REEAgent.update_residue() as the producer and claimed serotonin_step()
+        increments too. Neither was true on main. The shipped wiring has always
+        been sense() (agent.py:4939, its sole call site); only the
+        documentation was wrong. Recorded because a reader who trusted it would
+        conclude this guard is inert on any driver that does not call
+        update_residue() -- the exact wrong conclusion that nearly derailed the
+        V3-EXQ-541d design.
 
         No-op when disabled or outside the waking phase.
         """
