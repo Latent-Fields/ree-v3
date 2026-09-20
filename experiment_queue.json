@@ -16,7 +16,11 @@
       "estimated_minutes": 720,
       "claim_id": "ARC-029",
       "note": "ARC-029 (EXP-1394): within-run committed vs uncommitted HARM contrast under threshold-modulated mode alternation on the variance-tracking commit bar (precision-invariant ablation). Supersedes V3-EXQ-063a (non_contributory by confirmed autopsy 2026-09-14; that driver wrote agent.e3._running_variance directly, confounding commitment with precision, and its occupancy was forced -- vacuous non-degeneracy). This driver never assigns to e3._running_variance (source-level invariant, asserted at runtime and gated as G1). Mode driver is threshold-side only: base bar = use_variance_tracking_commit_threshold (q=0.50 quantile of detrended commit-gate-variance residuals, pre-registered per the build record's measured surface), alternation = MECH-108 BreathOscillator multiplying the bar by (1 - sweep_amplitude) during the sweep phase. ONE agent trained per seed (P0=30 + P1=60 = 90 episodes, 120 steps/episode); both arms (ARM_STATIC: bar armed, breath_period=0; ARM_ALTERNATE: + MECH-108 sweep at the seed's calibrated amplitude) then run on that same trained agent so G1 isolates the manipulation from training noise. sweep_amplitude is calibrated per seed on held-out episodes from the ladder {0.02, 0.05, 0.10}, choosing the largest rung clearing occupancy/run-length/precision-invariance bands, then re-evaluated on disjoint measured episodes. 5 seeds [0, 42, 100, 123, 200] (ARC-029/125a's set), MIN_SEEDS_PASSING=4. Gates (all three must hold before C1 is read as evidence): G0_occupancy (committed_step_fraction in [0.15,0.85] and mean committed-run length >= 3 on >=4/5 seeds), G1_precision_invariance (|delta mean log10 precision| <= 0.20 decades), G2_min_harm_events (>= 10x the 1/N measurement floor). C1 criterion: max(0.5*SD(delta), 0.002) absolute floor on the committed-vs-uncommitted harm delta. Red-team (fable) resolved for this design; if a gate fails to clear cleanly the run is recorded non_contributory per ARC-029's own text, not evidence. Landed by serial queue burn-down 2026-09-20; script was tracked-but-unqueued.",
-      "status": "pending",
+      "status": "claimed",
+      "claimed_by": {
+        "machine": "ree-cloud-3",
+        "claimed_at": "2026-09-20T14:20:38Z"
+      },
       "conditions": 2,
       "episodes_per_run": 90,
       "experiment_type": "arc029_commitment_mode_harm_variance_bar",
