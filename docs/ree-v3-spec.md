@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-09-19 (T01:10Z nightly)
+**Last updated:** 2026-09-20 (T01:10Z nightly)
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -236,6 +236,107 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-09-20T01:10Z nightly attestation (scheduled `/update-docs`, bot
+  identity).** ~24h window since the 2026-09-19T01:10Z snapshot -- a
+  substantive band. Flat `v3_exq_*` manifests on disk: **1038** (+5 vs
+  1033 at 2026-09-19T01:10Z); nested per-run manifests under
+  `evidence/experiments/*/runs/`: **2973** (+5 vs 2968). **Currently
+  queued (`experiment_queue.json` items[]): 1 item** -- V3-EXQ-1070
+  (ARC-029 P1/P3 joint-feasibility env operating-point sweep,
+  diagnostic; smoke PASS, red-team CONTESTED -> 6 findings all fixed;
+  ree-v3 `d0c644f`). V3-EXQ-1039a drained in-window. **Pending review
+  (`pending_review.md`, regenerated 2026-09-18T19:04:01Z): 0 items** --
+  unchanged from the 2026-09-19 snapshot. Coordinator-DB 30-day rolling
+  (per `experiment_error_rate.py` against the hub `ree@91.98.130.117`,
+  span 2026-08-22T00:01:18Z .. 2026-09-19T22:34:01Z): **67 PASS / 56
+  FAIL / 2 ERROR, ERROR rate 1.6% (2 / 125 classified runs)** -- +1
+  PASS, +1 FAIL in-window.
+  (a) **NO new substrate landings in the window** -- SD-106
+  (2026-09-11) remains the most recent substrate. Two substrate-adjacent
+  builds landed: `mode-governance-engagement` sigma default = cap (user
+  decision 2026-09-19T09:45Z, ree-v3 `524ef52`), and the MECH-018
+  gradient-step + sleep WRITEBACK call-site substrate record
+  (docs/substrate/MECH-018 entry, 2026-09-19). No `substrate_queue.json`
+  additions.
+  (b) **V3-EXQ-1063 QUEUED** (INV-063 leg-B DV-direction diagnostic;
+  ree-v3 `61ff871`, user option B). **V3-EXQ-1065 QUEUED** (SD-106
+  encoder-plane PC-recoverability probe + MECH-566 ZCA reconditioning
+  falsifier on shared SD-106@epochs40 P0a warm; smoke PASS, red-team
+  opus x2 BLOCKING -> fixed/dismissed, P1 statistic by user decision;
+  ree-v3 `868c58d`). **V3-EXQ-1070 QUEUED** (ARC-029 P1/P3 diagnostic;
+  see above).
+  (c) **Five drivers authored and REFUSED / NOT QUEUED**: V3-EXQ-541d
+  (MECH-204 F1 cold-start guard, red-team BLOCKING; ree-v3 `aac7d68`),
+  V3-EXQ-1061 OPTION A (guard refused, authority hypothesis not
+  supported; ree-v3 `afd8684`), V3-EXQ-1066 (ARC-029 P1-P3-clean
+  commitment-mode harm; P1 unmeetable at the lineage env, DO-NOT-QUEUE
+  banner; ree-v3 `9bbe1b0`, `2adcad2`), V3-EXQ-1067 (MECH-266/SD-032a
+  squash-vs-clamp cap sweep, BLOCKED; ree-v3 `c817881`), V3-EXQ-1068
+  (SD-036 observable-3 / SD-011 / MECH-279 regime matrix; smoke PASS,
+  red-team BLOCKING; ree-v3 `67a6c64`). V3-EXQ-1069 driver WIP
+  (INV-063 P1 under 798a's exact P0; ree-v3 `9d59701`, `870c256`).
+  (d) **Eight governance flags raised in-window** (all
+  `evidence_discrepancy` unless noted): ARC-029 (REE_assembly
+  `c20c29561ac`), MECH-266 + SD-032a (`f72a0351e34`), MECH-204
+  (`6484ed53a2a`), MECH-566 (`68efe129fae`), INV-063
+  (`a4a2f967d1a` evidence_discrepancy + `54c1459bac8`
+  contested_disposition), MECH-018 (`4842aef42fb`
+  contested_disposition), MECH-043 (`0e5bb7f5d38`
+  contested_disposition), MECH-131 (`0bda233c6eb` stale_note),
+  MECH-066 (`155b71e1be6`, `f9ca62067e4` contested_disposition x2).
+  A governance cycle will need to work this bucket.
+  (e) **Two lit-pulls landed** (via IGW auto-tick): IGW-243 for MECH-067
+  write-locus permission matrices, 5 literature entries (REE_assembly
+  `69b45fa884e` + index rebuild `5d8a4b249b5`), plus
+  EVB-1417/EXP-0812 blocked_substrate on MECH-067 (`a689baa83e3`,
+  `3f63c0c61fd`); IGW-242 for MECH-066 pre/post-commit channel sharing
+  vs durable write separation, 5 literature entries (REE_assembly
+  `1e98ae94e8c`), plus EXP-0810/EVB-1416 MECH-066 blocked_substrate
+  (`fc0697fdebc`).
+  (f) **MECH-131 FINAL disposition landed** (REE_assembly `d2c62bcc43c`)
+  -- user OPTION C: compute stopped, disposition registered; discharges
+  `chip-20260918-mech131-evidential-bar`.
+  (g) **SD-036 observable-3 regime-matrix design** staged with four open
+  decisions (REE_assembly `17d7dd7494a`). **V3-EXQ-1067 refusal record**
+  staged (`a1a01dc0769`, GFLAG-0370). **INV-063 leg-B InfoNCE analysis**
+  -- P1 fails on the converged base, InfoNCE pinning is a tau artifact
+  (REE_assembly `eb66b1406eb`), pre-registration derivation for
+  V3-EXQ-1066 (`4180b198f83`) and C1/C2-reachability verification for
+  leg B on InfoNCE (`8f3dda20b62`).
+  (h) **Coordinator repair**: shadow-sync never ingests the mirror
+  working tree; hoisted the done guard in `upsert_task_claim`
+  (statusregress 70f6849fab root cause; ree-v3 `0ddac64`).
+  (i) **Igw-ledger repair**: two truncation-recovery commits landed
+  (REE_assembly `5f564231eab` restoring 16cc032db06's truncation;
+  `b08e48f1b88`, `2a2ebce03bd` landing 45 stranded log lines from the
+  Mac master g10 wedge). Two run entries dropped from
+  `claim_evidence.v1.json` by a regen on a wedged checkout restored
+  (`3849de1f04e`).
+  (j) **Coordination-plane background** stable: phase2b materializer
+  ticks (`REE_Working` `7e2d5544d`); dispatch-budget lease ticks (`REE_Working`
+  `c94f66642`, `96e50d584`, `5d5fc244a`, `fc1ed54db`); phase3-queue
+  snapshots (multiple ree-v3 commits); igw auto-tick sweeps.
+  This attestation itself is the last content change:
+  `docs/ree-v3-spec.md` §0 date bump + Experiment Status entry, and
+  the paired `docs/roadmap.md` snapshot, plus nav/status/goblin
+  re-stamp. **Bottleneck: unchanged in location, sharpened by the
+  eight new governance flags** -- the H-observation-interface
+  convergence axis remains open (SD-106 partially-validated); the fresh
+  `evidence_discrepancy` + `contested_disposition` bucket (INV-063,
+  MECH-018, MECH-043, MECH-066, MECH-131, MECH-204, MECH-266, MECH-566,
+  ARC-029, SD-032a) is the queue-clearing next move for
+  `/governance`. Multiple author-and-refuse cycles this window
+  (V3-EXQ-541d/1061/1066/1067/1068) are the red-team gate working as
+  designed -- five BLOCKING refusals is the throughput of the queue
+  under a substrate that has to be worked around, not through. Green-board
+  target 2026-07-19 now **63 days overdue**. **ETHICS-PERIMETER
+  Phase 0 datum** stays on the record (Phases 1-3 deferred;
+  NON-BLOCKING). Public-information-architecture impact: reviewed
+  against `docs/design/public_information_architecture.md` -- no
+  `/api/*` surface, generated visualization, or public export
+  changed; nightly snapshot + spec date bump + Experiment Status
+  entry only; no SD table rows added, moved, or restatused.
 
 - **2026-09-19T01:10Z nightly attestation (scheduled `/update-docs`, bot
   identity).** ~72h window since the 2026-09-16T01:10Z snapshot --
