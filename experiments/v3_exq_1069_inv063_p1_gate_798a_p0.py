@@ -212,9 +212,14 @@ ANCHOR_REACHABILITY_EXEMPT = (
     "R2's predicate/threshold are inherited verbatim from V3-EXQ-701c via 798a and "
     "measured clearing three times on this exact instrument and base (798a 1.0 at "
     "per-seed 0.986/0.982/0.989; V3-EXQ-1063 0.9967; this session 0.9980/0.9967/"
-    "0.9992) against a 0.10 floor. P4 is a config equality check and "
-    "mel_window_populated is a count >= 1 -- reachable by construction. R1 is scoped "
-    "out of the gate and routes nothing."
+    "0.9992) against a 0.10 floor. P4 is a config equality check whose reachability "
+    "was NOT free and is therefore VERIFIED rather than asserted: its first version "
+    "read flat attribute names that from_dims routes into nested sub-configs, "
+    "reported cfg_ok=False on every run, and was caught by the authoring smoke -- the "
+    "shipped version uses dotted paths checked against a live REEConfig and observed "
+    "passing. mel_window_populated is a count >= 1 and the restore control is a "
+    "torch.equal identity, both reachable by construction. R1 is scoped out of the "
+    "gate and routes nothing."
 )
 
 # --- 798a ENV_BASE, transcribed verbatim (798a :410-423) --------------------
@@ -272,10 +277,22 @@ ARMS: Tuple[Tuple[str, int, int], ...] = (
 
 # P4: the config fields whose drift would make this run NOT 798a's. Asserted back
 # off the LIVE agent, not trusted from the builder.
+#
+# DOTTED PATHS, and that is the point. These are NOT top-level REEConfig attributes
+# -- from_dims routes them into nested sub-configs, so a naive
+# getattr(agent.config, "alpha_world") returns None. The authoring smoke caught
+# exactly that: the first version of this gate read the flat names, got None on all
+# three, and reported cfg_ok=False, which would have routed EVERY run to
+# substrate_not_ready_requeue forever -- a gate unmeetable by construction, i.e. the
+# precise failure mode the readiness-anchor lint exists to catch. Verified at
+# authoring time against a live REEConfig.from_dims(...) that these paths resolve and
+# carry the 798a values.
 REQUIRED_AGENT_CONFIG: Dict[str, Any] = {
-    "alpha_world": 0.9,
-    "self_dim": 32,
-    "world_dim": 32,
+    "latent.alpha_world": 0.9,
+    "latent.alpha_self": 0.3,
+    "latent.self_dim": 32,
+    "latent.world_dim": 32,
+    "e2.world_dim": 32,
 }
 
 ETHICS_PREFLIGHT = {
@@ -567,11 +584,17 @@ def _assert_798a_config(agent: REEAgent) -> Dict[str, Any]:
     degraded z_world fidelity; MEL is a world-prediction quantity, so a silent
     revert to the default would make this run NOT the thing it claims to be."""
     out: Dict[str, Any] = {}
-    for key, want in REQUIRED_AGENT_CONFIG.items():
-        got = getattr(agent.config, key, None)
-        out[key] = {"want": want, "got": (float(got) if isinstance(got, (int, float))
-                                          else got),
-                    "ok": bool(got is not None and float(got) == float(want))}
+    for path, want in REQUIRED_AGENT_CONFIG.items():
+        node: Any = agent.config
+        for part in path.split("."):
+            node = getattr(node, part, None)
+            if node is None:
+                break
+        got = node
+        out[path] = {"want": want,
+                     "got": (float(got) if isinstance(got, (int, float)) else got),
+                     "ok": bool(isinstance(got, (int, float))
+                                and float(got) == float(want))}
     return out
 
 
@@ -698,10 +721,13 @@ def run_cell(arm_id: str, interval: int, depth: int, seed: int,
 # ---------------------------------------------------------------------------
 def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
     seeds = list(SEEDS[:1]) if dry_run else list(SEEDS)
-    p0_steps = 180 if dry_run else P0_STEPS
-    meas_steps = 180 if dry_run else MEAS_STEPS
-    probe_steps = 40 if dry_run else PROBE_STEPS
-    probe_size = 16 if dry_run else PROBE_BATTERY_SIZE
+    # Dry-run budgets are small ON PURPOSE: this env is ~0.93 s/step (798a's own
+    # measured cost), so a smoke at the real budgets would take hours. Every code
+    # path is still exercised -- P0 trains, both probes run, all four arms measure.
+    p0_steps = 30 if dry_run else P0_STEPS
+    meas_steps = 30 if dry_run else MEAS_STEPS
+    probe_steps = 10 if dry_run else PROBE_STEPS
+    probe_size = 4 if dry_run else PROBE_BATTERY_SIZE
 
     t0 = time.time()
     rows: Dict[Tuple[str, int], Dict[str, Any]] = {}
