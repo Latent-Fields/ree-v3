@@ -117,32 +117,45 @@ item (2) is still open.
 HOW THE THREE ARMS ARE READ TOGETHER (pre-registered; this is the attribution)
 ------------------------------------------------------------------------------
 Three occupancy gates are computed on the PRIMARY rail arm (ARM_SYMMETRIC), one
-per bound arm. `squash` graded is the LOAD-BEARING criterion, unchanged. The
-other two are ATTRIBUTION, and the readings are fixed in advance:
+per bound arm. `squash` graded is the LOAD-BEARING criterion and decides the
+OUTCOME, unchanged. The other two are ATTRIBUTION: they decide what a PASS or a
+null MEANS, and they alone drive `evidence_direction_per_claim`. Every cell below
+is entailed by something the run measures; no cell writes a direction the
+measurement cannot support. (Rows marked [RT2] were added or corrected by the
+second red-team pass -- see RED-TEAM PASS 2 below.)
 
-  squash    clamp_gain_matched   ->  attribution                        SD-032a
-  graded?   graded?
+  condition                                        attribution            SD-032a
   ---------------------------------------------------------------------------
-  YES       NO                   ->  GRADEDNESS. The mixed regime needs the       supports
-                                     graded bound; the gain cut alone does
-                                     not produce it.
-  YES       YES                  ->  GAIN, NOT GRADEDNESS. The mixed regime       non_contributory
-                                     is reachable with a DEGENERATE bound
-                                     once the drive gain is cut, so the PASS
-                                     does NOT evidence gradedness. Recorded
-                                     as PASS (the ratified criterion did
-                                     pass) but explicitly NOT as support.
-  NO        NO, and occupancy    ->  RESIDUAL DISCRETENESS that is cap-,          weakens
-            does not move        ->  operator- AND gain-INDEPENDENT. With the
-            across any arm           margin demonstrably responding, this
-            (all three cells         isolates the item-(2) boolean commitment
-            equal within eps)        latch as the remaining source.
-  NO        NO, but occupancy    ->  BANG-BANG PERSISTS. Occupancy does respond    weakens
-            DOES move                to gain and/or gradedness, but never into
-                                     a reproducible mixed band.
-  (any)     clamp_baseline       ->  BASELINE DIVERGENCE from V3-EXQ-934. The     non_contributory
-            graded                   contrast is not interpretable until
-                                     explained; routed as such, no direction.
+  clamp_baseline graded (checked FIRST)            baseline_divergence    non_contributory
+      -> divergence from V3-EXQ-934; the contrast is not interpretable
+         until explained, so nothing else is read.
+  squash graded + gain_matched graded              gain                   non_contributory
+      -> the mixed regime is ALSO reachable with a DEGENERATE bound once
+         the drive gain is cut, so the PASS does not evidence gradedness.
+  squash graded + gain_match_valid FALSE   [RT2]   undetermined_control_  non_contributory
+      -> the control did not actually reproduce      mismatched
+         the gain cut on the realized engagement trace, so "the control
+         failed to grade" cannot be read as "gradedness is what mattered".
+  squash graded + gain_matched NOT graded          gradedness             SUPPORTS
+      + gain_match_valid TRUE
+      -> the ONLY path to `supports`. The graded bound is what buys the
+         mixed regime, and the control demonstrably controlled for gain.
+  gain_matched graded + squash NOT graded  [RT2]   gain                   non_contributory
+      -> the mixed regime is reached by the gain cut alone. Previously
+         UNROUTED: it fell through to a branch whose route_reason asserted
+         "no_arm_graded" (false) and recorded `weakens` (wrong).
+  none graded + occupancy static across all        item_2_commitment_     weakens
+      three arms + et_sat_mean > 0                   latch
+      -> residual discreteness that is cap-, operator- AND gain-independent,
+         with the latch demonstrably firing. Isolates entry item (2).
+  none graded + occupancy static + et_sat   [RT2]  static_but_latch_not_  non_contributory
+      == 0                                           implicated
+      -> static, but the boolean latch NEVER FIRED, so it cannot be the
+         source. Naming it would be an unsupported attribution.
+  none graded + occupancy shifts between arms      mixed_gain_and_        weakens
+                                                     gradedness_insufficient
+      -> occupancy responds to gain and/or gradedness but never lands a
+         reproducible mixed band; bang-bang persists.
 
 The two decomposition quantities are recorded as telemetry with NO threshold:
   occ_shift_gain        = mean |occ(clamp_gain_matched) - occ(clamp_baseline)|
@@ -207,6 +220,55 @@ and BOTH eval operators are applied to the same trained agent. use_closure_opera
 OFF (closure injects a confounding mode-switch signal).
 
 Cells = BOUND_MODE x CAP x ARM per seed = 2 x 5 x 2 = 20 (934 had 10).
+
+RED-TEAM PASS 2 (model fable) -- CONTESTED, all four findings verified and fixed
+--------------------------------------------------------------------------------
+The revised three-arm design was re-reviewed once (licensed: the BLOCKING finding
+had changed the manipulation). Verdict CONTESTED: the load-bearing criterion
+discriminates and the three-arm fix works at its derivation point, but four
+defects in the ATTRIBUTION half were found. All four were reproduced against
+source before being fixed.
+
+F1 ROUTING GAP. The (squash NOT graded, gain_matched graded) cell was unrouted:
+   it fell to the final else, whose route_reason asserted "no_arm_graded" -- false
+   -- and recorded SD-032a `weakens`, when the table's own logic makes it a
+   GAIN reading. Confirmed by replaying the branch chain over all four gate
+   combinations, and it is the shape the authoring smoke produced (cap 1.0
+   ARM_SYMMETRIC: gain_matched 0.1944 mixed, squash 1.0 saturated). FIXED: it has
+   its own branch and routes non_contributory.
+
+F2 THE GAIN MATCH HOLDS ONLY AT e = 1.0. For every cap >= 1.0 at engagement below
+   1, the control carries LESS external_task gain than the squash (at cap 1.0,
+   e = 0.5: squash 1.00 vs control 0.75), so "the control did not grade" can be
+   caused by the control OVER-cutting rather than by gradedness mattering -- a
+   false-positive path to `supports`. An earlier version of this file called that
+   residual "conservative"; that was WRONG and is corrected in
+   gain_match_quality_note. FIXED: each cell now records the REALIZED drive
+   contribution under all three arm definitions on its own engagement trace, and
+   the gradedness attribution is gated on `gain_match_valid` -- the residual
+   mismatch must be smaller than the gain cut the control exists to reproduce.
+   The 1.0 boundary is DEFINITIONAL (a control whose error exceeds the effect it
+   controls for has not controlled for it), not a tuned threshold on the DV.
+
+F3 THE LATCH ATTRIBUTION WAS NOT ENTAILED. "occupancy static across all three
+   arms" was routed to the item-(2) commitment latch unconditionally, but that
+   reading is also produced by engagement sitting near ZERO (goal inactive), in
+   which case the latch never fired and cannot be the source. FIXED: the latch
+   attribution now requires et_sat_mean > 0; otherwise it routes
+   `static_but_latch_not_implicated`, non_contributory.
+
+F4 THE DRIVE-READINESS PRECONDITION COULD NOT SEE A DEAD DRIVE -- an INHERITED
+   defect, carried verbatim from V3-EXQ-934. Measured on the real coordinator with
+   the external_task_drive signal at EXACTLY 0.0, the external_task margin still
+   reads 0.3287-0.4950 across the swept caps, 6.6x to 9.9x the 0.05 floor, because
+   the margin is floored by `external_task_bias = 1.0` rather than by the drive.
+   So the precondition passed through the very failure its own description names
+   (a goal_state drop hard-gating engagement to 0.0 -- the V3-EXQ-464d signature).
+   FIXED: a second precondition, `external_task_drive_signal_nonzero`, asserts the
+   drive's OWN value (a zero-test, not a tuned threshold), and the margin
+   precondition's description now states its real scope. Worth governance
+   attention on its own account, since V3-EXQ-934 carries the margin precondition
+   alone.
 
 DEPENDENT VARIABLE (LOAD-BEARING) -- OCCUPANCY
 ----------------------------------------------
@@ -318,6 +380,7 @@ from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.cingulate.salience_coordinator import (  # noqa: E402
     AFFINITY_BOUND_CLAMP,
     AFFINITY_BOUND_SQUASH,
+    bound_affinity_input,
 )
 from ree_core.environment.causal_grid_world import CausalGridWorldV2  # noqa: E402
 from ree_core.utils.config import REEConfig  # noqa: E402
@@ -850,6 +913,19 @@ def _eval_cell(
     coord_ticks = int(coord.diagnostics.get("n_ticks", 0)) - coord_ticks_start
 
     n_et = len(et_drive_values)
+    # F2 (red-team pass 2): the gain match is derived at engagement e = 1.0. Record
+    # what each arm's drive contribution ACTUALLY was on this cell's own engagement
+    # trace, so the control's validity is MEASURED rather than assumed.
+    realized_contrib: Dict[str, float] = {}
+    for _arm in BOUND_ARMS:
+        _w = bound_arm_drive_weight(_arm, cap)
+        _op = BOUND_ARM_OPERATOR[_arm]
+        realized_contrib[_arm] = (
+            float(sum(_w * bound_affinity_input(v, float(cap), _op,
+                                                AFFINITY_SQUASH_SIGMA)
+                      for v in et_drive_values) / n_et)
+            if n_et else 0.0
+        )
     # Item (2) attribution: engagement pinned at EXACTLY 1.0 is the boolean
     # commitment latch saturating (agent.py:7870/:7881).
     et_saturated = sum(1 for v in et_drive_values if v >= 1.0)
@@ -874,6 +950,9 @@ def _eval_cell(
         "ext_margin_max": round(margins_sorted[-1], 6) if margins_sorted else 0.0,
         # --- commitment-latch attribution telemetry (entry item (2)) ---
         "et_drive_mean": round(float(sum(et_drive_values) / n_et), 6) if n_et else 0.0,
+        # realized drive logit contribution under each arm definition, on THIS
+        # cell's engagement trace (F2 -- measures whether the gain match held).
+        "realized_drive_contrib": {k: round(v, 6) for k, v in realized_contrib.items()},
         "et_drive_saturated_frac": round(et_saturated / n_et, 4) if n_et else 0.0,
         "et_drive_zero_frac": round(et_zero / n_et, 4) if n_et else 0.0,
         # --- does the operator bite on the signal it acts on? ---
@@ -902,6 +981,8 @@ def _aborted_seed_record(seed: int, stage: str, reason: str) -> Dict[str, Any]:
         "cells": [],
         "max_margin_mean": 0.0,
         "margin_engaged": False,
+        "max_et_drive_mean": 0.0,
+        "drive_engaged": False,
     }
 
 
@@ -1015,11 +1096,18 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int,
 
     max_margin_mean = max((float(c["ext_margin_mean"]) for c in cells), default=0.0)
     margin_engaged = bool(max_margin_mean > MARGIN_FLOOR)
+    # F4 (red-team pass 2): the margin floor CANNOT detect a dead drive -- with the
+    # external_task_drive signal at exactly 0.0 the margin still reads 0.33-0.50
+    # (measured), because it is floored by external_task_bias = 1.0, not by the
+    # drive. So the drive's OWN engagement is asserted separately, as a zero-test.
+    max_et_drive_mean = max((float(c["et_drive_mean"]) for c in cells), default=0.0)
+    drive_engaged = bool(max_et_drive_mean > 0.0)
 
     print(f"  [seed] seed={seed} max_margin={max_margin_mean:.4f}"
           f" margin_engaged={margin_engaged} n_cells={len(cells)}", flush=True)
-    print(f"verdict: {'PASS' if (guard_pass and margin_engaged) else 'FAIL'}"
+    print(f"verdict: {'PASS' if (guard_pass and margin_engaged and drive_engaged) else 'FAIL'}"
           f" seed={seed} guard_pass={guard_pass} margin_engaged={margin_engaged}"
+          f" drive_engaged={drive_engaged}"
           f" (contact_rate={p2.contact_rate:.4f}"
           f" z_goal_at_contact={p2.z_goal_norm_at_contact_peak:.4f})", flush=True)
 
@@ -1037,6 +1125,8 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int,
         "cells": cells,
         "max_margin_mean": round(max_margin_mean, 6),
         "margin_engaged": margin_engaged,
+        "max_et_drive_mean": round(max_et_drive_mean, 6),
+        "drive_engaged": drive_engaged,
     }
 
 
@@ -1109,6 +1199,10 @@ def run_experiment(dry_run: bool = False,
     margin_flags = [bool(r.get("margin_engaged", False)) for r in guard_passing]
     margin_frac = _frac(margin_flags)
     margin_ready_met = bool(margin_frac >= MIN_FRACTION)
+    # F4: the DRIVE's own engagement, which the margin floor cannot see.
+    drive_flags = [bool(r.get("drive_engaged", False)) for r in guard_passing]
+    drive_frac = _frac(drive_flags)
+    drive_ready_met = bool(drive_frac >= MIN_FRACTION)
 
     # All cells from guard-passing seeds -- the gate is called over these.
     all_cells: List[Dict[str, Any]] = [c for r in guard_passing for c in r.get("cells", [])]
@@ -1247,12 +1341,45 @@ def run_experiment(dry_run: bool = False,
     gain_r2_primary = _mean_r2(BOUND_ARM_CLAMP_GAINMATCHED)
 
     # --- TELEMETRY: commitment-latch attribution (entry item (2), still OPEN) ---
+    et_mean_vals = [float(c["et_drive_mean"]) for c in all_cells]
+    et_drive_mean_overall = (round(float(sum(et_mean_vals) / len(et_mean_vals)), 6)
+                             if et_mean_vals else 0.0)
     et_sat_vals = [float(c["et_drive_saturated_frac"]) for c in all_cells]
     et_sat_mean = round(float(sum(et_sat_vals) / len(et_sat_vals)), 4) if et_sat_vals else 0.0
     et_sat_max = round(max(et_sat_vals), 4) if et_sat_vals else 0.0
     pe_over_vals = [float(c["dacc_pe_over_cap_frac"]) for c in all_cells]
     pe_over_mean = round(float(sum(pe_over_vals) / len(pe_over_vals)), 4) if pe_over_vals else 0.0
     pe_abs_max = round(max((float(c["dacc_pe_abs_max"]) for c in all_cells), default=0.0), 4)
+
+    # --- F2: DID THE GAIN-MATCHED CONTROL ACTUALLY REPRODUCE THE GAIN CUT? ---
+    # Measured on the clamp_baseline cells' own engagement traces: the residual
+    # mismatch between the control and the squash, as a FRACTION of the gain cut the
+    # control exists to reproduce. The boundary at 1.0 is DEFINITIONAL, not tuned --
+    # a control whose residual error exceeds the very effect it controls for has not
+    # controlled for it, so the gradedness attribution is not licensed.
+    _ref = [c for c in all_cells
+            if c["bound_arm"] == BOUND_ARM_CLAMP and c["arm"] == PRIMARY_ARM]
+    _resid, _effect = [], []
+    for c in _ref:
+        rc = c.get("realized_drive_contrib") or {}
+        if not all(k in rc for k in BOUND_ARMS):
+            continue
+        _resid.append(abs(rc[BOUND_ARM_SQUASH] - rc[BOUND_ARM_CLAMP_GAINMATCHED]))
+        _effect.append(abs(rc[BOUND_ARM_CLAMP] - rc[BOUND_ARM_SQUASH]))
+    gain_match_residual_mean = (round(float(sum(_resid) / len(_resid)), 6)
+                                if _resid else None)
+    gain_cut_effect_mean = (round(float(sum(_effect) / len(_effect)), 6)
+                            if _effect else None)
+    gain_match_residual_fraction = (
+        round(gain_match_residual_mean / gain_cut_effect_mean, 6)
+        if (gain_match_residual_mean is not None and gain_cut_effect_mean)
+        else None
+    )
+    # Licensed only when the control demonstrably reproduced the gain it controls for.
+    gain_match_valid = bool(
+        gain_match_residual_fraction is not None
+        and gain_match_residual_fraction < 1.0
+    )
 
     # --- ROUTING (the pre-registered three-arm attribution table; see docstring) ---
     attribution = None
@@ -1264,6 +1391,12 @@ def run_experiment(dry_run: bool = False,
         outcome = "FAIL"
         readiness_route = "substrate_not_ready_requeue"
         route_reason = "external_task_drive_not_engaging"
+    elif not drive_ready_met:
+        # The external_task_drive signal itself is dead on too many seeds -- the
+        # 464d goal_state-drop signature. Never read as gradedness evidence.
+        outcome = "FAIL"
+        readiness_route = "substrate_not_ready_requeue"
+        route_reason = "external_task_drive_signal_never_nonzero"
     elif not operator_manipulation_landed:
         # The clamp and squash arms produced bit-identical continuous margins on
         # PAIRED cells. Since the cells share RNG and env by construction, this is a
@@ -1287,14 +1420,32 @@ def run_experiment(dry_run: bool = False,
         readiness_route = "mixed_regime_attributable_to_drive_gain_not_gradedness"
         route_reason = "squash_and_gain_matched_clamp_both_graded"
         attribution = "gain"
+    elif squash_graded and not gain_match_valid:
+        # Squash grades and the control does not -- but the control did NOT actually
+        # reproduce the gain cut on the realized engagement trace (F2), so "the
+        # control failed to grade" cannot be read as "gradedness is what mattered".
+        outcome = "PASS"
+        readiness_route = "squash_admits_mixed_regime_attribution_undetermined_control_mismatched"
+        route_reason = "gain_match_residual_exceeds_the_gain_cut_it_controls_for"
+        attribution = "undetermined_control_mismatched"
     elif squash_graded:
-        # Squash grades, the gain-matched clamp does not -> the graded bound is what
-        # buys the mixed regime.
+        # Squash grades, the gain-matched clamp does not, AND the control genuinely
+        # reproduced the gain -> the graded bound is what buys the mixed regime.
         outcome = "PASS"
         readiness_route = "squash_operator_admits_mixed_regime_attributable_to_gradedness"
-        route_reason = "squash_graded_gain_matched_clamp_not_graded"
+        route_reason = "squash_graded_gain_matched_clamp_not_graded_control_valid"
         attribution = "gradedness"
-    elif occupancy_static_across_arms:
+    elif gain_graded:
+        # F1 (red-team pass 2): the gain-matched clamp grades while the squash does
+        # NOT. The mixed regime is reachable with a DEGENERATE bound at reduced
+        # drive gain, so the effect is GAIN. This cell was previously unrouted and
+        # fell through to a branch whose route_reason asserted "no_arm_graded" and
+        # recorded SD-032a weakens -- factually wrong on both counts.
+        outcome = "FAIL"
+        readiness_route = "mixed_regime_reached_by_gain_only_squash_did_not_grade"
+        route_reason = "gain_matched_clamp_graded_squash_not_graded"
+        attribution = "gain"
+    elif occupancy_static_across_arms and et_sat_mean > 0.0:
         # Nothing moves the discrete occupancy -- not the cap, not the gain, not the
         # gradedness -- while the continuous margin demonstrably responds. That
         # isolates a cap-, operator- AND gain-INDEPENDENT residual, which is exactly
@@ -1303,6 +1454,16 @@ def run_experiment(dry_run: bool = False,
         readiness_route = "residual_discreteness_cap_and_operator_independent_isolates_commitment_latch"
         route_reason = "occupancy_static_across_all_three_arms_margin_responds"
         attribution = "item_2_commitment_latch"
+    elif occupancy_static_across_arms:
+        # F3 (red-team pass 2): occupancy is static across all three arms, but the
+        # boolean commitment latch DEMONSTRABLY NEVER FIRED (et_sat_mean == 0), so
+        # the residual discreteness cannot be attributed to it. Something else --
+        # e.g. an inactive goal leaving engagement near zero -- produced the static
+        # reading. Naming the latch here would be an unsupported attribution.
+        outcome = "FAIL"
+        readiness_route = "occupancy_static_across_arms_but_commitment_latch_never_fired"
+        route_reason = "occupancy_static_with_et_drive_never_saturated_source_unidentified"
+        attribution = "static_but_latch_not_implicated"
     else:
         # Occupancy DOES respond to gain and/or gradedness, but never lands a
         # reproducible mixed band. Bang-bang persists for a reason this design has
@@ -1319,6 +1480,9 @@ def run_experiment(dry_run: bool = False,
         sd032a_dir = "supports"
     elif attribution in ("item_2_commitment_latch", "mixed_gain_and_gradedness_insufficient"):
         sd032a_dir = "weakens"
+    elif attribution in ("gain", "undetermined_control_mismatched",
+                         "static_but_latch_not_implicated", "baseline_divergence"):
+        sd032a_dir = "non_contributory"
     else:
         # "gain", "baseline_divergence", or any not-ready route.
         sd032a_dir = "non_contributory"
@@ -1357,8 +1521,8 @@ def run_experiment(dry_run: bool = False,
           f" moves_occupancy={operator_moves_occupancy}"
           f" r2_clamp={clamp_r2_primary} r2_squash={squash_r2_primary}"
           f" r2_gain_matched={gain_r2_primary}", flush=True)
-    print(f"[{EXPERIMENT_TYPE}] latch_telemetry et_saturated_frac"
-          f" mean={et_sat_mean} max={et_sat_max}"
+    print(f"[{EXPERIMENT_TYPE}] latch_telemetry et_drive_mean={et_drive_mean_overall}"
+          f" et_saturated_frac mean={et_sat_mean} max={et_sat_max}"
           f" dacc_pe_over_cap_frac_mean={pe_over_mean} dacc_pe_abs_max={pe_abs_max}",
           flush=True)
     print(f"[{EXPERIMENT_TYPE}] -> outcome={outcome} route={readiness_route}", flush=True)
@@ -1371,6 +1535,10 @@ def run_experiment(dry_run: bool = False,
         "n_guard_passing_seeds": len(guard_passing),
         "margin_ready_met": margin_ready_met,
         "margin_ready_fraction": margin_frac,
+        "drive_ready_met": drive_ready_met,
+        "drive_ready_fraction": drive_frac,
+        "gain_match_valid": gain_match_valid,
+        "gain_match_residual_fraction": gain_match_residual_fraction,
         "squash_symmetric_graded": squash_graded,
         "clamp_symmetric_graded_baseline": clamp_graded,
         "gain_matched_clamp_symmetric_graded": gain_graded,
@@ -1423,13 +1591,39 @@ def run_experiment(dry_run: bool = False,
                            "which must self-route substrate_not_ready_requeue and "
                            "NOT be read as gradedness evidence either way.",
             "control": "fraction of guard-passing seeds whose best cell's "
-                       "ext_margin_mean clears MARGIN_FLOOR. The pre-authoring "
-                       "probe measured 0.33-0.50 across the swept band under BOTH "
-                       "operators, ~7-10x this floor.",
+                       "ext_margin_mean clears MARGIN_FLOOR. NOTE its real scope: "
+                       "this asserts that ARBITRATION produces an external_task "
+                       "signal, NOT that the DRIVE does -- see the next "
+                       "precondition, which is the one that can see a dead drive.",
             "measured": round(margin_frac, 4),
             "threshold": MIN_FRACTION,
             "direction": "lower",
             "met": margin_ready_met,
+        },
+        {
+            "name": "external_task_drive_signal_nonzero",
+            "kind": "readiness",
+            "description": "The external_task_drive SIGNAL must itself be nonzero "
+                           "on >= 2/3 guard-passing seeds. This exists because the "
+                           "margin precondition above CANNOT detect a dead drive: "
+                           "measured on the real coordinator, with the drive signal "
+                           "at EXACTLY 0.0 the external_task margin still reads "
+                           "0.3287-0.4950 across the swept caps -- 6.6x to 9.9x the "
+                           "0.05 floor -- because the margin is floored by "
+                           "external_task_bias = 1.0, not by the drive. The margin "
+                           "precondition therefore passes through the very failure "
+                           "its own description names (a goal_state drop hard-gating "
+                           "engagement to 0.0, the V3-EXQ-464d signature). This is "
+                           "the same-statistic fix: the drive's own value is what is "
+                           "asserted. Inherited defect -- V3-EXQ-934 carries the "
+                           "margin precondition alone.",
+            "control": "fraction of guard-passing seeds whose best cell has "
+                       "et_drive_mean > 0. A zero-test, not a tuned threshold: a "
+                       "drive that is never nonzero anywhere cannot be engaging.",
+            "measured": round(drive_frac, 4),
+            "threshold": MIN_FRACTION,
+            "direction": "lower",
+            "met": drive_ready_met,
         },
     ]
 
@@ -1500,7 +1694,8 @@ def run_experiment(dry_run: bool = False,
     )
 
     crit_non_degenerate = bool(
-        contact_non_vacuity_met and margin_ready_met and operator_manipulation_landed
+        contact_non_vacuity_met and margin_ready_met and drive_ready_met
+        and operator_manipulation_landed
     )
 
     readout = flat_readout({
@@ -1517,6 +1712,13 @@ def run_experiment(dry_run: bool = False,
         "margin_ready_met": margin_ready_met,
         "margin_ready_fraction": margin_frac,
         "margin_floor": MARGIN_FLOOR,
+        "drive_ready_met": drive_ready_met,
+        "drive_ready_fraction": drive_frac,
+        # did the gain-matched control actually reproduce the gain cut? (F2)
+        "gain_match_valid": gain_match_valid,
+        "gain_match_residual_fraction": gain_match_residual_fraction,
+        "gain_match_residual_mean": gain_match_residual_mean,
+        "gain_cut_effect_mean": gain_cut_effect_mean,
         # the load-bearing DV, and the reported baseline
         "squash_symmetric_graded": squash_graded,
         "squash_longest_adjacent_run": int(squash_primary.get("longest_adjacent_run", 0)),
@@ -1528,6 +1730,8 @@ def run_experiment(dry_run: bool = False,
         "attribution_is_gradedness": bool(attribution == "gradedness"),
         "attribution_is_gain": bool(attribution == "gain"),
         "attribution_is_item2_latch": bool(attribution == "item_2_commitment_latch"),
+        "attribution_is_undetermined_control_mismatched":
+            bool(attribution == "undetermined_control_mismatched"),
         # three-arm occupancy decomposition (telemetry, no threshold)
         "occ_shift_gain": occ_shift_gain,
         "occ_shift_gradedness": occ_shift_gradedness,
@@ -1554,6 +1758,11 @@ def run_experiment(dry_run: bool = False,
         # commitment-latch attribution telemetry (entry item (2), OPEN)
         "et_drive_saturated_frac_mean": et_sat_mean,
         "et_drive_saturated_frac_max": et_sat_max,
+        # Mean engagement -- HOW GOOD THE GAIN MATCH ACTUALLY WAS. The match is
+        # exact at e = 1.0; the further this sits below 1.0, the more the
+        # gain-matched clamp arm UNDER-delivers relative to the squash, and the
+        # more conservative the gradedness component reads.
+        "et_drive_mean": et_drive_mean_overall,
         "dacc_pe_over_cap_frac_mean": pe_over_mean,
         "dacc_pe_abs_max": pe_abs_max,
         # sweep shape
@@ -1733,6 +1942,23 @@ def run_experiment(dry_run: bool = False,
                              "regardless of goal proximity.",
                 "et_drive_saturated_frac_mean": et_sat_mean,
                 "et_drive_saturated_frac_max": et_sat_max,
+                "et_drive_mean": et_drive_mean_overall,
+                "gain_match_quality_note":
+                    "The gain match is EXACT at engagement e = 1.0 and degrades "
+                    "below it (at cap 1.0 the squash delivers 3e/(1+e) while the "
+                    "gain-matched clamp delivers 1.5e, so at e = 0.5 they are 1.00 "
+                    "vs 0.75). CORRECTION, from the second red-team pass: an "
+                    "earlier version of this note called that residual "
+                    "'conservative'. It is not. For every cap >= 1.0 at e < 1 the "
+                    "control carries LESS external_task gain than the squash, so "
+                    "'the control did not grade' can be caused by the control "
+                    "OVER-cutting rather than by gradedness mattering -- a "
+                    "false-positive path to the supports branch, which is the "
+                    "opposite of conservative. That is why the gradedness "
+                    "attribution is now gated on gain_match_valid: the residual "
+                    "mismatch, measured on the realized engagement trace, must be "
+                    "smaller than the gain cut the control exists to reproduce. "
+                    "The 1.0 boundary is definitional, not tuned.",
                 "operator_bite_note": "external_task_drive is already bounded to "
                                       "[0,1], so at any cap >= 1.0 BOTH operators "
                                       "are no-ops on it (V3-EXQ-934 failure_record). "
