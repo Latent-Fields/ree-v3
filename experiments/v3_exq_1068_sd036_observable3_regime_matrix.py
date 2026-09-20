@@ -1,10 +1,10 @@
 """V3-EXQ-1068: SD-036 observable #3 -- the shared harm-stream REGIME MATRIX.
 
-*** DO NOT QUEUE. AUTHORED, SMOKE-PASSED, RED-TEAM BLOCKING, NOT QUEUED. ***
-*** A DESIGN DECISION IS OWED BY THE USER BEFORE THIS CAN RUN.            ***
-
-red-team (fable, 2026-09-20): BLOCKING. Three findings, ALL VERIFIED against
-source by the authoring session. Two were FIXED here; the third is the block.
+RED-TEAM HISTORY (both passes recorded; the first BLOCKED this design)
+----------------------------------------------------------------------
+red-team pass 1 (fable, 2026-09-20): BLOCKING. Three findings, all VERIFIED
+against source by the authoring session. Two were FIXED; the third was escalated
+to the user rather than fixed, because the repair changes what gets measured.
 
   [FIXED] `env.step()` returns (flat_obs, harm_signal, done, info, obs_dict)
       (causal_grid_world.py:2476 / :3709). Both unpack sites in this driver bound
@@ -14,32 +14,29 @@ source by the authoring session. Two were FIXED here; the third is the block.
       dry-run manifest: ON and OFF `stream_corr` agreed to 6 significant figures
       (0.05705073 vs 0.05705110). Fixed at both sites. NOTE: V3-EXQ-854:204
       carries the SAME defect in `_record_tape`, which is where this driver
-      inherited it -- reported to /governance, not fixed here.
+      inherited it -- raised as GFLAG-0375, not fixed here.
 
   [FIXED] `_fit_forward_r2` was unstandardised and undertrained, driving
       `r2_affective` to -18247 at smoke scale. Inputs and targets are now
       standardised and the fit minibatched; R^2 is invariant under an affine
       target transform, so this changes conditioning, not the quantity.
 
-  [BLOCKING -- NOT FIXED, USER DECISION OWED] z_beta CANNOT satisfy C1 under any
-      outcome, for a reason that has nothing to do with SD-036. z_beta is
-      zero-initialised (stack.py:1278) and blends 0.3*encode + 0.7*prev
-      (stack.py:1540, :1594), so its trajectory RISES from zero to a plateau. A
-      higher gaba_tone lowers the pole, which makes it reach plateau FASTER, so
-      mean/peak (the sustain ratio) INCREASES with tone. Measured rho = +1.000 on
-      BOTH the readiness tape and the trained eval in this driver's own dry run,
-      and +0.6/+0.2/-0.1 in the landed V3-EXQ-854 at 300 trained steps.
-      The readiness gate as ratified (D0=A) tests SPREAD ONLY, with no sign
-      condition -- z_beta's spread is 1.56e-2, i.e. 15x the 1e-3 floor -- so
-      z_beta is admitted as SCOREABLE and then fails monotonicity with
-      mathematical certainty, carrying C1 down with it and recording
-      `SD-036: weakens` at `non_degenerate: true`. That is a FALSE FALSIFICATION
-      of SD-036's sole architectural commitment, and it is exactly the failure
-      mode the whole D0 decision was taken to prevent.
-      The obvious repair -- adding a SIGN condition to the readiness gate --
-      changes which streams are scoreable and therefore whether SD-036 can be
-      falsified at all. That is a user decision under the consent rule, not an
-      authoring choice, so it was NOT made here.
+  [ESCALATED -> RESOLVED BY USER DECISION, see below] z_beta could not satisfy C1
+      under any outcome: its sustain ratio is monotone INCREASING in tone by
+      construction (measured rho = +1.000 on both the readiness tape and the
+      trained eval), so the original SPREAD-ONLY readiness gate admitted it as
+      scoreable and it then failed the monotonicity bar with certainty, which
+      would have recorded `SD-036: weakens` at `non_degenerate: true` -- a FALSE
+      FALSIFICATION of SD-036's sole architectural commitment.
+
+USER RESOLUTION -- OPTION B (2026-09-20T03:47:20Z): keep z_beta in the cluster and
+score it on the sign-correct DV. The per-stream DV substitution is PRE-REGISTERED
+in the constants below (which stream, which DV, why, and the symmetric rule that
+applies it to any other stream the gate flags), recorded per stream per seed in
+the manifest, and BOTH DVs are measured for EVERY stream, so it cannot be read as
+DV-shopping. z_harm and z_harm_a stay on sustain_ratio with the monotonicity bar.
+The readiness tape now also carries a decay-OFF reference, so the gate scores the
+SAME quantity C1 routes on rather than a V-shaped vs-tone-1.0 proxy.
 
   [RECORDED, emit-only] `pag_n_commits` is pinned at ~0 in both PAG arms.
       `duration_input_threshold = 0.4` (freeze_gate.py:67) but V3-EXQ-854's
@@ -47,16 +44,14 @@ source by the authoring session. Two were FIXED here; the third is the block.
       0.0000 / 0.0067 / 0.0000 of steps above 0.4, so the duration counter never
       accumulates and `commit_value = z * duration` cannot exceed either theta.
       A 0-vs-0 reading is unattributable to theta. No verdict moves (MECH-279 is
-      emit-only, direction "unknown"), but the emitted number is meaningless as
-      it stands.
+      emit-only, direction "unknown"). Raised as GFLAG-0376; the user
+      deliberately assumed NO configuration change, so the leg stays emit-only.
 
-Scores SD-036's observable #3 (the multi-stream cluster), carries SD-011's only
-open measurement (the dissociation under use_gabaergic_decay=True), and emits
-MECH-279's pag_n_commits at theta_freeze 2.0 and 0.8. The claim text commissions
-exactly this joint run ("RUN THIS AS THE GROUP'S SHARED REGIME MATRIX, not as a
-solo experiment").
-
-red-team (fable): see verdict line at the end of this docstring.
+OPEN GOVERNANCE FLAGS on this design's inputs (do NOT wait on them; they are
+/governance's to apply): GFLAG-0372 (three SD-036 stale_notes), GFLAG-0373 (the
+tau-ordering clause is ill-posed -- the composed pole includes alpha, which
+SD-036 never mentions; this run therefore does NOT score tau-ordering, D2=C),
+GFLAG-0374 (the pass-1 refusal), GFLAG-0375, GFLAG-0376.
 
 WHAT IS SCORED, AND WHAT IS NOT
 --------------------------------
@@ -297,6 +292,43 @@ STREAMS: List[str] = ["z_harm", "z_harm_a", "z_beta"]
 REGISTERED_TAUS: Dict[str, float] = {"z_harm": 0.05, "z_harm_a": 0.02, "z_beta": 0.03}
 PRIMARY_STREAM = "z_harm_a"   # SD-036 precondition (iii)
 
+# --- PRE-REGISTERED PER-STREAM DV SUBSTITUTION (user decision OPTION B, ---
+# --- 2026-09-20T03:47:20Z). Declared BEFORE the run, applied by a rule,  ---
+# --- and recorded in the manifest, so it cannot be read as DV-shopping.  ---
+#
+# WHICH STREAM: z_beta.
+# WHICH DV:     shape_deviation_vs_off (scored on its NEGATION, so that the
+#               predicted direction matches the C1_RHO_MAX bar used for every
+#               other stream -- one bar, not a per-stream bar).
+# WHY:          z_beta's sustain ratio is SIGN-INVERTED BY CONSTRUCTION and can
+#               therefore never satisfy a monotone-DECREASING bar, for a reason
+#               that has nothing to do with SD-036. z_beta is zero-initialised
+#               (stack.py:1278) and blends 0.3*encode + 0.7*prev (stack.py:1540,
+#               :1594), so its trajectory RISES from zero to a plateau. A higher
+#               gaba_tone LOWERS the pole, which reaches the plateau FASTER,
+#               which RAISES mean/peak. Measured rho(tone, sustain_ratio) =
+#               +1.000 on both the fixed readiness tape and the trained eval in
+#               this driver's own dry run, and +0.6/+0.2/-0.1 in landed
+#               V3-EXQ-854. Scoring it on sustain_ratio would record a FALSE
+#               falsification of SD-036 (red-team BLOCKING, 2026-09-20).
+#               shape_deviation vs the decay-OFF control has the right sign by
+#               construction: more tone -> more decay -> larger departure from
+#               the no-decay trajectory.
+#
+# THE SYMMETRIC RULE, so this is a rule and not an exception for one stream:
+#   ANY stream whose fixed-tape rho(tone, sustain_ratio) >= SIGN_INVERSION_RHO
+#   is RELIABLY monotone in the WRONG direction, i.e. structurally unable to
+#   meet C1_RHO_MAX on the primary DV. Such a stream is moved to
+#   shape_deviation_vs_off by the SAME rule that moves z_beta, and the move is
+#   recorded per stream in the manifest as `dv_substituted` with its trigger.
+#   A merely NOISY stream (tape rho near 0, e.g. z_harm) is NOT substituted --
+#   it keeps sustain_ratio and is scored on it, because "this stream shows no
+#   dose-response" is a GENUINE scientific reading (SD-036's FALSIFYING first
+#   disjunct) and must stay reachable. Substitution rescues a stream from a
+#   MEASUREMENT artifact; it must never rescue one from a real null.
+PREREGISTERED_DV_SUBSTITUTION: Dict[str, str] = {"z_beta": "shape_deviation_vs_off"}
+SIGN_INVERSION_RHO = 0.9
+
 ARM_OFF = "decay_off_legacy"
 ARM_ON = "decay_on"
 ARM_PAG_HI = "pag_theta_2p0"
@@ -411,12 +443,24 @@ def _record_tape(seed: int, steps: int) -> List[Dict[str, Any]]:
 
 
 def _replay_tape_streams(
-    seed: int, frames: List[Dict[str, Any]], tone: float
+    seed: int,
+    frames: List[Dict[str, Any]],
+    tone: float,
+    *,
+    use_decay: bool = True,
 ) -> Dict[str, np.ndarray]:
-    """Replay the fixed tape into a FRESH ON agent at `tone`; all three streams."""
+    """Replay the fixed tape into a FRESH agent; all three streams.
+
+    `use_decay=False` produces the decay-OFF REFERENCE the readiness gate needs:
+    without it the gate would have to score shape_deviation against the tone-1.0
+    trajectory, which is V-shaped in tone (zero at the reference) and therefore
+    cannot be read by a monotonicity bar -- and, worse, would not be the same
+    quantity C1 actually routes on. Measuring the gate and the criterion on the
+    SAME reference is what stops the gate certifying a different subject.
+    """
     env = B.make_env(seed)
     _, od0 = env.reset()
-    agent = B.make_agent(env, od0, use_gabaergic_decay=True, gaba_tone=tone)
+    agent = B.make_agent(env, od0, use_gabaergic_decay=use_decay, gaba_tone=tone)
     agent.reset()
     agent.eval()
     out: Dict[str, List[float]] = {s: [] for s in STREAMS}
@@ -436,51 +480,79 @@ def _replay_tape_streams(
 
 
 def readiness_control(seed: int) -> Dict[str, Any]:
-    """P0 POSITIVE CONTROL, per stream.
+    """P0 POSITIVE CONTROL, per stream, on BOTH candidate DVs.
 
     Asserts the SAME STATISTIC the load-bearing criterion C1 routes on -- the
-    SPREAD across the tone sweep of each stream's scored DV -- on a condition
-    where the effect is known to exist for at least the primary stream (fixed
-    observation tape, fresh agents).
+    per-stream rho and spread across the tone sweep of that stream's SCORED DV --
+    on a fixed observation tape with fresh agents. Both DVs are measured for
+    EVERY stream, symmetrically, and the DV each stream is scored on is decided
+    by the PRE-REGISTERED rule above (never after seeing the trained result).
 
-    Both DVs are measured for EVERY stream, symmetrically (D0=B), so the
-    fallback is pre-registered rather than selected after seeing the primary.
-    Below the floor on BOTH means the INSTRUMENT cannot express a tone effect on
-    that stream -- never "SD-036 is refuted".
+    Three ways a stream is handled, all recorded:
+      * `scored_dv = sustain_ratio`        -- the default primary DV.
+      * `scored_dv = shape_deviation_vs_off`, `dv_substituted = True` -- either
+        pre-registered (z_beta) or triggered by the symmetric sign-inversion
+        rule (tape rho >= SIGN_INVERSION_RHO on sustain_ratio).
+      * `scored_dv = None`                 -- below the readiness floor on the DV
+        it would be scored on. EXCLUDED from scoring and recorded vacuous for
+        that stream (SD-036 precondition (i)) -- never counted as a failure.
     """
     frames = _record_tape(seed, READINESS_TAPE_STEPS)
     per_tone = {t: _replay_tape_streams(seed, frames, t) for t in TONE_SWEEP}
-    ref = per_tone[BASELINE_TONE]
+    # The decay-OFF reference: the SAME reference C1 scores shape_deviation
+    # against, so the gate and the criterion measure one quantity.
+    ref_off = _replay_tape_streams(seed, frames, BASELINE_TONE, use_decay=False)
 
     streams: Dict[str, Any] = {}
     for s in STREAMS:
         sustain = [B.sustain_ratio(per_tone[t][s]) for t in TONE_SWEEP]
-        # Fallback DV reference is the tone-1.0 trajectory here (no OFF arm
-        # exists on the tape); the scored-arm fallback uses the OFF arm.
-        shape = [B.shape_deviation(per_tone[t][s], ref[s]) for t in TONE_SWEEP]
+        # Negated, exactly as _scored_dv_series does, so one bar (C1_RHO_MAX)
+        # reads both DVs and the sign convention cannot drift between them.
+        shape = [
+            -B.shape_deviation(per_tone[t][s], ref_off[s]) for t in TONE_SWEEP
+        ]
+        sustain_rho = spearman(TONE_SWEEP, sustain)
+        shape_rho = spearman(TONE_SWEEP, shape)
         sustain_spread = float(np.nanmax(sustain) - np.nanmin(sustain))
         shape_spread = float(np.nanmax(shape) - np.nanmin(shape))
+
+        # --- the PRE-REGISTERED substitution decision (see the constants) ---
+        preregistered = s in PREREGISTERED_DV_SUBSTITUTION
+        sign_inverted = bool(
+            sustain_rho is not None and sustain_rho >= SIGN_INVERSION_RHO
+        )
+        substituted = bool(preregistered or sign_inverted)
+        trigger = (
+            "preregistered" if preregistered
+            else ("symmetric_sign_inversion_rule" if sign_inverted else None)
+        )
+        dv = "shape_deviation_vs_off" if substituted else "sustain_ratio"
+        spread = shape_spread if substituted else sustain_spread
+        ready = bool(spread >= READINESS_SPREAD_FLOOR)
+
         streams[s] = {
             "tau_registered": REGISTERED_TAUS[s],
             "sustain_ratios": [float(x) for x in sustain],
             "sustain_spread": sustain_spread,
+            "sustain_rho": sustain_rho,
             "sustain_ready": bool(sustain_spread >= READINESS_SPREAD_FLOOR),
-            "shape_deviations": [float(x) for x in shape],
+            "shape_deviations_negated": [float(x) for x in shape],
             "shape_spread": shape_spread,
+            "shape_rho": shape_rho,
             "shape_ready": bool(shape_spread >= READINESS_SPREAD_FLOOR),
+            # --- the substitution record, per stream, per seed ---
+            "dv_substituted": substituted,
+            "dv_substitution_trigger": trigger,
+            "sign_inversion_rho_threshold": SIGN_INVERSION_RHO,
+            "scored_dv": (dv if ready else None),
+            "scored_dv_spread": spread,
+            "ready_on_scored_dv": ready,
             # Non-gating DV-compression diagnostic: a sustain ratio pinned near
             # its 1.0 ceiling has no room to express a decay effect. Recorded so
-            # a reader can see WHY a stream failed readiness (z_beta sat at
+            # a reader can see WHY a stream behaves as it does (z_beta sat at
             # 0.9896-0.9923 across the whole sweep in V3-EXQ-854).
             "dv_ceiling_headroom": float(1.0 - float(np.nanmax(sustain))),
         }
-        streams[s]["ready_any_dv"] = bool(
-            streams[s]["sustain_ready"] or streams[s]["shape_ready"]
-        )
-        streams[s]["scored_dv"] = (
-            "sustain_ratio" if streams[s]["sustain_ready"]
-            else ("shape_deviation_vs_off" if streams[s]["shape_ready"] else None)
-        )
     return {"seed": seed, "tones": list(TONE_SWEEP), "streams": streams}
 
 
@@ -862,7 +934,13 @@ def evaluate(
             if dv is None:
                 per_stream[s] = {
                     "scored": False,
-                    "reason": "readiness_below_floor_on_both_dvs",
+                    "reason": "readiness_below_floor_on_scored_dv",
+                    "would_have_scored_dv": (
+                        "shape_deviation_vs_off" if info.get("dv_substituted")
+                        else "sustain_ratio"
+                    ),
+                    "dv_substituted": info.get("dv_substituted"),
+                    "dv_substitution_trigger": info.get("dv_substitution_trigger"),
                     "sustain_spread": info.get("sustain_spread"),
                     "shape_spread": info.get("shape_spread"),
                     "dv_ceiling_headroom": info.get("dv_ceiling_headroom"),
@@ -874,6 +952,12 @@ def evaluate(
             per_stream[s] = {
                 "scored": True,
                 "scored_dv": dv,
+                # The pre-registered DV substitution, recorded per stream per
+                # seed so a reader can see the rule fired rather than a choice.
+                "dv_substituted": info.get("dv_substituted"),
+                "dv_substitution_trigger": info.get("dv_substitution_trigger"),
+                "tape_sustain_rho": info.get("sustain_rho"),
+                "tape_shape_rho": info.get("shape_rho"),
                 "measured_rho": rho,
                 "threshold_rho": C1_RHO_MAX,
                 "measured_spread": spread,
@@ -1050,9 +1134,11 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         for s in STREAMS:
             st = k["streams"][s]
             print(
-                f"[readiness] seed={k['seed']} {s}: sustain_spread="
-                f"{st['sustain_spread']:.3e} shape_spread={st['shape_spread']:.3e} "
-                f"scored_dv={st['scored_dv']} headroom={st['dv_ceiling_headroom']:.4f}",
+                f"[readiness] seed={k['seed']} {s}: sustain_rho={st['sustain_rho']} "
+                f"shape_rho={st['shape_rho']} sustain_spread={st['sustain_spread']:.3e} "
+                f"shape_spread={st['shape_spread']:.3e} scored_dv={st['scored_dv']} "
+                f"substituted={st['dv_substituted']}({st['dv_substitution_trigger']}) "
+                f"headroom={st['dv_ceiling_headroom']:.4f}",
                 flush=True,
             )
 
@@ -1131,6 +1217,40 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "readiness_control": readiness,
         "sd011_regime_declaration": regime,
         "registered_taus": dict(REGISTERED_TAUS),
+        # PRE-REGISTERED per-stream DV substitution (user OPTION B,
+        # 2026-09-20T03:47:20Z). Declared before the run, applied by rule, and
+        # recorded here AND per stream per seed under
+        # acceptance.C1_multi_stream_cluster.per_seed[].per_stream[].
+        "dv_substitution": {
+            "preregistered": dict(PREREGISTERED_DV_SUBSTITUTION),
+            "symmetric_rule": (
+                "Any stream whose fixed-tape rho(gaba_tone, sustain_ratio) >= "
+                f"{SIGN_INVERSION_RHO} is reliably monotone in the WRONG direction "
+                "and therefore structurally unable to meet C1_RHO_MAX on the "
+                "primary DV; it is moved to shape_deviation_vs_off by the same "
+                "rule that moves z_beta. A merely NOISY stream (tape rho near 0) "
+                "is NOT substituted -- it keeps sustain_ratio, because 'this "
+                "stream shows no dose-response' is a genuine scientific reading "
+                "(SD-036's FALSIFYING first disjunct) and must stay reachable. "
+                "Substitution rescues a stream from a MEASUREMENT artifact, never "
+                "from a real null."
+            ),
+            "sign_inversion_rho_threshold": SIGN_INVERSION_RHO,
+            "why_z_beta": (
+                "z_beta is zero-initialised (stack.py:1278) and blends "
+                "0.3*encode + 0.7*prev (stack.py:1540, :1594), so its trajectory "
+                "RISES from zero to a plateau. A higher gaba_tone LOWERS the pole, "
+                "which reaches plateau FASTER, which RAISES mean/peak -- so its "
+                "sustain ratio is monotone INCREASING in tone by construction "
+                "(measured rho = +1.000 on both the readiness tape and the trained "
+                "eval; +0.6/+0.2/-0.1 in landed V3-EXQ-854). shape_deviation vs "
+                "the decay-OFF control has the correct sign by construction: more "
+                "tone -> more decay -> larger departure from the no-decay "
+                "trajectory. Scored on its NEGATION so one bar (C1_RHO_MAX) reads "
+                "both DVs."
+            ),
+            "both_dvs_measured_for_every_stream": True,
+        },
         "tau_ordering_test": {
             "scored": False,
             "reason": (
@@ -1147,17 +1267,20 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
                 {
                     "name": f"readiness_sweep_spread_{s}",
                     "description": (
-                        f"fixed-tape sweep spread of {s}'s scored DV clears the "
-                        "readiness floor (SD-036 precondition (i), EVERY stream)"
+                        f"fixed-tape sweep spread of {s}'s SCORED DV clears the "
+                        "readiness floor (SD-036 precondition (i), EVERY stream). "
+                        "The scored DV is sustain_ratio unless the pre-registered "
+                        "substitution rule moved this stream to "
+                        "shape_deviation_vs_off -- see manifest.dv_substitution."
                     ),
                     "measured": min(
-                        (k["streams"][s]["sustain_spread"] for k in readiness),
+                        (k["streams"][s]["scored_dv_spread"] for k in readiness),
                         default=0.0,
                     ),
                     "threshold": READINESS_SPREAD_FLOOR,
                     "direction": "lower",
                     "control": "fixed observation tape, fresh agents, 5-tone sweep",
-                    "met": all(k["streams"][s]["ready_any_dv"] for k in readiness),
+                    "met": all(k["streams"][s]["ready_on_scored_dv"] for k in readiness),
                 }
                 for s in STREAMS
             ],
@@ -1208,9 +1331,14 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     }
     for s in STREAMS:
         sp = [k["streams"][s]["sustain_spread"] for k in readiness]
+        sd = [k["streams"][s]["scored_dv_spread"] for k in readiness]
         readout[f"readiness_sustain_spread_{s}"] = float(np.nanmin(sp)) if sp else 0.0
+        readout[f"readiness_scored_dv_spread_{s}"] = float(np.nanmin(sd)) if sd else 0.0
         readout[f"readiness_ready_{s}"] = int(
-            all(k["streams"][s]["ready_any_dv"] for k in readiness)
+            all(k["streams"][s]["ready_on_scored_dv"] for k in readiness)
+        )
+        readout[f"dv_substituted_{s}"] = int(
+            all(k["streams"][s]["dv_substituted"] for k in readiness)
         )
     pag_rows = [r for r in arm_results if r["arm_id"] in PAG_THETAS]
     for r in pag_rows:
