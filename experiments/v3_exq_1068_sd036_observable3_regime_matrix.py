@@ -1,5 +1,55 @@
 """V3-EXQ-1068: SD-036 observable #3 -- the shared harm-stream REGIME MATRIX.
 
+*** DO NOT QUEUE. AUTHORED, SMOKE-PASSED, RED-TEAM BLOCKING, NOT QUEUED. ***
+*** A DESIGN DECISION IS OWED BY THE USER BEFORE THIS CAN RUN.            ***
+
+red-team (fable, 2026-09-20): BLOCKING. Three findings, ALL VERIFIED against
+source by the authoring session. Two were FIXED here; the third is the block.
+
+  [FIXED] `env.step()` returns (flat_obs, harm_signal, done, info, obs_dict)
+      (causal_grid_world.py:2476 / :3709). Both unpack sites in this driver bound
+      `info` to `done` -- truthy every step -- so `measure_sd011_dvs` called
+      `agent.reset()` on EVERY step, destroying all temporal state and making C2
+      measure a first-tick-after-reset encode in both arms. Confirmed in the
+      dry-run manifest: ON and OFF `stream_corr` agreed to 6 significant figures
+      (0.05705073 vs 0.05705110). Fixed at both sites. NOTE: V3-EXQ-854:204
+      carries the SAME defect in `_record_tape`, which is where this driver
+      inherited it -- reported to /governance, not fixed here.
+
+  [FIXED] `_fit_forward_r2` was unstandardised and undertrained, driving
+      `r2_affective` to -18247 at smoke scale. Inputs and targets are now
+      standardised and the fit minibatched; R^2 is invariant under an affine
+      target transform, so this changes conditioning, not the quantity.
+
+  [BLOCKING -- NOT FIXED, USER DECISION OWED] z_beta CANNOT satisfy C1 under any
+      outcome, for a reason that has nothing to do with SD-036. z_beta is
+      zero-initialised (stack.py:1278) and blends 0.3*encode + 0.7*prev
+      (stack.py:1540, :1594), so its trajectory RISES from zero to a plateau. A
+      higher gaba_tone lowers the pole, which makes it reach plateau FASTER, so
+      mean/peak (the sustain ratio) INCREASES with tone. Measured rho = +1.000 on
+      BOTH the readiness tape and the trained eval in this driver's own dry run,
+      and +0.6/+0.2/-0.1 in the landed V3-EXQ-854 at 300 trained steps.
+      The readiness gate as ratified (D0=A) tests SPREAD ONLY, with no sign
+      condition -- z_beta's spread is 1.56e-2, i.e. 15x the 1e-3 floor -- so
+      z_beta is admitted as SCOREABLE and then fails monotonicity with
+      mathematical certainty, carrying C1 down with it and recording
+      `SD-036: weakens` at `non_degenerate: true`. That is a FALSE FALSIFICATION
+      of SD-036's sole architectural commitment, and it is exactly the failure
+      mode the whole D0 decision was taken to prevent.
+      The obvious repair -- adding a SIGN condition to the readiness gate --
+      changes which streams are scoreable and therefore whether SD-036 can be
+      falsified at all. That is a user decision under the consent rule, not an
+      authoring choice, so it was NOT made here.
+
+  [RECORDED, emit-only] `pag_n_commits` is pinned at ~0 in both PAG arms.
+      `duration_input_threshold = 0.4` (freeze_gate.py:67) but V3-EXQ-854's
+      trained z_harm_a peaks at tone 1.0 are 0.3617 / 0.4106 / 0.3074 with
+      0.0000 / 0.0067 / 0.0000 of steps above 0.4, so the duration counter never
+      accumulates and `commit_value = z * duration` cannot exceed either theta.
+      A 0-vs-0 reading is unattributable to theta. No verdict moves (MECH-279 is
+      emit-only, direction "unknown"), but the emitted number is meaningless as
+      it stands.
+
 Scores SD-036's observable #3 (the multi-stream cluster), carries SD-011's only
 open measurement (the dissociation under use_gabaergic_decay=True), and emits
 MECH-279's pag_n_commits at theta_freeze 2.0 and 0.8. The claim text commissions
@@ -350,7 +400,11 @@ def _record_tape(seed: int, steps: int) -> List[Dict[str, Any]]:
                 hist=_batch(od.get("harm_history")),
             )
         )
-        _, od, _, done, _ = env.step(int(rng.randint(env.action_dim)))
+        # env.step -> (flat_obs, harm_signal, done, info, obs_dict)
+        # (causal_grid_world.py:2476 / :3709). The 5-tuple order is easy to
+        # mis-unpack: V3-EXQ-854:204 binds `info` to `done`, which is truthy
+        # every step and silently resets the tape env on EVERY step.
+        _, _, done, _, od = env.step(int(rng.randint(env.action_dim)))
         if done:
             _, od = env.reset()
     return frames
@@ -547,7 +601,7 @@ def measure_sd011_dvs(agent: REEAgent, env_seed: int) -> Dict[str, Any]:
             oh = np.zeros(n_actions, dtype=np.float64)
             oh[ai] = 1.0
             acts.append(oh)
-            _, od, _, done, _ = env.step(ai)
+            _, _, done, _, od = env.step(ai)   # see _record_tape for the tuple order
             if done:
                 _, od = env.reset()
                 agent.reset()
