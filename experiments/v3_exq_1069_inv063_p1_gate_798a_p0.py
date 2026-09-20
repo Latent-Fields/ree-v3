@@ -15,9 +15,21 @@ leg's DV to be monotone in, whichever readout leg B uses.
 
 The corpus currently disagrees with itself about whether P1 holds:
 
-  V3-EXQ-798a (LANDED, 2026-07-30)   relative spread 0.483 / 0.659 / 0.685, monotone 3/3
-  session probe (2026-09-19, converged base)  0.1369 / 0.1802 / 0.1082, monotone 0/3
-  session probe (2026-09-19, V3-EXQ-1060's unconverged base)  0.097 / 0.105 / 0.104
+  V3-EXQ-798a 20260729, LINUX   P1 met on 2/3 seeds (seed 42 FAILS: not monotone,
+                                registered spread 0.1345; 123 -> 0.9333; 456 -> 2.1730)
+  V3-EXQ-798a 20260730, DARWIN  P1 met on 3/3 seeds (seed 42 -> 1.9349; 123/456 identical
+                                to the linux run to printed precision)
+  session probe (2026-09-19, converged base)   registered spread 0.152 / 0.212 / 0.118
+  session probe (2026-09-19, 1060's base)      (max-min)/max 0.097 / 0.105 / 0.104
+
+THERE ARE TWO LANDED 798a EXECUTIONS AND THEY DISAGREE AT SEED 42 -- found by the
+Step 4.5 red-team, and it is the single most important fact for reading this run.
+Seeds 123 and 456 are identical across both; ONLY seed 42 moves, and it moves across
+every threshold in this design. CLAUDE.md records torch.multinomial returning a
+different category on linux vs darwin from a bit-identical probability tensor, and E3
+selection -- driven every step here -- is where that lives. Under 798a's own rule both
+executions still PASS, but the LINUX one passes at exactly 2/3, i.e. with ZERO MARGIN.
+This run must be read against the execution whose machine_class matches its own.
 
 Same knob, same arm settings, same frozen-window definition of MEL. The session probes used a
 CHEAPER P0 than 798a, and the disagreement was recorded as unexplained
@@ -103,15 +115,23 @@ TWO PHASES PER CELL, both transcribed from 798a
 
 LOAD-BEARING OUTPUT -- exactly what the user scoped, and nothing else
 ----------------------------------------------------------------------
-  C1_mel_monotone_in_intake   mean MEL non-decreasing across the intake-sorted arms, with
-                              798a's MONO_TOL = 0.02 slack relative to the floor arm, on
-                              >= SEED_PASS_FRAC (2/3) of seeds.
-  C2_mel_relative_spread      (max MEL - min MEL) / max MEL > MIN_REL_MEL_SPREAD (0.25), the
-                              V3-EXQ-701c relative criterion INV-063's P1 names, on >= 2/3
-                              seeds.
-PASS iff BOTH (plain AND). Both are P1 AS REGISTERED; neither threshold is new and neither was
-weakened. The absolute ABS_MEL_FLOOR = 1e-4 of 701c is deliberately NOT reused -- INV-063's own
-text calls it "structurally unreachable on a converged base and must NOT be reused".
+  C1_p1_met_per_seed   798a:1015-1017 verbatim. PER SEED: mean MEL non-decreasing across
+                       the intake-sorted arms (MONO_TOL = 0.02 slack relative to the FLOOR
+                       arm) AND relative spread >= MIN_REL_MEL_SPREAD (0.25), where the
+                       spread is the REGISTERED statistic (mel[HIGH] - mel[NONE]) /
+                       mel[NONE] (701c:694, 798a:1017). Then >= SEED_PASS_FRAC (2/3) of
+                       seeds. The monotone and spread components are recorded separately as
+                       D1/D2 but route NOTHING.
+PASS iff C1. Two corrections the Step 4.5 red-team forced, both of which had made this
+script's bar differ from the registered one: (a) the spread statistic was (max - min)/max,
+which is STRICTER -- it is equivalent to (HIGH-NONE)/NONE > 0.333 -- and whose max/min are
+not pinned to HIGH/NONE, so it could pass on a MED-vs-NONE gap with HIGH below MED; (b) the
+two components were counted on INDEPENDENT seed sets, which can PASS a run where no single
+seed met both (A mono-only, B spread-only, C both -> 2/3 and 2/3 split, 1/3 under 798a's
+conjunction). Neither threshold is new and neither was weakened -- the corrections make the
+bar the registered one rather than an adjacent one. The absolute ABS_MEL_FLOOR = 1e-4 of 701c
+is deliberately NOT reused: INV-063's own text calls it "structurally unreachable on a
+converged base and must NOT be reused".
 
 PRE-REGISTERED GO/NO-GO, committed here before the run so it cannot be re-read afterwards
 -------------------------------------------------------------------------------------------
@@ -147,6 +167,44 @@ CONTENT the frozen model is wrong about; a mean is not invariant under it. The c
 RANGE across arms (C2) and an ORDER across arms (C1), and a broadcast constant common to all
 arms would cancel in C2's numerator -- which is the correct behaviour here, since a uniform
 shift in MEL is exactly what "no intake grading" means and must NOT read as spread.
+
+RED-TEAM (Step 4.5, fable 5.1, one pass): CONTESTED -- 4 findings, all verified against
+source or the landed manifests before acting, all disposed.
+
+  F1 FIXED. C2 computed (max - min)/max and called it "the V3-EXQ-701c relative
+     criterion". 701c:694 and 798a:1017 both compute (mel[HIGH] - mel[NONE])/mel[NONE].
+     (max-min)/max > 0.25 is max/min > 4/3, i.e. a 33% STRICTER bar, and its max/min are
+     not pinned to HIGH/NONE. A seed at registered spread 0.25..0.333 would have been
+     P1-met as registered but recorded FAIL here, and FAIL routes to "convert INV-063 to
+     substrate_conditional". Now uses the registered statistic; the old one is kept as
+     relative_spread_maxmin_RECORDED_ONLY so this session's earlier reports stay traceable.
+  F2 FIXED (reporting) -- and it is the finding that most changes how this run reads.
+     There are TWO landed 798a executions, not one, and they disagree at seed 42.
+     VERIFIED from the manifests: 20260729 on ree-worker-3 (linux-x86_64) has seed 42
+     NOT monotone at registered spread 0.1345, giving P1 on 2/3 seeds; 20260730 on
+     DLAPTOP-5 (darwin-arm64) has seed 42 monotone at 1.9349, giving 3/3. Seeds 123 and
+     456 are identical across both. This session had been citing only the darwin one.
+     Both now appear in comparison_corpus with their machine_class, and power_note
+     records that 2/3 IS the threshold, so one seed decides the verdict.
+  F3 ACKNOWLEDGED + INSTRUMENTED. Episodes end on health depletion as well as the step
+     cap (causal_grid_world.py:3356) and the shifted arms die sooner, so part of any MEL
+     gradient is an episode-phase-mix gradient. The reviewer measured Spearman(MEL,
+     shift_count) = 0.78 against Spearman(MEL, 1/eplen) = 0.58 across 798a's 24 graded
+     cells, and -0.79 for MEL vs eplen WITHIN the zero-shift NONE arm. P1's own
+     matched-PE and reducibility controls are out of scope here because they belong to
+     the ladder this run is not running, so the confound is INSTRUMENTED rather than
+     gated: every cell reports mel_mean_pe_late_in_episode alongside raw MEL. A GREEN
+     licenses "the ladder grades MEL", not yet "the ladder grades INTAKE".
+  F4 FIXED. The monotone and spread components were counted on INDEPENDENT seed sets;
+     798a:1017 requires BOTH ON THE SAME SEED. Seed A mono-only, B spread-only, C both
+     gives 2/3 and 2/3 under the split rule and 1/3 under 798a's. Now one load-bearing
+     per-seed conjunction, with the components recorded as non-routing D1/D2.
+
+  DROPPED by the reviewer after checking source, recorded so they are not re-derived:
+  the shared-P0 restore (ResidueField state is registered buffers and IS restored; E3's
+  _running_variance is a plain float outside state_dict but re-adapts within ~5 ticks and
+  is arm-symmetric), arm_cell's RNG reset, and the shifts_graded degeneracy branch (dead,
+  not misrouting -- the counter survives reset()).
 
 Run with:
   /opt/local/bin/python3 experiments/v3_exq_1069_inv063_p1_gate_798a_p0.py --dry-run
@@ -264,7 +322,15 @@ TRANSITION_BUFFER_MAX = 256
 MIN_REL_PE_RESPONSE = 0.25   # R1 (RECORDED, scoped out of the gate -- see below)
 MIN_REL_CONV_DROP = 0.10     # R2 (GATING)
 SEED_PASS_FRAC = 2.0 / 3.0
-MIN_REL_MEL_SPREAD = 0.25    # C2, the V3-EXQ-701c relative criterion INV-063 P1 names
+# THE REGISTERED STATISTIC. V3-EXQ-701c:694 and 798a:1017 both compute
+#   spread = (mel[HIGH] - mel[NONE]) / mel[NONE]
+# i.e. the TOP arm relative to the FLOOR arm. An earlier version of this script used
+# (max - min)/max, which is a DIFFERENT and STRICTER bar -- (max-min)/max > 0.25 is
+# max/min > 4/3, i.e. (HIGH-NONE)/NONE > 0.333 -- and its max/min are not pinned to
+# HIGH/NONE, so it could pass on a MED-vs-NONE gap while HIGH sat below MED. Caught
+# by the Step 4.5 red-team and corrected; both statistics are now recorded, the
+# REGISTERED one gates.
+MIN_REL_MEL_SPREAD = 0.25
 MONO_TOL = 0.02              # C1 monotonicity slack, relative to the floor arm
 EPS = 1e-12
 
@@ -274,6 +340,8 @@ ARMS: Tuple[Tuple[str, int, int], ...] = (
     ("ARM_2_MED", 25, 2),
     ("ARM_3_HIGH", 10, 2),
 )
+
+MIN_EPISODE_INDEX_FOR_LATE_MEL = 10   # F3 telemetry, see the docstring
 
 # P4: the config fields whose drift would make this run NOT 798a's. Asserted back
 # off the LIVE agent, not trusted from the builder.
@@ -499,6 +567,11 @@ def _run_step_budget(agent: REEAgent, env: CausalGridWorldV2, budget_steps: int,
     shift rate shortens episodes, so a fixed-episode window would give each arm a
     different total measurement length AND a different episode-phase mix."""
     all_pe: List[float] = []
+    # F3 (red-team): shift rate shortens episodes, so MEL partly tracks the
+    # EPISODE-PHASE MIX rather than learning load. This second stream drops the
+    # first MIN_EPISODE_INDEX_FOR_LATE_MEL steps of every episode, which is the
+    # cheapest read on whether the gradient survives that confound. UNGATED.
+    late_pe: List[float] = []
     ep_lens: List[int] = []
     pending_capture_ref: List[Optional[Tuple[torch.Tensor, torch.Tensor]]] = [None]
     used = 0
@@ -523,11 +596,14 @@ def _run_step_budget(agent: REEAgent, env: CausalGridWorldV2, budget_steps: int,
             n_steps += 1
             if pe is not None:
                 all_pe.append(pe)
+                if n_steps > MIN_EPISODE_INDEX_FOR_LATE_MEL:
+                    late_pe.append(pe)
             if done:
                 break
         ep_lens.append(n_steps)
     return {
         "all_pe": all_pe,
+        "late_pe": late_pe,
         "mean_episode_length": float(np.mean(ep_lens)) if ep_lens else 0.0,
         "n_episodes": len(ep_lens),
         "n_steps_used": used,
@@ -693,12 +769,13 @@ def run_cell(arm_id: str, interval: int, depth: int, seed: int,
         arm_id=arm_id, seed=seed, phase="P1_MEL", ep_offset=CONV_EPISODES)
 
     mel = _mean(meas["all_pe"])
+    mel_late = _mean(meas["late_pe"])
     ok = bool(_finite_or_none(mel) is not None and len(meas["all_pe"]) > 0
               and restore_ok)
     print(f"  {arm_id} seed={seed} interval={interval} shifts={meas['shift_count']} "
           f"n_pe={len(meas['all_pe'])} mean_ep_len={meas['mean_episode_length']:.1f} "
           f"n_episodes={meas['n_episodes']} restore_ok={int(restore_ok)} "
-          f"MEL={mel:.6g}", flush=True)
+          f"MEL={mel:.6g} MEL_late={mel_late:.6g}", flush=True)
     print(f"verdict: {'PASS' if ok else 'FAIL'}", flush=True)
 
     return {
@@ -706,6 +783,8 @@ def run_cell(arm_id: str, interval: int, depth: int, seed: int,
         "world_rule_shift_interval": interval,
         "world_rule_shift_depth": depth,
         "mel_mean_pe": mel,
+        "mel_mean_pe_late_in_episode": mel_late,
+        "n_meas_pe_late": len(meas["late_pe"]),
         "n_meas_pe": len(meas["all_pe"]),
         "meas_mean_episode_length": meas["mean_episode_length"],
         "meas_n_episodes": meas["n_episodes"],
@@ -779,13 +858,23 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
         mels = [rows[(a, seed)]["mel_mean_pe"] for a in order]
         finite = all(_finite_or_none(m) is not None for m in mels)
         floor = mels[0] if finite else float("nan")
-        # C1: non-decreasing across the intake-sorted arms, with 798a's MONO_TOL
-        # slack expressed relative to the FLOOR arm (798a :379).
+        # 798a:1015-1017, transcribed: monotone with MONO_TOL slack relative to the
+        # FLOOR arm, AND the spread bar, AND -- the part an earlier version of this
+        # script got wrong -- BOTH on the SAME SEED.
         tol = MONO_TOL * abs(floor) if finite else 0.0
         monotone = bool(finite and all(
             mels[i + 1] >= mels[i] - tol for i in range(len(order) - 1)))
-        spread = (((max(mels) - min(mels)) / max(mels))
-                  if finite and max(mels) > EPS else float("nan"))
+        # THE REGISTERED STATISTIC (701c:694, 798a:1017): TOP arm relative to FLOOR.
+        spread = (((mels[-1] - floor) / floor)
+                  if finite and abs(floor) > EPS else float("nan"))
+        # Recorded only, so this session's earlier (max-min)/max numbers stay
+        # comparable. NOT the gating statistic.
+        spread_maxmin = (((max(mels) - min(mels)) / max(mels))
+                         if finite and max(mels) > EPS else float("nan"))
+        clears = bool(_finite_or_none(spread) is not None
+                      and spread >= MIN_REL_MEL_SPREAD)
+        mels_late = [rows[(a, seed)]["mel_mean_pe_late_in_episode"] for a in order]
+        finite_late = all(_finite_or_none(m) is not None for m in mels_late)
         per_seed.append({
             "seed": seed,
             "mel_per_arm": {a: rows[(a, seed)]["mel_mean_pe"] for a in order},
@@ -793,18 +882,28 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
             "monotone": monotone,
             "mono_tol_abs": tol,
             "relative_spread": spread,
-            "spread_clears_floor": bool(_finite_or_none(spread) is not None
-                                        and spread > MIN_REL_MEL_SPREAD),
+            "relative_spread_statistic": "(mel[HIGH] - mel[NONE]) / mel[NONE]",
+            "relative_spread_maxmin_RECORDED_ONLY": spread_maxmin,
+            "spread_clears_floor": clears,
+            "p1_met_this_seed": bool(monotone and clears),
             "conv_rel_drop": rows[(order[0], seed)]["conv_rel_drop"],
             "pe_response_rel": rows[(order[0], seed)]["pe_response_rel"],
             "mean_episode_length_per_arm": {
                 a: rows[(a, seed)]["meas_mean_episode_length"] for a in order},
+            "mel_late_in_episode_sorted_by_intake": mels_late,
+            "late_monotone_RECORDED_ONLY": bool(finite_late and all(
+                mels_late[i + 1] >= mels_late[i] - tol
+                for i in range(len(order) - 1))),
+            "late_relative_spread_RECORDED_ONLY": (
+                ((mels_late[-1] - mels_late[0]) / mels_late[0])
+                if finite_late and abs(mels_late[0]) > EPS else float("nan")),
         })
 
     n_seeds = len(seeds)
     need = math.ceil(SEED_PASS_FRAC * n_seeds)
     n_mono = sum(1 for p in per_seed if p["monotone"])
     n_spread = sum(1 for p in per_seed if p["spread_clears_floor"])
+    n_p1 = sum(1 for p in per_seed if p["p1_met_this_seed"])
     n_conv = sum(1 for p in per_seed if p["conv_rel_drop"] > MIN_REL_CONV_DROP)
     n_r1 = sum(1 for p in per_seed if p["pe_response_rel"] > MIN_REL_PE_RESPONSE)
 
@@ -958,19 +1057,32 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
         return "FAIL", _write(manifest)
 
     # ---- the two load-bearing criteria, P1 AS REGISTERED -------------------
-    c1 = bool(n_mono >= need)
-    c2 = bool(n_spread >= need)
+    # ONE load-bearing criterion, because 798a's rule is a PER-SEED CONJUNCTION
+    # (798a:1017 `c1_seed_pass.append(bool(mono and spread >= MIN_REL_MEL_SPREAD))`).
+    # Counting monotonicity and spread on INDEPENDENT seed sets -- which an earlier
+    # version of this script did -- can PASS a run where no single seed met both:
+    # seed A mono-only, seed B spread-only, seed C both gives 2/3 and 2/3 under the
+    # split rule and 1/3 under 798a's. Caught by the Step 4.5 red-team.
+    c1 = bool(n_p1 >= need)
     criteria = [
-        {"name": "C1_mel_monotone_in_intake", "load_bearing": True, "passed": c1,
-         "measured": float(n_mono), "threshold": float(need), "comparator": ">=",
-         "seeds_required": need, "n_seeds": n_seeds, "mono_tol": MONO_TOL},
-        {"name": "C2_mel_relative_spread_clears_floor", "load_bearing": True,
-         "passed": c2, "measured": float(n_spread), "threshold": float(need),
-         "comparator": ">=", "seeds_required": need, "n_seeds": n_seeds,
+        {"name": "C1_p1_met_per_seed", "load_bearing": True, "passed": c1,
+         "measured": float(n_p1), "threshold": float(need), "comparator": ">=",
+         "seeds_required": need, "n_seeds": n_seeds, "mono_tol": MONO_TOL,
          "spread_floor": MIN_REL_MEL_SPREAD,
+         "spread_statistic": "(mel[HIGH] - mel[NONE]) / mel[NONE]",
+         "rule": ("per seed: monotone (MONO_TOL slack vs the floor arm) AND "
+                  "spread >= 0.25; then >= 2/3 of seeds. 798a:1015-1017 verbatim."),
+         "per_seed_p1_met": [p["p1_met_this_seed"] for p in per_seed],
          "per_seed_spread": [p["relative_spread"] for p in per_seed]},
+        # Components, RECORDED ONLY -- they do not route the verdict.
+        {"name": "D1_monotone_component", "load_bearing": False,
+         "passed": bool(n_mono >= need), "measured": float(n_mono),
+         "threshold": float(need), "comparator": ">=", "routes_verdict": False},
+        {"name": "D2_spread_component", "load_bearing": False,
+         "passed": bool(n_spread >= need), "measured": float(n_spread),
+         "threshold": float(need), "comparator": ">=", "routes_verdict": False},
     ]
-    p1_pass = bool(c1 and c2)
+    p1_pass = bool(c1)
     outcome = "PASS" if p1_pass else "FAIL"
     label = ("inv063_p1_intake_ladder_gradeable" if p1_pass
              else "inv063_p1_intake_ladder_not_gradeable")
@@ -982,8 +1094,9 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
         _mean(shifts[order[i]]) <= _mean(shifts[order[i + 1]])
         for i in range(len(order) - 1)) and _mean(shifts[order[-1]]) > 0.0
     criteria_non_degenerate = {
-        "C1_mel_monotone_in_intake": bool(shifts_graded),
-        "C2_mel_relative_spread_clears_floor": bool(shifts_graded),
+        "C1_p1_met_per_seed": bool(shifts_graded),
+        "D1_monotone_component": bool(shifts_graded),
+        "D2_spread_component": bool(shifts_graded),
     }
 
     go_no_go = {
@@ -1008,22 +1121,26 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
     }
 
     note = (
-        f"P1 AS REGISTERED, under V3-EXQ-798a's transcribed configuration and P0. "
-        f"Monotone on {n_mono}/{n_seeds} seeds and relative spread clears the "
-        f"{MIN_REL_MEL_SPREAD} floor on {n_spread}/{n_seeds} (per-seed spread "
-        f"{[round(p['relative_spread'], 4) for p in per_seed]}), against a "
-        f"requirement of {need}/{n_seeds} on each. P0 converged on {n_conv}/{n_seeds} "
-        f"(798a R2). For comparison: 798a LANDED 0.483/0.659/0.685 monotone 3/3, and "
-        f"this session's cheaper-P0 probes measured 0.1369/0.1802/0.1082 monotone 0/3 "
-        f"on a converged base. EXPERIMENT_PURPOSE=diagnostic; this routes no verdict "
-        f"on INV-063 and measures P1 only."
+        f"P1 AS REGISTERED (798a:1015-1017: per seed, monotone with MONO_TOL slack "
+        f"AND (mel[HIGH]-mel[NONE])/mel[NONE] >= {MIN_REL_MEL_SPREAD}; then >= 2/3 of "
+        f"seeds), under V3-EXQ-798a's transcribed configuration and P0. P1 met on "
+        f"{n_p1}/{n_seeds} seeds against a requirement of {need} (components, "
+        f"recorded only: monotone {n_mono}/{n_seeds}, spread {n_spread}/{n_seeds}; "
+        f"per-seed spread {[round(p['relative_spread'], 4) for p in per_seed]}). P0 "
+        f"converged on {n_conv}/{n_seeds} (798a R2). COMPARE AGAINST THE 798a "
+        f"EXECUTION WHOSE machine_class MATCHES THIS RUN'S: the LINUX one met P1 on "
+        f"2/3 seeds (seed 42 failed, spread 0.1345), the DARWIN one on 3/3 (seed 42 "
+        f"spread 1.9349) -- see comparison_corpus, and power_note on the zero margin. "
+        f"EXPERIMENT_PURPOSE=diagnostic; this routes no verdict on INV-063 and "
+        f"measures P1 only."
     )
 
     print(f"\n[{EXPERIMENT_TYPE}] P1 (the only load-bearing output):", flush=True)
     for p in per_seed:
         print(f"  seed {p['seed']}: MEL {['%.5g' % v for v in p['mel_sorted_by_intake']]} "
               f"monotone={p['monotone']} spread={p['relative_spread']:.4f} "
-              f"(floor {MIN_REL_MEL_SPREAD}) conv_rel_drop={p['conv_rel_drop']:.4f}",
+              f"(floor {MIN_REL_MEL_SPREAD}, statistic (HIGH-NONE)/NONE) "
+              f"P1_met={p['p1_met_this_seed']} conv_rel_drop={p['conv_rel_drop']:.4f}",
               flush=True)
     for c in criteria:
         print(f"  {c['name']}: passed={c['passed']} {c['measured']:.0f}/{n_seeds} "
@@ -1043,6 +1160,7 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
         "mel_spread_min": float(min(p["relative_spread"] for p in per_seed)),
         "mel_spread_max": float(max(p["relative_spread"] for p in per_seed)),
         "mel_spread_floor": float(MIN_REL_MEL_SPREAD),
+        "p1_seeds_met": float(n_p1),
         "shifts_graded_across_arms": int(shifts_graded),
     }
     for a in order:
@@ -1082,27 +1200,91 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
         },
         "readout": flat,
         "p1_go_no_go": go_no_go,
+        "episode_truncation_note": (
+            "RED-TEAM FINDING, recorded because no criterion separates it. Episodes "
+            "end on health depletion as well as the step cap "
+            "(causal_grid_world.py:3356), and the shifted arms die sooner -- 798a's "
+            "own mean episode lengths fall from ~45-64 (NONE) to ~17-21 (HIGH). So "
+            "part of any MEL gradient is an EPISODE-PHASE-MIX gradient rather than "
+            "learning load. Across 798a's 24 graded cells the reviewer measured "
+            "Spearman(MEL, shift_count) = 0.78 but Spearman(MEL, 1/eplen) = 0.58, and "
+            "within the zero-shift NONE arm alone Spearman(MEL, eplen) = -0.79. "
+            "INV-063's P1 has a matched-PE observation-noise arm and a reducibility "
+            "control for exactly this; BOTH are out of scope here, because they "
+            "belong to the ladder this run is not running. Mitigation, ungated: every "
+            "cell also reports mel_mean_pe_late_in_episode -- MEL over steps past "
+            f"in-episode index {MIN_EPISODE_INDEX_FOR_LATE_MEL} -- plus "
+            "mean_episode_length_per_arm, so a reader can see whether the gradient "
+            "survives the confound. A GREEN here therefore licenses 'the ladder "
+            "grades MEL', NOT yet 'the ladder grades INTAKE'; the latter needs P1's "
+            "own controls, which the falsifier carries."),
         "comparison_corpus": {
-            "v3_exq_798a_landed": {
-                "relative_spread_per_seed": [0.483, 0.659, 0.685],
-                "monotone_seeds": 3,
-                "note": ("LANDED 2026-07-30 at these identical arm settings; the run "
-                         "FAILED its own R1 readiness (0.223 vs 0.25) and was recorded "
-                         "substrate_not_ready_requeue, but its C1_mel_graded_in_shift_"
-                         "rate passed 3/3."),
+            "_statistic_note": (
+                "relative_spread here is the REGISTERED statistic "
+                "(mel[HIGH]-mel[NONE])/mel[NONE] (701c:694, 798a:1017), NOT the "
+                "(max-min)/max figure this session quoted in earlier reports. Both "
+                "are recorded per seed in per_seed_p1 so the older numbers stay "
+                "traceable."),
+            "v3_exq_798a_THERE_ARE_TWO_LANDED_EXECUTIONS": (
+                "and they disagree at seed 42, which is the single most important "
+                "fact for reading this run. Seeds 123 and 456 are identical to "
+                "printed precision across both; ONLY seed 42 moves, and it moves "
+                "across every threshold in this design. CLAUDE.md documents "
+                "torch.multinomial returning a different category on linux vs darwin "
+                "from a bit-identical probability tensor, and E3 selection -- which "
+                "this run drives every step -- is where that lives. Under 798a's own "
+                "per-seed rule BOTH executions still PASS, but the linux one passes "
+                "at exactly 2/3, i.e. with ZERO MARGIN. Read this run against the "
+                "execution whose machine_class matches its own."),
+            "v3_exq_798a_20260729T125858Z_LINUX": {
+                "machine": "ree-worker-3",
+                "machine_class": "linux-x86_64-py3.10-torch2.12.0+cpu",
+                "outcome": "PASS",
+                "registered_spread_per_seed": {"42": 0.1345, "123": 0.9333,
+                                               "456": 2.1730},
+                "monotone_per_seed": {"42": False, "123": True, "456": True},
+                "p1_met_per_seed_798a_rule": {"42": False, "123": True, "456": True},
+                "p1_seeds_passing": 2,
+                "note": ("seed 42 is NOT monotone here and its spread 0.1345 is BELOW "
+                         "the 0.25 bar. 2/3 is exactly the SEED_PASS_FRAC threshold."),
+            },
+            "v3_exq_798a_20260730T010651Z_DARWIN": {
+                "machine": "DLAPTOP-5.local",
+                "machine_class": "darwin-arm64-py3.13-torch2.12.0",
+                "outcome": "FAIL",
+                "registered_spread_per_seed": {"42": 1.9349, "123": 0.9333,
+                                               "456": 2.1730},
+                "monotone_per_seed": {"42": True, "123": True, "456": True},
+                "p1_met_per_seed_798a_rule": {"42": True, "123": True, "456": True},
+                "p1_seeds_passing": 3,
+                "note": ("the execution this session previously cited as '798a'. Its "
+                         "overall FAIL is its own R1 readiness (0.223 vs 0.25), not "
+                         "its graded-MEL criterion, which passed 3/3."),
             },
             "session_probe_converged_base_20260919": {
-                "relative_spread_per_seed": [0.1369, 0.1802, 0.1082],
+                "maxmin_spread_per_seed": [0.1369, 0.1802, 0.1082],
                 "monotone_seeds": 0,
                 "note": ("cheaper P0: 3600 random-action steps, 5x5 grid, dims 16, "
-                         "alpha_world at the 0.3 default. See deviation table in the "
-                         "module docstring."),
+                         "alpha_world at the 0.3 default, no harm/goal/benefit "
+                         "streams. Quoted as (max-min)/max; under the REGISTERED "
+                         "statistic these become 0.152 / 0.212 / 0.118. See the "
+                         "deviation table in the module docstring."),
             },
             "session_probe_unconverged_base_20260919": {
-                "relative_spread_per_seed": [0.097, 0.105, 0.104],
+                "maxmin_spread_per_seed": [0.097, 0.105, 0.104],
                 "monotone_seeds": 1,
             },
         },
+        "power_note": (
+            "n_seeds = 3 with SEED_PASS_FRAC = 2/3 means need = 2, and 798a's LINUX "
+            "execution lands at exactly 2. So a single seed flipping decides this "
+            "run's verdict, and seed 42 is empirically the one that flips between "
+            "machine classes. Seeds are NOT raised above 798a's three ON PURPOSE: "
+            "the fraction rule scales (5 seeds would need 4, i.e. 0.8, a HARDER bar, "
+            "not a safer one), and seeds 798a never ran would weaken the direct "
+            "comparison this run exists to make. The zero margin is therefore "
+            "reported rather than engineered away -- a 2/3 PASS here should be read "
+            "as 'reproduces 798a-linux exactly', not as a comfortable green."),
         "config": run_config,
         "elapsed_seconds": elapsed,
     })
