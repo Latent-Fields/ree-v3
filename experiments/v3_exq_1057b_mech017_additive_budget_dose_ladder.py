@@ -456,12 +456,15 @@ Instrument gates: `replay_window_separation`, `manipulation_reaches_dv`,
 `probe_set_identical_across_arms`, `probe_target_variance`,
 `sd016_writepath_mode_off` -- all unchanged from 1057a.
 NEW, and specific to this design:
- (v)   `ladder_budget_is_pre_registered_dose` -- every ladder cell's total extra
-       gradient steps must equal 3*2*CMC_STEPS + CMC_STEPS + k exactly (worst
-       absolute error over all ladder cells, <= 0.5). If the dose is not what was
-       pre-registered, the abscissa of the entire ladder is wrong, which is an
-       INSTRUMENT failure and not evidence about MECH-017. This is the ladder's
-       counterpart of 1057a's `additive_budget_is_a_plus_b`.
+ (v)   `ladder_budget_is_pre_registered_dose` -- every ladder cell's realized
+       CONSOLIDATION E1 GRADIENT STEPS must equal (n_points-1)*2*CMC_STEPS +
+       CMC_STEPS + k exactly (worst absolute error over all ladder cells, <= 0.5).
+       If the dose is not what was pre-registered, the abscissa of the entire
+       ladder is wrong, which is an INSTRUMENT failure and not evidence about
+       MECH-017. Counterpart of 1057a's `additive_budget_is_a_plus_b`. NOTE THE
+       UNITS: it reads `updates_e1`, not `n_updates` -- the latter counts one
+       update per MODULE per step (e1 and e2) and is therefore 2x the step count.
+       The first smoke of this script failed on exactly that confusion.
  (vi)  `dose_reaches_dv` -- in BOTH orders and on EVERY seed, the k=0 and k=24
        cells must produce DIFFERENT early-probe E1 MSE. A bit-identical pair is a
        dead manipulation, and would otherwise be scored as a clean "flat in k"
@@ -483,6 +486,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import re
 import sys
 import time
 from datetime import datetime
@@ -535,17 +539,30 @@ ORDER_TAG = {ORDER_WR: "D1", ORDER_RW: "D2"}
 K_LADDER = (0, 3, 6, 12, 24)
 
 
+_LADDER_ARM_RE = re.compile(r"^ARM_(D1|D2)_K(\d+)$")
+
+
 def _ladder_arm(order: str, k: int) -> str:
     """Canonical arm name for a ladder point, e.g. ARM_D1_K06."""
     return f"ARM_{ORDER_TAG[order]}_K{int(k):02d}"
 
 
 def _parse_ladder_arm(arm: str) -> Optional[Tuple[str, int]]:
-    """(order, k) for a ladder arm, or None for a reference arm."""
+    """(order, k) for a ladder arm, or None for a reference arm.
+
+    Parsed STRUCTURALLY from the name, never by enumerating K_LADDER. The
+    enumerating form silently failed for any ladder whose k values are not the
+    module-level constant -- which is exactly the --dry-run ladder -- so every
+    dry-run ladder arm fell through to the reference-arm branch and the smoke
+    died on a window_label KeyError. Caught by the first smoke of this script.
+    """
+    m = _LADDER_ARM_RE.match(arm)
+    if not m:
+        return None
+    tag, k = m.group(1), int(m.group(2))
     for order in ORDERS:
-        for k in K_LADDER:
-            if arm == _ladder_arm(order, k):
-                return order, k
+        if ORDER_TAG[order] == tag:
+            return order, k
     return None
 
 
@@ -668,7 +685,15 @@ FLAT_BAND = LATE_TOL
 # Total extra gradient steps a ladder cell must spend, by construction:
 # (N_POINTS - 1) points at 2 x CMC_STEPS, then the FINAL point at CMC_STEPS + k.
 # Asserted per cell by the `ladder_budget_is_pre_registered_dose` precondition.
+# UNITS, and the trap the first smoke caught: `total_extra_gradient_steps` sums
+# CrossModuleConsolidator's `n_updates`, which counts one update PER MODULE per
+# step (e1 AND e2), so it is 2x the step count. The pre-registered dose is a STEP
+# count, so this is compared against `updates_e1` -- the pass's own per-step E1
+# counter, which equals the step count exactly (verified: n_steps=k -> updates_e1
+# =k) and is the module the load-bearing DV reads. Comparing against
+# total_extra_gradient_steps instead reported 56 vs an expected 28.
 def _expected_ladder_budget(n_points: int, cmc_steps: int, k: int) -> float:
+    """Pre-registered CONSOLIDATION E1 GRADIENT STEPS for a ladder cell."""
     return float((n_points - 1) * 2 * cmc_steps + cmc_steps + k)
 
 
@@ -1163,7 +1188,8 @@ def run_cell(
     )
 
     if order is None:
-        window_label = {ARM_A: "ALL", ARM_B: str(recent_window), ARM_C: "none"}[arm]
+        window_label = {ARM_A: "ALL", ARM_B: str(recent_window),
+                        ARM_C: "none"}.get(arm, "UNKNOWN_ARM")
     elif order == ORDER_WR:
         window_label = f"ALL->{recent_window} (final ALL->{recent_window}@k={k_final})"
     else:
@@ -1177,13 +1203,14 @@ def run_cell(
     # the budget precondition a measurement and not a restatement of the config.
     _final_dosed = [r for r in cmc_records
                     if r.get("is_final_point") and r.get("is_dosed_pass")]
-    realized_final_dose = sum(float(r.get("n_updates", 0.0)) for r in _final_dosed)
+    # E1 steps, not n_updates -- see the UNITS note on _expected_ladder_budget.
+    realized_final_dose = sum(float(r.get("updates_e1", 0.0)) for r in _final_dosed)
     expected_budget = (
         _expected_ladder_budget(n_points, cmc_steps, int(k_final))
         if order is not None else float("nan")
     )
     ladder_budget_error = (
-        abs(total_extra_steps - expected_budget) if order is not None else 0.0
+        abs(updates_e1 - expected_budget) if order is not None else 0.0
     )
 
     only_early = occupancy["early"] - occupancy["late"]
@@ -1578,9 +1605,14 @@ def main(dry_run: bool = False):
             {"name": "ladder_budget_is_pre_registered_dose",
              "measured": worst_ladder_budget_error, "threshold": 0.5, "direction": "upper",
              "control": "NEW for the ladder. WORST CELL (not the mean) over every ladder cell of "
-                        "|realized total extra gradient steps - ((n_points-1)*2*CMC_STEPS + "
-                        "CMC_STEPS + k)|, read off CrossModuleConsolidator's own n_updates "
-                        "counter rather than from the config. The dose IS the abscissa of every "
+                        "|realized consolidation E1 gradient steps - ((n_points-1)*2*CMC_STEPS + "
+                        "CMC_STEPS + k)|, read off CrossModuleConsolidator's own updates_e1 "
+                        "counter rather than from the config. updates_e1 and NOT n_updates: "
+                        "n_updates counts one update PER MODULE per step (e1 AND e2), so it is "
+                        "2x the pre-registered STEP count -- the first smoke of this script "
+                        "reported 56 against an expected 28 on exactly that confusion. "
+                        "updates_e1 equals the step count exactly and is the module the "
+                        "load-bearing DV reads. The dose IS the abscissa of every "
                         "curve in this run, so a mis-dosed cell makes the x-axis wrong and is an "
                         "INSTRUMENT failure, not evidence about MECH-017. Counterpart of "
                         "V3-EXQ-1057a's additive_budget_is_a_plus_b, generalized across the "
@@ -1728,6 +1760,81 @@ def main(dry_run: bool = False):
                 "per-module Adam (lines 155-162), so it would cold-start momentum every step. "
                 "D3 needs /implement-substrate first."
             ),
+        },
+        # ANCHOR REACHABILITY -- recorded, not asserted by synthetic replay.
+        # `validate_experiments --checks anchor_reachability` WARNs on this script
+        # (advisory, WARN-only in both modes; the script exits OK). The warning is
+        # LEFT STANDING, deliberately un-silenced, and disposed of here in writing.
+        #
+        # WHY IT FIRES AT ALL: the lint is scoped to `diagnostic`/`baseline`
+        # scripts. V3-EXQ-1057a carries THE SAME precondition set with THE SAME
+        # self-route and does NOT trip it, purely because it is `evidence`. So this
+        # warning is a consequence of this run's deliberate purpose upgrade, not of
+        # a new predicate.
+        #
+        # WHY IT IS NOT SILENCED WITH ANCHOR_REACHABILITY_EXEMPT: that marker is
+        # for the case where the predicate IS the degeneracy definition, so a
+        # replay would be tautological. That is true of this set's STRUCTURAL
+        # anchors (exact equality / arithmetic identity) but NOT of its numeric
+        # FLOORS, so a blanket exemption would over-claim. The lint's own docstring
+        # names reaching for EXEMPT in the wrong circumstance as the documented
+        # error.
+        #
+        # WHAT IS OFFERED INSTEAD, and why it is stronger than a synthetic replay:
+        # every inherited anchor has already been MEASURED GREEN AT FULL SCALE,
+        # TWICE, on this exact harness and machine_class (1057: 14/15 gates green;
+        # 1057a: 17/18) -- the recorded values below. The single gate that failed on
+        # both runs was the RETENTION gate, which this run deliberately does not
+        # carry as a precondition at all (see the retention discussion above). The
+        # two NEW anchors are reachable by construction and were confirmed in the
+        # smoke: ladder_budget error was exactly 0 at every dosed cell (updates_e1
+        # 28/29/30/32 against pre-registered 28/29/30/32), and dose_reaches_dv is a
+        # float-inequality that the smoke showed separating on every rung.
+        "anchor_reachability_evidence": {
+            "lint_status": "WARN left standing, un-silenced; disposed of in writing",
+            "why_it_fires": ("anchor_reachability_lint is scoped to diagnostic/baseline "
+                             "purpose; V3-EXQ-1057a carries the same precondition set "
+                             "under `evidence` and does not trip it"),
+            "recorded_full_scale_clearances": {
+                "forgetting_present_in_control": {
+                    "threshold": FORGETTING_FLOOR,
+                    "v3_exq_1057": 2.4853917328308244, "v3_exq_1057a": 2.4750167490267976},
+                "replay_covers_early_regime": {
+                    "threshold": REPLAY_EARLY_SHARE_FLOOR,
+                    "v3_exq_1057": 0.7333333333333334, "v3_exq_1057a": 0.7333333333333334},
+                "replay_window_separation": {
+                    "threshold": MIN_WINDOW_SEPARATION,
+                    "v3_exq_1057": 0.7333333333333334, "v3_exq_1057a": 0.7333333333333334},
+                "consolidation_updated_e1": {
+                    "threshold": UPDATES_FLOOR, "v3_exq_1057": 96.0, "v3_exq_1057a": 96.0},
+                "consolidation_updated_e2": {
+                    "threshold": UPDATES_FLOOR, "v3_exq_1057": 96.0, "v3_exq_1057a": 96.0},
+                "early_late_state_divergence": {
+                    "threshold": STATE_DIVERGENCE_FLOOR,
+                    "v3_exq_1057": 0.8780487804878049, "v3_exq_1057a": 0.8780487804878049},
+                "probe_target_variance": {
+                    "threshold": PROBE_TARGET_VAR_FLOOR,
+                    "v3_exq_1057": 0.006881691515445709,
+                    "v3_exq_1057a": 0.006881691515445709},
+                "manipulation_reaches_dv": {
+                    "threshold": "all seeds", "v3_exq_1057": 5.0, "v3_exq_1057a": 5.0},
+                "probe_set_identical_across_arms": {
+                    "threshold": "all seeds", "v3_exq_1057": 5.0, "v3_exq_1057a": 5.0},
+                "e1_has_skill_over_persistence_compared_arms": {
+                    "threshold": PERSISTENCE_SKILL_FLOOR,
+                    "v3_exq_1057": 0.1054424323446228,
+                    "v3_exq_1057a": 0.10544178957951644,
+                    "note": "clears a 0.0 floor but by the narrowest margin of the set"},
+            },
+            "new_anchors_reachable_by_construction": {
+                "ladder_budget_is_pre_registered_dose": (
+                    "arithmetic identity on the consolidator's own updates_e1 counter; "
+                    "smoke measured error exactly 0 at every rung (28/29/30/32 against "
+                    "pre-registered 28/29/30/32)"),
+                "dose_reaches_dv": (
+                    "float inequality between two cells; smoke showed the endpoints "
+                    "separating in both orders on every rung"),
+            },
         },
         "config": {
             "arms": list(arms),
