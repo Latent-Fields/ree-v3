@@ -60,7 +60,9 @@ THE ONE DEVIATION FROM 798a, stated up front: P0 IS COMPUTED ONCE PER SEED, NOT 
 arm parameter -- its env is `_make_probe_env(seed, **STABLE_DRIFT)` and its training is the
 recon-only world-forward pass -- so for a given seed it recomputes a BIT-IDENTICAL agent once
 per arm. This run computes it ONCE per seed and hands each of that seed's four arms a
-`copy.deepcopy` of it.
+a fresh agent carrying a detached state_dict snapshot of it (NOT
+copy.deepcopy -- after P0 the agent holds non-leaf tensors and torch refuses; the
+authoring smoke caught that).
 
 This is not an approximation: it is the same computation, performed once instead of four
 times. It also makes the four arms EXACTLY seed-matched rather than merely
@@ -153,7 +155,6 @@ Run with:
 from __future__ import annotations
 
 import argparse
-import copy
 import math
 import random
 import sys
@@ -621,7 +622,12 @@ def train_p0(seed: int, p0_steps: int, probe_steps: int, probe_size: int
           f"(stable {pe_stable:.6g} shock {pe_shock:.6g})  cfg_ok="
           f"{all(v['ok'] for v in cfg_check.values())}", flush=True)
 
-    return {"agent": agent, "conv_rel_drop": float(conv_rel_drop),
+    # Snapshot detached so nothing graph-attached rides along (see the deepcopy
+    # note at run_cell). state_dict covers parameters AND registered buffers.
+    p0_state = {k: v.detach().clone() if torch.is_tensor(v) else v
+                for k, v in agent.state_dict().items()}
+
+    return {"agent": agent, "p0_state": p0_state, "conv_rel_drop": float(conv_rel_drop),
             "pe_probe_init": pe_probe_init, "pe_probe_final": pe_probe_final,
             "pe_stable": pe_stable, "pe_shock": pe_shock,
             "pe_response_rel": float(pe_response_rel),
@@ -630,21 +636,46 @@ def train_p0(seed: int, p0_steps: int, probe_steps: int, probe_size: int
 
 def run_cell(arm_id: str, interval: int, depth: int, seed: int,
              p0: Dict[str, Any], meas_steps: int) -> Dict[str, Any]:
-    """One (arm, seed) cell: the P1_MEL frozen measurement window, on a deepcopy of
-    this seed's shared P0 agent."""
+    """One (arm, seed) cell: the P1_MEL frozen measurement window, on a fresh agent
+    carrying this seed's shared P0 weights.
+
+    NOT copy.deepcopy: after P0 the agent holds non-leaf tensors and torch refuses
+    ("Only Tensors created explicitly by the user (graph leaves) support the deepcopy
+    protocol"), which the authoring smoke caught. REEAgent is an nn.Module, so the
+    sound idiom is a detached state_dict snapshot restored onto a freshly constructed
+    agent. Rebuilding rather than restoring in place additionally drops every
+    Python-level attribute the previous arm's window mutated (_pe_ema,
+    _surprise_write_count, _current_latent, ...), so the four arms are exactly
+    symmetric rather than order-dependent. RNG was reset at arm_cell entry, so this
+    construction is bit-identical to the one P0 trained.
+    """
     print(f"Seed {seed} Condition {arm_id}", flush=True)
-    agent = copy.deepcopy(p0["agent"])
+    env = _make_env(seed, interval, depth)
+    agent = _make_agent(env)
+    agent.load_state_dict(p0["p0_state"])
+    # Prove the restore landed rather than trusting it: a world-forward parameter
+    # must now equal the snapshot bit-for-bit. A silent no-op here would make every
+    # arm read an UNTRAINED model and the whole comparison vacuous.
+    restore_ok = True
+    for _k, _v in agent.state_dict().items():
+        if not torch.is_tensor(_v):
+            continue
+        if not bool(torch.equal(_v, p0["p0_state"][_k])):
+            restore_ok = False
+            break
 
     meas = _run_step_budget(
-        agent, _make_env(seed, interval, depth), meas_steps, STEPS_PER_EPISODE,
+        agent, env, meas_steps, STEPS_PER_EPISODE,
         train=False, buffer=None, e2_opt=None, sample_rng=None,
         arm_id=arm_id, seed=seed, phase="P1_MEL", ep_offset=CONV_EPISODES)
 
     mel = _mean(meas["all_pe"])
-    ok = bool(_finite_or_none(mel) is not None and len(meas["all_pe"]) > 0)
+    ok = bool(_finite_or_none(mel) is not None and len(meas["all_pe"]) > 0
+              and restore_ok)
     print(f"  {arm_id} seed={seed} interval={interval} shifts={meas['shift_count']} "
           f"n_pe={len(meas['all_pe'])} mean_ep_len={meas['mean_episode_length']:.1f} "
-          f"n_episodes={meas['n_episodes']} MEL={mel:.6g}", flush=True)
+          f"n_episodes={meas['n_episodes']} restore_ok={int(restore_ok)} "
+          f"MEL={mel:.6g}", flush=True)
     print(f"verdict: {'PASS' if ok else 'FAIL'}", flush=True)
 
     return {
@@ -659,6 +690,7 @@ def run_cell(arm_id: str, interval: int, depth: int, seed: int,
         "meas_shift_count": meas["shift_count"],
         "conv_rel_drop": p0["conv_rel_drop"],
         "pe_response_rel": p0["pe_response_rel"],
+        "p0_state_restore_ok": bool(restore_ok),
         "cell_ok": ok,
     }
 
@@ -679,7 +711,7 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
 
     for seed in seeds:
         # P0 is ARM-INDEPENDENT (798a's own _train_p0_and_probe takes no arm), so it
-        # is computed once here and deepcopied per arm. RNG is reset inside each
+        # is computed once here and restored into a fresh agent per arm. RNG is reset inside each
         # arm_cell below; this P0 is seeded by its own torch/random seeding.
         torch.manual_seed(seed)
         random.seed(seed)
@@ -775,6 +807,15 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
          "direction": "lower", "comparator": ">=",
          "control": "asserted from the constructed agent, not from the builder",
          "met": bool(cfg_ok)},
+        {"name": "p0_weights_restored_into_every_cell", "kind": "readiness",
+         "description": ("each cell's agent state_dict equals the shared P0 snapshot "
+                         "bit-for-bit; a silent no-op would make every arm read an "
+                         "UNTRAINED model and the comparison vacuous"),
+         "measured": float(sum(1 for r in arm_results if r["p0_state_restore_ok"])),
+         "threshold": float(len(arm_results)), "direction": "lower",
+         "comparator": ">=",
+         "control": "torch.equal against the snapshot, per tensor, per cell",
+         "met": all(r["p0_state_restore_ok"] for r in arm_results)},
         {"name": "mel_window_populated", "kind": "readiness",
          "description": "every cell produced a finite MEL over a non-empty window",
          "measured": float(min(r["n_meas_pe"] for r in arm_results)),
@@ -844,7 +885,8 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
             "frozen-battery readout, and routes NO verdict on INV-063. "
             "experiment_purpose=diagnostic; evidence_direction=non_contributory."),
         "deviation_from_798a": (
-            "P0 is computed ONCE PER SEED and deepcopied per arm, where 798a "
+            "P0 is computed ONCE PER SEED and restored into a freshly built agent "
+            "per arm via a detached state_dict snapshot, where 798a "
             "recomputes it per cell. 798a's _train_p0_and_probe takes NO arm "
             "parameter -- its env is _make_probe_env(seed, **STABLE_DRIFT) and its "
             "training is arm-independent -- so per-cell recomputation yields a "
