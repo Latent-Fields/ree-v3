@@ -280,9 +280,10 @@ READINESS_TAPE_STEPS = 60
 
 # SD-011 forward-model fitting (P1-style: frozen encoder, detached latents).
 FWD_FIT_STEPS = 600
-FWD_FIT_EPOCHS = 60
+FWD_FIT_EPOCHS = 400
 FWD_LR = 1e-3
 FWD_HIDDEN = 64
+FWD_BATCH = 64
 AUTOCORR_LAG = 10
 
 # Regime declaration (SD-011 preconditions (i) and (iii)) -- ASSERTED, not assumed.
@@ -462,28 +463,53 @@ def _fit_forward_r2(states: np.ndarray, actions: np.ndarray) -> float:
     P1-style by construction: `states` are already-detached numpy latents from a
     FROZEN agent, so no gradient reaches any encoder. Compared against a
     constant-mean predictor, which is what makes it an R^2 rather than a loss.
+
+    Inputs AND targets are STANDARDISED before fitting. That is an instrument
+    property, not a threshold: z_harm and z_harm_a sit at very different scales
+    (the encoder floors alone are ~0.46 and ~0.33), and an unscaled fit drives
+    the affective stream's R^2 to large negative values that reflect optimiser
+    conditioning rather than predictability -- which would make SD-011's
+    registered `harm_fwd_r2 >= 0.60` band unreachable for measurement reasons.
+    R^2 is invariant under an affine target transform, so standardising changes
+    the conditioning and not the quantity.
+
+    The OFF arm is the positive control for this instrument: if neither regime
+    clears the band, the fitter is the limit, not the substrate -- which is why
+    both regimes are measured and both are recorded.
     """
     if states.shape[0] < 20:
         return float("nan")
     x = torch.tensor(states[:-1], dtype=torch.float32)
     y = torch.tensor(states[1:], dtype=torch.float32)
     a = torch.tensor(actions[:-1], dtype=torch.float32)
-    inp = torch.cat([x, a], dim=-1)
+
+    def _std(t: torch.Tensor) -> torch.Tensor:
+        mu = t.mean(dim=0, keepdim=True)
+        sd = t.std(dim=0, keepdim=True).clamp_min(1e-6)
+        return (t - mu) / sd
+
+    inp = torch.cat([_std(x), a], dim=-1)
+    tgt = _std(y)
+    n = inp.shape[0]
     model = torch.nn.Sequential(
         torch.nn.Linear(inp.shape[-1], FWD_HIDDEN),
         torch.nn.ReLU(),
-        torch.nn.Linear(FWD_HIDDEN, y.shape[-1]),
+        torch.nn.Linear(FWD_HIDDEN, tgt.shape[-1]),
     )
     opt = torch.optim.Adam(model.parameters(), lr=FWD_LR)
+    g = torch.Generator().manual_seed(0)
     for _ in range(FWD_FIT_EPOCHS):
-        opt.zero_grad()
-        loss = torch.nn.functional.mse_loss(model(inp), y)
-        loss.backward()
-        opt.step()
+        perm = torch.randperm(n, generator=g)
+        for i in range(0, n, FWD_BATCH):
+            idx = perm[i:i + FWD_BATCH]
+            opt.zero_grad()
+            loss = torch.nn.functional.mse_loss(model(inp[idx]), tgt[idx])
+            loss.backward()
+            opt.step()
     with torch.no_grad():
         pred = model(inp)
-        ss_res = float(((y - pred) ** 2).sum())
-        ss_tot = float(((y - y.mean(dim=0, keepdim=True)) ** 2).sum())
+        ss_res = float(((tgt - pred) ** 2).sum())
+        ss_tot = float(((tgt - tgt.mean(dim=0, keepdim=True)) ** 2).sum())
     return float(1.0 - ss_res / (ss_tot + 1e-8))
 
 
@@ -1182,25 +1208,39 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     return manifest
 
 
-def main() -> None:
+def main() -> tuple:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--dry-run", action="store_true", help="smoke test at toy scale")
     args = ap.parse_args()
 
+    if args.dry_run:
+        # Toy scale. Deliberately shrinks the SCHEDULE only -- never a threshold.
+        B.P0_WARMUP_EPISODES = 1
+        B.P1_MAIN_EPISODES = 1
+        B.TOTAL_TRAIN_EPISODES = 2
+        B.STEPS_PER_EPISODE = 20
+        B.EVAL_STEPS = 30
+        globals()["READINESS_TAPE_STEPS"] = 20
+        globals()["FWD_FIT_STEPS"] = 60
+        globals()["FWD_FIT_EPOCHS"] = 5
+
     manifest = run_experiment(dry_run=args.dry_run)
+    # `manifest` was already stamped inside run_experiment (AFTER arm_results was
+    # assembled, so substrate_hash HOISTS from the per-cell fingerprints rather
+    # than being recomputed and mismatching them). stamp=False keeps it that way.
     out_path = write_flat_manifest(
-        manifest, EXPERIMENT_TYPE, dry_run=args.dry_run, stamp=False
+        manifest, script_path=_THIS, dry_run=args.dry_run, stamp=False
     )
     print(f"outcome: {manifest['outcome']}", flush=True)
     print(f"manifest: {out_path}", flush=True)
-
-    _raw = str(manifest["outcome"]).upper()
-    emit_outcome(
-        outcome=_raw if _raw in ("PASS", "FAIL") else "FAIL",
-        manifest_path=out_path,
-        dry_run=args.dry_run,
-    )
+    return manifest, out_path, args.dry_run
 
 
 if __name__ == "__main__":
-    main()
+    _manifest, _out_path, _dry_run = main()
+    _raw = str(_manifest["outcome"]).upper()
+    emit_outcome(
+        outcome=_raw if _raw in ("PASS", "FAIL") else "FAIL",
+        manifest_path=_out_path,
+        dry_run=_dry_run,
+    )
