@@ -2,46 +2,26 @@
 V3-EXQ-1067 (MECH-266 / SD-032a): squash-vs-clamp affinity BOUNDING-OPERATOR cap
 sweep for external_task mode-occupancy. DIAGNOSTIC.
 
-!!! BLOCKED -- DO NOT QUEUE AS IT STANDS (2026-09-19) !!!
-RED-TEAM (/queue-experiment Step 4.5, model fable): **BLOCKING**, confirmed
-against source. This script was authored, passed validate_experiments --strict
-(38/38) and every pre-flight gate, and was then REFUSED before queueing. It is
-committed for resumability only.
-
-THE DEFECT, in one paragraph: the bounding operator is applied to EVERY
+RED-TEAM (/queue-experiment Step 4.5, model fable): **BLOCKING -> RESOLVED by
+user decision 2026-09-19T23:52:40Z (OPTION A).** The finding was real and is
+recorded at GFLAG-0370: the bounding operator is applied to EVERY
 affinity_weights signal (salience_coordinator.py:616-636), and
 `external_task_drive` is one of them (agent.py:2760-2765, weight 3.0). At
-sigma = cap the squash is NOT an identity on sub-cap signals -- it returns
-0.800x at 0.25*cap, 0.667x at 0.5*cap and 0.500x AT the cap. Since the open
+sigma = cap the squash is NOT an identity on sub-cap signals -- it returns 0.800x
+at 0.25*cap, 0.667x at 0.5*cap and 0.500x AT the cap. Because the still-open
 boolean commitment latch (agent.py:7870) pins that engagement signal at exactly
-1.0, swapping clamp->squash changes the external_task affinity logit by -0.96 to
--1.50, while the dacc_pe degeneracy fix this run exists to test changes its logit
-by only -0.034 to -0.173 -- an 8x to 28x confound, in the direction of LESS
-external_task occupancy. Both a PASS and the pre-registered NULL are therefore
-unattributable: each is equally explained by the drive gain being cut roughly in
-half. The recorded `et_drive_saturated_frac` telemetry cannot separate them
-because it samples the signal PRE-bound.
+1.0, swapping clamp->squash moved the external_task logit by -0.96..-1.50 while
+the dacc_pe degeneracy fix under test moved its logit by only -0.034..-0.173 --
+an 8x to 28x confound, in the direction of LESS external_task occupancy. With
+only two arms neither a PASS nor the pre-registered NULL was attributable.
 
-This also falsifies the inference in substrate_queue.json
-`mode-governance-engagement`
-implementation_log.squash_sigma_decision_2026_09_19.why_sigma_equals_cap
-("every SUB-cap signal passes through precisely as the legacy box clamp passes
-it"): slope 1 at the ORIGIN is true, identity over [0, cap] is not.
-
-Two further CONFIRMED (lower-severity) defects, both in this file:
-  - `operator_manipulation_landed` (the 1e-6 paired-margin guard) is vacuous:
-    the cells are not RNG-paired, and banked 934 data shows same-operator cells
-    already differing by 1.7e-3.
-  - `bound_mode` is nested OUTERMOST in _run_seed, so all clamp cells precede all
-    squash cells on one shared, never-rebuilt, stateful `dual_env`.
-
-Full analysis, the four options, and the recommendation:
-  REE_assembly/evidence/planning/sd032a_squash_vs_clamp_sweep_blocked_staged_20260919.md
-Decision chip: chip-20260919-sd032a-squash-confounded-gain-cut
-
-SLEEP DRIVER: N/A (waking goal-pipeline onboarding scheduler; no sleep loop).
-
-RED-TEAM (Step 4.5): see the queue entry note for the verdict + model.
+THE FIX, as decided: a THIRD, GAIN-MATCHED CLAMP arm (see THREE ARMS below), so
+the gain component and the gradedness component are measured separately. Two
+lower-severity red-team findings are fixed in the same pass: cells are now
+RNG- AND ENV-PAIRED across bound arms (so the paired-delta non-degeneracy guard
+is no longer vacuous), and each cell builds its own env (so the bound arms no
+longer share one stateful, never-rebuilt env, and the bound arm is nested
+INNERMOST). Occupancy remains the LOAD-BEARING criterion exactly as ratified.
 
 WHY THIS RUN EXISTS
 -------------------
@@ -94,6 +74,101 @@ NOT swept; an explicit sigma is what a CALIBRATION sweep varies, and an ADAPTIVE
 sigma was considered and explicitly declined on the record ("IF IT IS EVER WANTED
 IT IS A NEW substrate_queue ITEM").
 
+THE THREE BOUND ARMS (the manipulation)
+---------------------------------------
+All three run at every swept cap, on both rail arms, on shared seeds, on clones
+of the SAME trained agent, with RNG and env paired cell-for-cell.
+
+  clamp_baseline      operator = clamp,  drive weight = 3.0 (unchanged)
+                      The V3-EXQ-934 BASELINE. Degenerate at the cap; full drive.
+  squash              operator = squash, drive weight = 3.0 (unchanged)
+                      Graded at the cap; drive gain CUT as a side effect.
+  clamp_gain_matched  operator = clamp,  drive weight = w'(cap)
+                      Drive gain cut to match `squash`, but the bound is still
+                      DEGENERATE at the cap. This is the control the red-team
+                      finding requires: it carries the gain component WITHOUT the
+                      gradedness component.
+
+w'(cap) is set so the external_task_drive logit contribution MATCHES the squash
+arm at the dominant operating point, engagement e = 1.0 (the value the boolean
+commitment latch pins it to whenever beta is elevated -- see
+et_drive_saturated_frac, which measures how dominant that point actually is):
+
+    squash contributes  3.0 * cap*e/(cap+e)          -> 3.0 * cap/(cap+1) at e=1
+    clamp  contributes  w'  * min(e, cap)            -> w'  * min(1, cap) at e=1
+    =>  w'(cap) = 3.0 * (cap/(cap+1)) / min(1.0, cap)
+
+For every cap >= 1.0 this is exactly the `3*cap/(cap+1)` the decision specified.
+It differs ONLY at cap = 0.75, the one sub-1.0 point in the sweep, where the
+CLAMP itself already attenuates e=1.0 to 0.75 and the literal formula would
+therefore under-deliver the match by ~0.32 of logit (1.286 wanted vs 0.964
+delivered) -- at precisely the cap where V3-EXQ-934's seed 42 produced its only
+mixed cell. The min() term is a derivation-level correction in service of the
+decision's stated purpose ("so the gain-cut component is measured separately from
+the gradedness component"), not a change to it; both forms are recorded in the
+manifest under config.gain_matched_drive_weight_by_cap so the choice is auditable.
+
+RESIDUAL, STATED: the match is exact only at e = 1.0. Where engagement is
+UNLATCHED (e < 1) the squash and the gain-matched clamp diverge slightly. That is
+accepted rather than hidden -- et_drive_saturated_frac records what fraction of
+ticks sat at the matched point, and it is expected near 1.0 precisely because
+item (2) is still open.
+
+HOW THE THREE ARMS ARE READ TOGETHER (pre-registered; this is the attribution)
+------------------------------------------------------------------------------
+Three occupancy gates are computed on the PRIMARY rail arm (ARM_SYMMETRIC), one
+per bound arm. `squash` graded is the LOAD-BEARING criterion, unchanged. The
+other two are ATTRIBUTION, and the readings are fixed in advance:
+
+  squash    clamp_gain_matched   ->  attribution                        SD-032a
+  graded?   graded?
+  ---------------------------------------------------------------------------
+  YES       NO                   ->  GRADEDNESS. The mixed regime needs the       supports
+                                     graded bound; the gain cut alone does
+                                     not produce it.
+  YES       YES                  ->  GAIN, NOT GRADEDNESS. The mixed regime       non_contributory
+                                     is reachable with a DEGENERATE bound
+                                     once the drive gain is cut, so the PASS
+                                     does NOT evidence gradedness. Recorded
+                                     as PASS (the ratified criterion did
+                                     pass) but explicitly NOT as support.
+  NO        NO, and occupancy    ->  RESIDUAL DISCRETENESS that is cap-,          weakens
+            does not move        ->  operator- AND gain-INDEPENDENT. With the
+            across any arm           margin demonstrably responding, this
+            (all three cells         isolates the item-(2) boolean commitment
+            equal within eps)        latch as the remaining source.
+  NO        NO, but occupancy    ->  BANG-BANG PERSISTS. Occupancy does respond    weakens
+            DOES move                to gain and/or gradedness, but never into
+                                     a reproducible mixed band.
+  (any)     clamp_baseline       ->  BASELINE DIVERGENCE from V3-EXQ-934. The     non_contributory
+            graded                   contrast is not interpretable until
+                                     explained; routed as such, no direction.
+
+The two decomposition quantities are recorded as telemetry with NO threshold:
+  occ_shift_gain        = mean |occ(clamp_gain_matched) - occ(clamp_baseline)|
+  occ_shift_gradedness  = mean |occ(squash) - occ(clamp_gain_matched)|
+  occ_shift_total       = mean |occ(squash) - occ(clamp_baseline)|
+(each over the PRIMARY rail arm's (seed, cap) cells). They are meaningful ONLY
+because the cells are RNG- and env-paired; see PAIRING below.
+
+PAIRING (red-team findings 2 and 3)
+------------------------------------
+Every cell derives a per-cell RNG seed from (seed, cap, rail_arm) ONLY -- never
+from the bound arm -- and calls `reset_all_rng(cell_seed)` at cell entry, then
+builds its OWN env seeded with that same cell seed. So the three bound arms at a
+given (seed, cap, rail_arm) start from bit-identical RNG state and an identical
+env layout, and differ ONLY in the manipulated variables. Consequences:
+  - the paired deltas above measure the manipulation, not run-to-run noise;
+  - the 1e-6 `operator_manipulation_landed` guard is a genuine bit-level identity
+    test rather than a threshold that any two stochastic cells would clear
+    (banked V3-EXQ-934 cells differing only in rails already differed by 1.7e-3);
+  - bound-arm ORDER cannot confound, since no env state carries between cells.
+This DEPARTS from V3-EXQ-934's OS-entropy eval env on purpose: 934 shared one env
+across its cells, which is exactly what made its cells unpairable. The clamp
+baseline arm still reproduces 934's DESIGN (same operator, same weight, same cap
+band, same seeds, same rails); it is not expected to reproduce 934's cell values
+bit-for-bit, and nothing here compares against them numerically.
+
 DESIGN
 ------
 Cross the OPERATOR with the CAP on SHARED seeds, at EVAL time, on clones of ONE
@@ -103,11 +178,14 @@ trained curriculum agent per seed. `SalienceCoordinator.tick()` reads
 arbitration with no retraining -- the same train-once/sweep-on-clones pattern 934
 and 467e use, and empirically confirmed before authoring.
 
-  BOUND_MODES = ["clamp", "squash"]   -- the MANIPULATION. "clamp" is the
-      V3-EXQ-934 BASELINE and must reproduce it: the entry's own build constraint
-      is "Keep the existing clamp reachable behind a mode selector so the
-      V3-EXQ-934 baseline stays reproducible", and the operator contract file's C1
-      pins bit-identity of the default path.
+  BOUND_ARMS -- the MANIPULATION; THREE arms, defined under THE THREE BOUND ARMS
+      above. `clamp_baseline` is the V3-EXQ-934 BASELINE and must reproduce its
+      DESIGN: the entry's own build constraint is "Keep the existing clamp
+      reachable behind a mode selector so the V3-EXQ-934 baseline stays
+      reproducible", and the operator contract file's C1 pins bit-identity of the
+      default path. `clamp_gain_matched` is the attribution control added under
+      option A; it is what separates the gain component from the gradedness
+      component, and without it neither a PASS nor a null is attributable.
   CAP_SWEEP = [0.75, 1.0, 1.25, 1.5, 1.75]  -- 934's band, INHERITED unchanged.
       Transferability caveat, stated rather than papered over: this band was
       chosen from a CLAMP-era synthetic probe. sigma = cap fixes the small-signal
@@ -143,7 +221,7 @@ steps wide", which the gate module implements as: GRADED iff a run of
 >= min_seed_fraction (2/3) of the seeds measured at that value.
 
 CALL SHAPE (the trap that cost 934 its routing): the gate is called ONCE per
-(bound_mode, arm) over ALL (seed, cap) cells, with `seed` AND `sweep_value`
+(bound_arm, rail_arm) over ALL (seed, cap) cells, with `seed` AND `sweep_value`
 populated -- never per-seed with booleans counted afterwards. The entry: "Do NOT
 call per-seed and count booleans afterwards -- that is precisely the 934 shape
 whose collapse of 'which cap' produced the false routing." 934's own
@@ -162,7 +240,7 @@ ATTRIBUTABLE rather than merely disappointing:
 
   ext_margin_mean/p10/p50/p90/max -- the continuous operating_mode['external_task'].
   margin_cap_linearity_r2 -- R^2 of a least-squares fit of ext_margin_mean vs cap,
-      per (seed, arm, bound_mode). 935a recorded 0.9996-0.9999 under the CLAMP;
+      per (seed, arm, bound_arm). 935a recorded 0.9996-0.9999 under the CLAMP;
       whether the squash degrades it is REPORTED, never gated.
   operator margin deltas -- paired squash-minus-clamp ext_margin_mean per
       (seed, cap, arm).
@@ -217,6 +295,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import sys
 import time
@@ -256,6 +335,7 @@ from experiments._lib.regime_occupancy_gate import (  # noqa: E402
     OccupancyCell,
     evaluate_regime_occupancy_gate,
 )
+from experiments._lib.arm_fingerprint import reset_all_rng  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_1067_mech266_squash_vs_clamp_cap_sweep"
 QUEUE_ID = "V3-EXQ-1067"
@@ -299,15 +379,65 @@ STICKY_MODE = "external_task"
 STICKY_EXIT = 0.05
 LOOSE_EXIT = 0.90
 
-# THE MANIPULATION. "clamp" is the V3-EXQ-934 baseline arm.
-BOUND_MODES: List[str] = [AFFINITY_BOUND_CLAMP, AFFINITY_BOUND_SQUASH]
+# THE MANIPULATION -- three bound arms (see THE THREE BOUND ARMS in the docstring).
+BOUND_ARM_CLAMP = "clamp_baseline"
+BOUND_ARM_SQUASH = "squash"
+BOUND_ARM_CLAMP_GAINMATCHED = "clamp_gain_matched"
+BOUND_ARMS: List[str] = [
+    BOUND_ARM_CLAMP, BOUND_ARM_SQUASH, BOUND_ARM_CLAMP_GAINMATCHED,
+]
+# Which coordinator operator each bound arm selects.
+BOUND_ARM_OPERATOR: Dict[str, str] = {
+    BOUND_ARM_CLAMP: AFFINITY_BOUND_CLAMP,
+    BOUND_ARM_SQUASH: AFFINITY_BOUND_SQUASH,
+    BOUND_ARM_CLAMP_GAINMATCHED: AFFINITY_BOUND_CLAMP,
+}
 # sigma stays at the landed DEFAULT (None -> sigma = cap). NOT a swept knob here.
 AFFINITY_SQUASH_SIGMA: Optional[float] = None
+
+# The external_task_drive affinity weight the substrate is TRAINED and evaluated
+# with on the two unmatched arms.
+EXTERNAL_TASK_DRIVE_AFFINITY_WEIGHT = 3.0
+
+
+def gain_matched_drive_weight(cap: float) -> float:
+    """The clamp-arm external_task_drive weight that MATCHES the squash arm's
+    logit contribution at engagement e = 1.0 (the point the still-open boolean
+    commitment latch pins engagement to; agent.py:7870/:7881).
+
+        squash contributes  w * cap*e/(cap+e)   -> w * cap/(cap+1)   at e = 1
+        clamp  contributes  w' * min(e, cap)    -> w' * min(1, cap)  at e = 1
+        =>  w'(cap) = w * (cap/(cap+1)) / min(1.0, cap)
+
+    Equals the decision's literal `3*cap/(cap+1)` at every cap >= 1.0. The min()
+    term corrects ONLY the sub-1.0 case (cap = 0.75 here), where the clamp itself
+    already attenuates e = 1.0 to 0.75 so the literal form would under-deliver the
+    match -- at exactly the cap where V3-EXQ-934's seed 42 produced its only mixed
+    cell. See the docstring; both forms are recorded in the manifest."""
+    w = EXTERNAL_TASK_DRIVE_AFFINITY_WEIGHT
+    return float(w * (float(cap) / (float(cap) + 1.0)) / min(1.0, float(cap)))
+
+
+def bound_arm_drive_weight(bound_arm: str, cap: float) -> float:
+    """Per-cell external_task_drive affinity weight for this bound arm."""
+    if bound_arm == BOUND_ARM_CLAMP_GAINMATCHED:
+        return gain_matched_drive_weight(cap)
+    return EXTERNAL_TASK_DRIVE_AFFINITY_WEIGHT
+
+
+def cell_rng_seed(seed: int, cap: float, rail_arm: str) -> int:
+    """Per-cell RNG/env seed. DELIBERATELY EXCLUDES the bound arm, so the three
+    bound arms at one (seed, cap, rail_arm) start from bit-identical RNG state and
+    an identical env layout and differ ONLY in the manipulated variables. This is
+    what makes the paired deltas and the 1e-6 non-degeneracy guard meaningful --
+    red-team findings 2 and 3."""
+    key = f"{int(seed)}|{float(cap):.6f}|{rail_arm}".encode("ascii")
+    return int(hashlib.blake2b(key, digest_size=4).hexdigest(), 16) % (2 ** 31 - 1)
 
 # 934's cap band, inherited unchanged (see the docstring's transferability caveat).
 CAP_SWEEP: List[float] = [0.75, 1.0, 1.25, 1.5, 1.75]
 # Training-time cap AND operator: 464e/934's construction, so the trained substrate
-# is comparable to the banked reference and both eval operators share one agent.
+# is comparable to the banked reference and all three bound arms share one agent.
 AFFINITY_INPUT_CAP_TRAIN = 2.0
 AFFINITY_BOUND_MODE_TRAIN = AFFINITY_BOUND_CLAMP
 
@@ -477,7 +607,7 @@ def _make_config(env) -> REEConfig:
         use_lateral_pfc_analog=True,
         use_closure_operator=False,
         use_external_task_drive=True,
-        external_task_drive_affinity_weight=3.0,
+        external_task_drive_affinity_weight=EXTERNAL_TASK_DRIVE_AFFINITY_WEIGHT,
         external_task_drive_salience_weight=2.0,
         external_task_drive_commit_weight=1.0,
         external_task_drive_proximity_weight=1.0,
@@ -598,25 +728,31 @@ def _eval_cell(
     agent: REEAgent,
     env: CausalGridWorldV2,
     cap: float,
-    bound_mode: str,
+    bound_arm: str,
     arm_label: str,
     scaffold_cfg: ScaffoldedSD054OnboardingConfig,
     device: torch.device,
     n_eps: int,
     steps_per_ep: int,
 ) -> Dict[str, Any]:
-    """Frozen-policy eval for ONE (bound_mode, cap, arm) cell. Rails must already be
-    applied by the caller; this sets the EVAL-time cap AND bounding operator on the
-    coordinator config (all three read live at tick()). Instruments the discrete
-    occupancy DV, the continuous pre-argmax margin, a MODE-CONDITIONED dwell, and
-    the commitment-latch / signal-magnitude attribution telemetry."""
+    """Frozen-policy eval for ONE (bound_arm, cap, rail_arm) cell. Rails must already
+    be applied by the caller; this sets the EVAL-time cap, bounding operator and
+    external_task_drive affinity weight on the coordinator config (all read live at
+    tick()). Instruments the discrete occupancy DV, the continuous pre-argmax
+    margin, a MODE-CONDITIONED dwell, and the commitment-latch / signal-magnitude
+    attribution telemetry."""
     agent.eval()
     world_dim = agent.config.latent.world_dim
     coord = agent.salience
-    # EVAL-time override -- THIS IS THE SWEEP. All three are read live at tick().
+    # EVAL-time override -- THIS IS THE SWEEP. All read live at tick().
     coord.config.affinity_input_cap = float(cap)
-    coord.config.affinity_bound_mode = str(bound_mode)
+    coord.config.affinity_bound_mode = BOUND_ARM_OPERATOR[bound_arm]
     coord.config.affinity_squash_sigma = AFFINITY_SQUASH_SIGMA
+    # The gain-matched arm's whole point: clamp operator, squash-matched drive gain.
+    drive_weight = bound_arm_drive_weight(bound_arm, cap)
+    coord.config.affinity_weights["external_task_drive"] = {
+        "external_task": float(drive_weight),
+    }
     feed_harm = scaffold_cfg.scaffold_feed_harm_stream
 
     coord_ticks_start = int(coord.diagnostics.get("n_ticks", 0))
@@ -724,9 +860,11 @@ def _eval_cell(
 
     return {
         "cap": float(cap),
-        "bound_mode": str(bound_mode),
+        "bound_arm": str(bound_arm),
+        "bound_operator": BOUND_ARM_OPERATOR[bound_arm],
+        "drive_affinity_weight": round(float(drive_weight), 6),
         "arm": arm_label,
-        "cell_label": f"{bound_mode}|cap={cap}|{arm_label}",
+        "cell_label": f"{bound_arm}|cap={cap}|{arm_label}",
         "fraction_in_external_task": round(frac_task, 4),
         # --- continuous margin telemetry (recorded, NO threshold) ---
         "ext_margin_mean": round(margin_mean, 6),
@@ -841,27 +979,34 @@ def _run_seed(seed: int, dry_run: bool, total_eps: int,
     )
     _ZG.observe(agent)
 
-    dual_env = _build_dual_cue_env(
-        scaffold_cfg, seed=_derive_env_seed(seed_env_base, stream=2, idx=1)
-    )
-    dual_env.reset()
-
-    # Sweep BOUND_MODE x CAP x ARM on clones of the SAME trained agent.
+    # Sweep CAP x RAIL_ARM x BOUND_ARM on clones of the SAME trained agent, with the
+    # BOUND ARM INNERMOST and every cell RNG- and ENV-paired (red-team findings 2/3):
+    # the per-cell seed excludes the bound arm, so the three bound arms at one
+    # (cap, rail_arm) start from bit-identical RNG state and an identical env.
     cells: List[Dict[str, Any]] = []
-    for bound_mode in BOUND_MODES:
-        for cap in caps:
-            for arm_label in ARM_LABELS:
+    for cap in caps:
+        for arm_label in ARM_LABELS:
+            c_seed = cell_rng_seed(seed, cap, arm_label)
+            for bound_arm in BOUND_ARMS:
+                # Identical starting RNG state for all three bound arms.
+                reset_all_rng(c_seed)
+                # Each cell gets its OWN env, seeded identically across bound arms,
+                # so no stateful env carries between cells and order cannot confound.
+                cell_env = _build_dual_cue_env(scaffold_cfg, seed=c_seed)
+                cell_env.reset()
                 agent_cell = _clone_for_arm(agent, device)
                 _apply_rails(agent_cell.salience, arm_label)
                 cell = _eval_cell(
-                    agent_cell, dual_env, cap, bound_mode, arm_label,
+                    agent_cell, cell_env, cap, bound_arm, arm_label,
                     scaffold_cfg, device, eval_eps, steps_per_ep,
                 )
                 cell["seed"] = int(seed)
+                cell["cell_rng_seed"] = int(c_seed)
                 cells.append(cell)
                 done += eval_eps
                 _ZG.observe(agent_cell)
-                print(f"  [eval] seed={seed} mode={bound_mode} cap={cap} {arm_label}"
+                print(f"  [eval] seed={seed} bound_arm={bound_arm} cap={cap}"
+                      f" {arm_label} w_drive={cell['drive_affinity_weight']}"
                       f" occ={cell['fraction_in_external_task']}"
                       f" margin_mean={cell['ext_margin_mean']}"
                       f" et_sat={cell['et_drive_saturated_frac']}"
@@ -899,10 +1044,10 @@ def _frac(flags: List[bool]) -> float:
     return float(sum(1 for f in flags if f)) / float(len(flags)) if flags else 0.0
 
 
-def _gate_for(cells: List[Dict[str, Any]], bound_mode: str,
+def _gate_for(cells: List[Dict[str, Any]], bound_arm: str,
               arm_label: str) -> Dict[str, Any]:
     """Run the regime-conditioned occupancy gate ONCE over ALL (seed, cap) cells of
-    one (bound_mode, arm) slice.
+    one (bound_arm, rail_arm) slice.
 
     THIS CALL SHAPE IS THE POINT. Both `seed` and `sweep_value` are populated, so
     the gate can evaluate the entry's actual bar -- >= 2 CONSECUTIVE cap values
@@ -913,7 +1058,7 @@ def _gate_for(cells: List[Dict[str, Any]], bound_mode: str,
     The module FAILS CLOSED to `underdetermined` if the metadata cannot support the
     bar, so this is enforced, not merely intended."""
     slice_cells = [c for c in cells
-                   if c["bound_mode"] == bound_mode and c["arm"] == arm_label]
+                   if c["bound_arm"] == bound_arm and c["arm"] == arm_label]
     occ_cells = [
         OccupancyCell(
             label=f"cap={c['cap']}",
@@ -930,7 +1075,7 @@ def _gate_for(cells: List[Dict[str, Any]], bound_mode: str,
         min_adjacent=GATE_MIN_ADJACENT,
         min_seeds=GATE_MIN_SEEDS,
     )
-    gate["bound_mode"] = bound_mode
+    gate["bound_arm"] = bound_arm
     gate["arm"] = arm_label
     gate["n_cells"] = len(occ_cells)
     return gate
@@ -942,7 +1087,7 @@ def run_experiment(dry_run: bool = False,
           f"env_seed_base={env_seed_base})", flush=True)
     seeds = SEEDS[:1] if dry_run else SEEDS
     caps = CAP_SWEEP[:2] if dry_run else CAP_SWEEP
-    n_cells = len(BOUND_MODES) * len(caps) * len(ARM_LABELS)
+    n_cells = len(BOUND_ARMS) * len(caps) * len(ARM_LABELS)
     if dry_run:
         total_eps = 2 + 2 + 5 + 5 + 5 + 2 + n_cells * 2
     else:
@@ -968,20 +1113,25 @@ def run_experiment(dry_run: bool = False,
     # All cells from guard-passing seeds -- the gate is called over these.
     all_cells: List[Dict[str, Any]] = [c for r in guard_passing for c in r.get("cells", [])]
 
-    # ONE gate call per (bound_mode, arm) over ALL (seed, cap) cells.
+    # ONE gate call per (bound_arm, rail_arm) over ALL (seed, cap) cells.
     gates: Dict[str, Dict[str, Any]] = {}
-    for bound_mode in BOUND_MODES:
+    for bound_arm in BOUND_ARMS:
         for arm_label in ARM_LABELS:
-            gates[f"{bound_mode}|{arm_label}"] = _gate_for(all_cells, bound_mode, arm_label)
+            gates[f"{bound_arm}|{arm_label}"] = _gate_for(all_cells, bound_arm, arm_label)
 
-    squash_primary = gates[f"{AFFINITY_BOUND_SQUASH}|{PRIMARY_ARM}"]
-    clamp_primary = gates[f"{AFFINITY_BOUND_CLAMP}|{PRIMARY_ARM}"]
+    squash_primary = gates[f"{BOUND_ARM_SQUASH}|{PRIMARY_ARM}"]
+    clamp_primary = gates[f"{BOUND_ARM_CLAMP}|{PRIMARY_ARM}"]
+    gain_primary = gates[f"{BOUND_ARM_CLAMP_GAINMATCHED}|{PRIMARY_ARM}"]
 
     # THE LOAD-BEARING CRITERION (user decision 2026-09-19T22:12:50Z): occupancy,
     # via the transcribed bar, on the SQUASH x ARM_SYMMETRIC slice.
     squash_graded = bool(squash_primary.get("graded", False))
     # Reported, NOT load-bearing: the V3-EXQ-934 clamp baseline reproduction.
     clamp_graded = bool(clamp_primary.get("graded", False))
+    # Reported, NOT load-bearing: THE ATTRIBUTION CONTROL. A graded gain-matched
+    # clamp arm means the mixed regime is reachable with a DEGENERATE bound once the
+    # drive gain is cut -- i.e. the effect is GAIN, not gradedness.
+    gain_graded = bool(gain_primary.get("graded", False))
 
     # --- NON-DEGENERACY (bit-level identity checks, NOT contrast thresholds) ---
     # (1) Did the OPERATOR manipulation land at all? Pair cells by (seed, cap, arm)
@@ -991,17 +1141,25 @@ def run_experiment(dry_run: bool = False,
     by_key: Dict[Any, Dict[str, float]] = {}
     for c in all_cells:
         key = (c["seed"], c["cap"], c["arm"])
-        by_key.setdefault(key, {})[c["bound_mode"]] = float(c["ext_margin_mean"])
+        by_key.setdefault(key, {})[c["bound_arm"]] = float(c["ext_margin_mean"])
     operator_margin_deltas: List[Dict[str, Any]] = []
     for key, vals in sorted(by_key.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2])):
-        if AFFINITY_BOUND_CLAMP in vals and AFFINITY_BOUND_SQUASH in vals:
-            delta = vals[AFFINITY_BOUND_SQUASH] - vals[AFFINITY_BOUND_CLAMP]
-            operator_margin_deltas.append({
+        if BOUND_ARM_CLAMP in vals and BOUND_ARM_SQUASH in vals:
+            delta = vals[BOUND_ARM_SQUASH] - vals[BOUND_ARM_CLAMP]
+            row = {
                 "seed": key[0], "cap": key[1], "arm": key[2],
-                "clamp_margin_mean": round(vals[AFFINITY_BOUND_CLAMP], 6),
-                "squash_margin_mean": round(vals[AFFINITY_BOUND_SQUASH], 6),
+                "clamp_margin_mean": round(vals[BOUND_ARM_CLAMP], 6),
+                "squash_margin_mean": round(vals[BOUND_ARM_SQUASH], 6),
                 "delta": round(delta, 6),
-            })
+            }
+            if BOUND_ARM_CLAMP_GAINMATCHED in vals:
+                gm = vals[BOUND_ARM_CLAMP_GAINMATCHED]
+                row["gain_matched_margin_mean"] = round(gm, 6)
+                # The two-way decomposition of the total operator delta.
+                row["delta_gain_component"] = round(gm - vals[BOUND_ARM_CLAMP], 6)
+                row["delta_gradedness_component"] = round(
+                    vals[BOUND_ARM_SQUASH] - gm, 6)
+            operator_margin_deltas.append(row)
     max_abs_operator_delta = max(
         (abs(d["delta"]) for d in operator_margin_deltas), default=0.0)
     operator_manipulation_landed = bool(max_abs_operator_delta > MANIPULATION_EPS)
@@ -1010,27 +1168,52 @@ def run_experiment(dry_run: bool = False,
     # which level the operator reached.
     occ_by_key: Dict[Any, Dict[str, float]] = {}
     for c in all_cells:
-        occ_by_key.setdefault((c["seed"], c["cap"], c["arm"]), {})[c["bound_mode"]] = \
+        occ_by_key.setdefault((c["seed"], c["cap"], c["arm"]), {})[c["bound_arm"]] = \
             float(c["fraction_in_external_task"])
     max_abs_operator_occ_delta = max(
-        (abs(v[AFFINITY_BOUND_SQUASH] - v[AFFINITY_BOUND_CLAMP])
+        (abs(v[BOUND_ARM_SQUASH] - v[BOUND_ARM_CLAMP])
          for v in occ_by_key.values()
-         if AFFINITY_BOUND_CLAMP in v and AFFINITY_BOUND_SQUASH in v),
+         if BOUND_ARM_CLAMP in v and BOUND_ARM_SQUASH in v),
         default=0.0)
     operator_moves_occupancy = bool(max_abs_operator_occ_delta > MANIPULATION_EPS)
 
+    # --- THE THREE-ARM OCCUPANCY DECOMPOSITION (telemetry, NO threshold). Only
+    #     meaningful because the cells are RNG- and env-paired; see PAIRING.
+    def _mean_abs_occ_shift(arm_a: str, arm_b: str) -> float:
+        vals = [abs(v[arm_a] - v[arm_b])
+                for k, v in occ_by_key.items()
+                if k[2] == PRIMARY_ARM and arm_a in v and arm_b in v]
+        return round(float(sum(vals) / len(vals)), 6) if vals else 0.0
+
+    occ_shift_gain = _mean_abs_occ_shift(BOUND_ARM_CLAMP_GAINMATCHED, BOUND_ARM_CLAMP)
+    occ_shift_gradedness = _mean_abs_occ_shift(BOUND_ARM_SQUASH, BOUND_ARM_CLAMP_GAINMATCHED)
+    occ_shift_total = _mean_abs_occ_shift(BOUND_ARM_SQUASH, BOUND_ARM_CLAMP)
+    # "Occupancy does not move across ANY arm" -- the degenerate case the
+    # pre-registered attribution table routes to the item-(2) latch.
+    occupancy_static_across_arms = bool(
+        max_abs_operator_occ_delta <= MANIPULATION_EPS
+        and occ_shift_gain <= MANIPULATION_EPS
+        and occ_shift_gradedness <= MANIPULATION_EPS
+    )
+    gain_arm_landed = bool(
+        max((abs(v[BOUND_ARM_CLAMP_GAINMATCHED] - v[BOUND_ARM_CLAMP])
+             for v in by_key.values()
+             if BOUND_ARM_CLAMP in v and BOUND_ARM_CLAMP_GAINMATCHED in v),
+            default=0.0) > MANIPULATION_EPS
+    )
+
     # (2) Did the CAP manipulation land at all (934's check, per operator)?
-    def _varies(key: str, bound_mode: str) -> bool:
+    def _varies(key: str, bound_arm: str) -> bool:
         for r in guard_passing:
             for arm_label in ARM_LABELS:
                 vals = [float(c[key]) for c in r.get("cells", [])
-                        if c["arm"] == arm_label and c["bound_mode"] == bound_mode]
+                        if c["arm"] == arm_label and c["bound_arm"] == bound_arm]
                 if len(vals) >= 2 and (max(vals) - min(vals)) > MANIPULATION_EPS:
                     return True
         return False
 
-    occupancy_varies = any(_varies("fraction_in_external_task", m) for m in BOUND_MODES)
-    margin_varies = any(_varies("ext_margin_mean", m) for m in BOUND_MODES)
+    occupancy_varies = any(_varies("fraction_in_external_task", m) for m in BOUND_ARMS)
+    margin_varies = any(_varies("ext_margin_mean", m) for m in BOUND_ARMS)
     cap_manipulation_landed = bool(occupancy_varies or margin_varies)
 
     # --- TELEMETRY: margin-vs-cap linearity per (seed, arm, bound_mode). NO
@@ -1038,29 +1221,30 @@ def run_experiment(dry_run: bool = False,
     #     935a clamp-era R^2 0.9996-0.9999 has a like-for-like successor value.
     linearity_rows: List[Dict[str, Any]] = []
     for r in guard_passing:
-        for bound_mode in BOUND_MODES:
+        for bound_arm in BOUND_ARMS:
             for arm_label in ARM_LABELS:
                 sel = sorted(
                     [c for c in r.get("cells", [])
-                     if c["bound_mode"] == bound_mode and c["arm"] == arm_label],
+                     if c["bound_arm"] == bound_arm and c["arm"] == arm_label],
                     key=lambda c: c["cap"])
                 r2 = _r2_vs_cap([float(c["cap"]) for c in sel],
                                 [float(c["ext_margin_mean"]) for c in sel])
                 linearity_rows.append({
-                    "seed": r["seed"], "bound_mode": bound_mode, "arm": arm_label,
+                    "seed": r["seed"], "bound_arm": bound_arm, "arm": arm_label,
                     "margin_cap_linearity_r2": r2,
                     "n_points": len(sel),
                 })
 
-    def _mean_r2(bound_mode: str) -> Optional[float]:
+    def _mean_r2(bound_arm: str) -> Optional[float]:
         vals = [row["margin_cap_linearity_r2"] for row in linearity_rows
-                if row["bound_mode"] == bound_mode
+                if row["bound_arm"] == bound_arm
                 and row["arm"] == PRIMARY_ARM
                 and row["margin_cap_linearity_r2"] is not None]
         return round(float(sum(vals) / len(vals)), 6) if vals else None
 
-    clamp_r2_primary = _mean_r2(AFFINITY_BOUND_CLAMP)
-    squash_r2_primary = _mean_r2(AFFINITY_BOUND_SQUASH)
+    clamp_r2_primary = _mean_r2(BOUND_ARM_CLAMP)
+    squash_r2_primary = _mean_r2(BOUND_ARM_SQUASH)
+    gain_r2_primary = _mean_r2(BOUND_ARM_CLAMP_GAINMATCHED)
 
     # --- TELEMETRY: commitment-latch attribution (entry item (2), still OPEN) ---
     et_sat_vals = [float(c["et_drive_saturated_frac"]) for c in all_cells]
@@ -1070,7 +1254,8 @@ def run_experiment(dry_run: bool = False,
     pe_over_mean = round(float(sum(pe_over_vals) / len(pe_over_vals)), 4) if pe_over_vals else 0.0
     pe_abs_max = round(max((float(c["dacc_pe_abs_max"]) for c in all_cells), default=0.0), 4)
 
-    # --- ROUTING ---
+    # --- ROUTING (the pre-registered three-arm attribution table; see docstring) ---
+    attribution = None
     if not contact_non_vacuity_met:
         outcome = "FAIL"
         readiness_route = "substrate_not_ready_requeue"
@@ -1080,38 +1265,62 @@ def run_experiment(dry_run: bool = False,
         readiness_route = "substrate_not_ready_requeue"
         route_reason = "external_task_drive_not_engaging"
     elif not operator_manipulation_landed:
-        # The two operators produced bit-identical continuous margins everywhere.
-        # The pre-authoring probe showed the override lands, so this is an
-        # instrument concern to verify, NOT a conclusion about gradedness.
+        # The clamp and squash arms produced bit-identical continuous margins on
+        # PAIRED cells. Since the cells share RNG and env by construction, this is a
+        # genuine identity test -- and the pre-authoring probe showed the override
+        # lands, so this is an instrument concern, never a conclusion.
         outcome = "FAIL"
         readiness_route = "substrate_not_ready_requeue"
         route_reason = "operator_manipulation_inert_verify_instrument"
-    elif squash_graded:
-        outcome = "PASS"
-        readiness_route = "squash_operator_admits_mixed_regime"
-        route_reason = "graded_regime_reachable_under_squash_on_symmetric_arm"
     elif clamp_graded:
         # Baseline divergence: the clamp arm graded where V3-EXQ-934 recorded no
-        # common cap. Surfaced explicitly rather than absorbed -- the contrast is
-        # not interpretable until this is explained.
+        # common cap. The three-arm contrast is not interpretable until explained.
         outcome = "FAIL"
         readiness_route = "clamp_baseline_diverges_from_934"
-        route_reason = "clamp_arm_graded_contrast_not_interpretable"
-    else:
-        # THE PRE-REGISTERED NULL. Both operators saturate while the operator
-        # manipulation demonstrably landed on the continuous margin -> the residual
-        # discreteness is cap- AND operator-INDEPENDENT, which is exactly what the
-        # substrate_queue entry predicts for item (2)'s boolean commitment latch.
+        route_reason = "clamp_baseline_arm_graded_contrast_not_interpretable"
+        attribution = "baseline_divergence"
+    elif squash_graded and gain_graded:
+        # THE CRITICAL ATTRIBUTION BRANCH the gain-matched arm exists for. The mixed
+        # regime is ALSO reachable with a DEGENERATE bound once the drive gain is
+        # cut, so the ratified criterion passed but it does NOT evidence gradedness.
+        outcome = "PASS"
+        readiness_route = "mixed_regime_attributable_to_drive_gain_not_gradedness"
+        route_reason = "squash_and_gain_matched_clamp_both_graded"
+        attribution = "gain"
+    elif squash_graded:
+        # Squash grades, the gain-matched clamp does not -> the graded bound is what
+        # buys the mixed regime.
+        outcome = "PASS"
+        readiness_route = "squash_operator_admits_mixed_regime_attributable_to_gradedness"
+        route_reason = "squash_graded_gain_matched_clamp_not_graded"
+        attribution = "gradedness"
+    elif occupancy_static_across_arms:
+        # Nothing moves the discrete occupancy -- not the cap, not the gain, not the
+        # gradedness -- while the continuous margin demonstrably responds. That
+        # isolates a cap-, operator- AND gain-INDEPENDENT residual, which is exactly
+        # what the substrate_queue entry predicts for item (2)'s boolean latch.
         outcome = "FAIL"
-        readiness_route = "graded_operator_insufficient_residual_cap_independent_discreteness"
-        route_reason = "both_operators_saturated_margin_responds_isolates_commitment_latch"
+        readiness_route = "residual_discreteness_cap_and_operator_independent_isolates_commitment_latch"
+        route_reason = "occupancy_static_across_all_three_arms_margin_responds"
+        attribution = "item_2_commitment_latch"
+    else:
+        # Occupancy DOES respond to gain and/or gradedness, but never lands a
+        # reproducible mixed band. Bang-bang persists for a reason this design has
+        # now bounded but not identified.
+        outcome = "FAIL"
+        readiness_route = "occupancy_responds_but_never_grades_bang_bang_persists"
+        route_reason = "no_arm_graded_but_occupancy_shifts_between_arms"
+        attribution = "mixed_gain_and_gradedness_insufficient"
 
-    if squash_graded:
+    # Per-claim direction follows the ATTRIBUTION, not the bare outcome: a PASS that
+    # the gain-matched control shows is reachable without gradedness must NOT be
+    # recorded as support for the graded-bound hypothesis.
+    if attribution == "gradedness":
         sd032a_dir = "supports"
-    elif (margin_ready_met and contact_non_vacuity_met
-          and operator_manipulation_landed and not clamp_graded):
+    elif attribution in ("item_2_commitment_latch", "mixed_gain_and_gradedness_insufficient"):
         sd032a_dir = "weakens"
     else:
+        # "gain", "baseline_divergence", or any not-ready route.
         sd032a_dir = "non_contributory"
     direction_map = {
         "MECH-266": "non_contributory",
@@ -1121,6 +1330,7 @@ def run_experiment(dry_run: bool = False,
 
     squash_band = squash_primary.get("reproducible_band")
     clamp_band = clamp_primary.get("reproducible_band")
+    gain_band = gain_primary.get("reproducible_band")
 
     print(f"[{EXPERIMENT_TYPE}] contact_ready={contact_non_vacuity_met}"
           f" (guard {sum(guard_flags)}/{n}) margin_ready={margin_ready_met}"
@@ -1129,14 +1339,24 @@ def run_experiment(dry_run: bool = False,
           f" shape={squash_primary.get('regime_shape')}"
           f" graded={squash_graded} run={squash_primary.get('longest_adjacent_run')}"
           f" band={squash_band}", flush=True)
-    print(f"[{EXPERIMENT_TYPE}] CLAMP/{PRIMARY_ARM} (934 baseline)"
+    print(f"[{EXPERIMENT_TYPE}] CLAMP_BASELINE/{PRIMARY_ARM} (934 baseline)"
           f" shape={clamp_primary.get('regime_shape')}"
           f" graded={clamp_graded} run={clamp_primary.get('longest_adjacent_run')}"
           f" band={clamp_band}", flush=True)
+    print(f"[{EXPERIMENT_TYPE}] CLAMP_GAIN_MATCHED/{PRIMARY_ARM} (attribution control)"
+          f" shape={gain_primary.get('regime_shape')}"
+          f" graded={gain_graded} run={gain_primary.get('longest_adjacent_run')}"
+          f" band={gain_band}", flush=True)
+    print(f"[{EXPERIMENT_TYPE}] occupancy decomposition"
+          f" gain={occ_shift_gain} gradedness={occ_shift_gradedness}"
+          f" total={occ_shift_total} static_across_arms={occupancy_static_across_arms}"
+          f" gain_arm_landed={gain_arm_landed}", flush=True)
+    print(f"[{EXPERIMENT_TYPE}] ATTRIBUTION={attribution}", flush=True)
     print(f"[{EXPERIMENT_TYPE}] operator_landed={operator_manipulation_landed}"
           f" max_abs_margin_delta={max_abs_operator_delta:.6f}"
           f" moves_occupancy={operator_moves_occupancy}"
-          f" r2_clamp={clamp_r2_primary} r2_squash={squash_r2_primary}", flush=True)
+          f" r2_clamp={clamp_r2_primary} r2_squash={squash_r2_primary}"
+          f" r2_gain_matched={gain_r2_primary}", flush=True)
     print(f"[{EXPERIMENT_TYPE}] latch_telemetry et_saturated_frac"
           f" mean={et_sat_mean} max={et_sat_max}"
           f" dacc_pe_over_cap_frac_mean={pe_over_mean} dacc_pe_abs_max={pe_abs_max}",
@@ -1153,8 +1373,16 @@ def run_experiment(dry_run: bool = False,
         "margin_ready_fraction": margin_frac,
         "squash_symmetric_graded": squash_graded,
         "clamp_symmetric_graded_baseline": clamp_graded,
+        "gain_matched_clamp_symmetric_graded": gain_graded,
+        "attribution": attribution,
         "squash_reproducible_band": squash_band,
         "clamp_reproducible_band": clamp_band,
+        "gain_matched_reproducible_band": gain_band,
+        "occ_shift_gain": occ_shift_gain,
+        "occ_shift_gradedness": occ_shift_gradedness,
+        "occ_shift_total": occ_shift_total,
+        "occupancy_static_across_arms": occupancy_static_across_arms,
+        "gain_arm_landed": gain_arm_landed,
         "operator_manipulation_landed": operator_manipulation_landed,
         "max_abs_operator_margin_delta": round(max_abs_operator_delta, 6),
         "operator_moves_occupancy": operator_moves_occupancy,
@@ -1222,6 +1450,24 @@ def run_experiment(dry_run: bool = False,
             "direction": "lower",
         },
         {
+            "name": "gain_matched_clamp_arm_not_graded_attribution_control",
+            "load_bearing": False,
+            "passed": not gain_graded,
+            "description": "REPORTED, NOT LOAD-BEARING -- THE ATTRIBUTION CONTROL "
+                           "(user decision 2026-09-19T23:52:40Z, option A). Clamp "
+                           "operator with the external_task_drive weight cut to "
+                           "match the squash arm's gain at engagement 1.0. If THIS "
+                           "arm also grades, the mixed regime is reachable with a "
+                           "DEGENERATE bound once the drive gain is cut, so a "
+                           "squash PASS is attributable to GAIN, not gradedness -- "
+                           "and the run records SD-032a non_contributory rather "
+                           "than supports. See the pre-registered attribution "
+                           "table in the module docstring.",
+            "measured": int(gain_primary.get("longest_adjacent_run", 0)),
+            "threshold": GATE_MIN_ADJACENT,
+            "direction": "upper",
+        },
+        {
             "name": "clamp_symmetric_arm_baseline_934_reproduction",
             "load_bearing": False,
             "passed": not clamp_graded,
@@ -1235,12 +1481,22 @@ def run_experiment(dry_run: bool = False,
         },
     ]
     combination_rule = (
-        "PASS iff the single load-bearing criterion "
+        "OUTCOME: PASS iff the single load-bearing criterion "
         "H_squash_symmetric_arm_graded_regime_reachable passes, AND both readiness "
         "preconditions are met, AND the operator manipulation demonstrably landed "
-        "on the continuous margin. The clamp baseline criterion is REPORTED and "
-        "never contributes to PASS; it only redirects the FAIL route when the "
-        "baseline itself diverges from V3-EXQ-934."
+        "on the continuous margin of PAIRED cells. That criterion is unchanged from "
+        "the ratified design. "
+        "ATTRIBUTION (separate from the outcome, pre-registered in the module "
+        "docstring's three-arm table): the two NON-load-bearing arms decide what a "
+        "PASS or a null MEANS, and they drive evidence_direction_per_claim. A PASS "
+        "with the gain-matched clamp control ALSO graded is attributed to drive "
+        "GAIN, not gradedness, and records SD-032a non_contributory despite the "
+        "PASS. A PASS with that control NOT graded is attributed to gradedness and "
+        "records supports. A null with occupancy static across all three arms "
+        "isolates the item-(2) commitment latch; a null with occupancy shifting but "
+        "never grading records bang-bang persistence. A graded clamp BASELINE arm "
+        "pre-empts every branch: the contrast is not interpretable, direction "
+        "non_contributory."
     )
 
     crit_non_degenerate = bool(
@@ -1266,6 +1522,18 @@ def run_experiment(dry_run: bool = False,
         "squash_longest_adjacent_run": int(squash_primary.get("longest_adjacent_run", 0)),
         "clamp_symmetric_graded": clamp_graded,
         "clamp_longest_adjacent_run": int(clamp_primary.get("longest_adjacent_run", 0)),
+        # the attribution control arm (option A)
+        "gain_matched_clamp_symmetric_graded": gain_graded,
+        "gain_matched_longest_adjacent_run": int(gain_primary.get("longest_adjacent_run", 0)),
+        "attribution_is_gradedness": bool(attribution == "gradedness"),
+        "attribution_is_gain": bool(attribution == "gain"),
+        "attribution_is_item2_latch": bool(attribution == "item_2_commitment_latch"),
+        # three-arm occupancy decomposition (telemetry, no threshold)
+        "occ_shift_gain": occ_shift_gain,
+        "occ_shift_gradedness": occ_shift_gradedness,
+        "occ_shift_total": occ_shift_total,
+        "occupancy_static_across_arms": occupancy_static_across_arms,
+        "gain_arm_landed": gain_arm_landed,
         "gate_min_adjacent": GATE_MIN_ADJACENT,
         "gate_min_seed_fraction": GATE_MIN_SEED_FRACTION,
         "gate_min_seeds": GATE_MIN_SEEDS,
@@ -1282,6 +1550,7 @@ def run_experiment(dry_run: bool = False,
         # continuous-margin telemetry -- RECORDED, NO THRESHOLD
         "margin_cap_linearity_r2_clamp_symmetric": clamp_r2_primary,
         "margin_cap_linearity_r2_squash_symmetric": squash_r2_primary,
+        "margin_cap_linearity_r2_gain_matched_symmetric": gain_r2_primary,
         # commitment-latch attribution telemetry (entry item (2), OPEN)
         "et_drive_saturated_frac_mean": et_sat_mean,
         "et_drive_saturated_frac_max": et_sat_max,
@@ -1292,7 +1561,7 @@ def run_experiment(dry_run: bool = False,
         "n_caps_swept": len(CAP_SWEEP),
         "cap_sweep_min": min(CAP_SWEEP),
         "cap_sweep_max": max(CAP_SWEEP),
-        "n_bound_modes": len(BOUND_MODES),
+        "n_bound_arms": len(BOUND_ARMS),
         "n_preconditions_met": sum(1 for pc in preconditions if pc["met"]),
         "n_preconditions_total": len(preconditions),
     })
@@ -1304,6 +1573,17 @@ def run_experiment(dry_run: bool = False,
         "readout": readout,
         "acceptance": acceptance,
         "occupancy_gates": gates,
+        "attribution": attribution,
+        "occupancy_decomposition": {
+            "note": "Mean |occupancy difference| over the PRIMARY rail arm's "
+                    "(seed, cap) cells. Meaningful ONLY because cells are RNG- and "
+                    "env-paired across bound arms. TELEMETRY -- no threshold.",
+            "occ_shift_gain": occ_shift_gain,
+            "occ_shift_gradedness": occ_shift_gradedness,
+            "occ_shift_total": occ_shift_total,
+            "occupancy_static_across_arms": occupancy_static_across_arms,
+            "gain_arm_landed": gain_arm_landed,
+        },
         "operator_margin_deltas": operator_margin_deltas,
         "margin_cap_linearity": linearity_rows,
         "interpretation": {
@@ -1338,7 +1618,7 @@ def run_experiment(dry_run: bool = False,
             },
             "occupancy_gate": {
                 "definition": "ONE evaluate_regime_occupancy_gate call per "
-                              "(bound_mode, arm) over ALL (seed, cap) cells, with "
+                              "(bound_arm, rail_arm) over ALL (seed, cap) cells, with "
                               "seed AND sweep_value populated. GRADED iff >= "
                               "min_adjacent (2) CONSECUTIVE swept cap values each "
                               "read mixed on >= min_seed_fraction (2/3) of the "
@@ -1351,8 +1631,9 @@ def run_experiment(dry_run: bool = False,
                               "seed, no sweep_value, booleans counted afterwards) "
                               "is deliberately NOT inherited: it is what produced "
                               "that run's false 'graded' routing.",
-                "load_bearing_slice": f"{AFFINITY_BOUND_SQUASH}|{PRIMARY_ARM}",
-                "baseline_slice": f"{AFFINITY_BOUND_CLAMP}|{PRIMARY_ARM}",
+                "load_bearing_slice": f"{BOUND_ARM_SQUASH}|{PRIMARY_ARM}",
+                "baseline_slice": f"{BOUND_ARM_CLAMP}|{PRIMARY_ARM}",
+                "attribution_control_slice": f"{BOUND_ARM_CLAMP_GAINMATCHED}|{PRIMARY_ARM}",
                 "occupancy_floor": OCCUPANCY_FLOOR,
                 "occupancy_ceiling": OCCUPANCY_CEILING,
                 "min_seed_fraction": GATE_MIN_SEED_FRACTION,
@@ -1360,8 +1641,70 @@ def run_experiment(dry_run: bool = False,
                 "min_seeds": GATE_MIN_SEEDS,
                 "margin_floor": MARGIN_FLOOR,
                 "cap_sweep": CAP_SWEEP,
-                "bound_modes": BOUND_MODES,
+                "bound_arms": BOUND_ARMS,
                 "primary_arm": PRIMARY_ARM,
+            },
+            "three_arm_attribution": {
+                "status": "PRE-REGISTERED (user decision 2026-09-19T23:52:40Z, "
+                          "option A). Fixed BEFORE the run; the outcome follows the "
+                          "ratified occupancy criterion, the ATTRIBUTION follows "
+                          "this table and drives evidence_direction_per_claim.",
+                "resolved_verdict": attribution,
+                "table": [
+                    "squash graded + gain_matched NOT graded -> GRADEDNESS "
+                    "(SD-032a supports)",
+                    "squash graded + gain_matched ALSO graded -> GAIN, not "
+                    "gradedness; PASS but SD-032a non_contributory",
+                    "neither graded + occupancy static across all three arms -> "
+                    "cap/operator/gain-INDEPENDENT residual, isolates the item-(2) "
+                    "commitment latch (SD-032a weakens)",
+                    "neither graded + occupancy shifts between arms -> bang-bang "
+                    "persists (SD-032a weakens)",
+                    "clamp BASELINE graded -> divergence from V3-EXQ-934, contrast "
+                    "not interpretable (SD-032a non_contributory)",
+                ],
+                "gain_matched_drive_weight_rule":
+                    "w'(cap) = 3.0 * (cap/(cap+1)) / min(1.0, cap); matches the "
+                    "squash arm's external_task_drive logit contribution at "
+                    "engagement e = 1.0. Equals the decision's literal 3*cap/(cap+1) "
+                    "at every cap >= 1.0; the min() term corrects only cap = 0.75, "
+                    "where the clamp itself attenuates e = 1.0 to 0.75.",
+                "gain_matched_drive_weight_by_cap": {
+                    str(c): round(gain_matched_drive_weight(c), 6) for c in CAP_SWEEP
+                },
+                "literal_decision_formula_by_cap": {
+                    str(c): round(EXTERNAL_TASK_DRIVE_AFFINITY_WEIGHT * c / (c + 1.0), 6)
+                    for c in CAP_SWEEP
+                },
+                "residual": "The gain match is exact only at engagement e = 1.0. "
+                            "Where engagement is UNLATCHED (e < 1) the squash and "
+                            "the gain-matched clamp diverge slightly; "
+                            "et_drive_saturated_frac records how dominant e = 1.0 "
+                            "actually was.",
+            },
+            "cell_pairing": {
+                "status": "Cells are RNG- AND ENV-PAIRED across bound arms (red-team "
+                          "findings 2 and 3, fixed under option A).",
+                "rule": "The per-cell seed is derived from (seed, cap, rail_arm) "
+                        "ONLY -- never the bound arm -- and drives both "
+                        "reset_all_rng() at cell entry and the cell's OWN freshly "
+                        "built env. So the three bound arms at one (seed, cap, "
+                        "rail_arm) start from bit-identical RNG state and an "
+                        "identical env layout.",
+                "why_it_matters": "Without it the 1e-6 operator_manipulation_landed "
+                                  "guard is vacuous -- banked V3-EXQ-934 cells "
+                                  "differing only in rails already differed by "
+                                  "1.7e-3 -- and the occupancy decomposition would "
+                                  "measure run-to-run noise. It also removes the "
+                                  "bound-arm-order confound: V3-EXQ-934 shared one "
+                                  "never-rebuilt stateful env across all cells.",
+                "departs_from_934": "934 used an OS-entropy eval env shared across "
+                                    "its cells. The clamp baseline arm here "
+                                    "reproduces 934's DESIGN (same operator, "
+                                    "weight, cap band, seeds, rails) but is NOT "
+                                    "expected to reproduce its cell values "
+                                    "bit-for-bit, and nothing compares against them "
+                                    "numerically.",
             },
             "continuous_margin_telemetry": {
                 "status": "RECORDED WITH NO THRESHOLD -- deliberate (user decision "
@@ -1376,6 +1719,7 @@ def run_experiment(dry_run: bool = False,
                                        "(the at-cap degeneracy signature).",
                 "margin_cap_linearity_r2_clamp_symmetric": clamp_r2_primary,
                 "margin_cap_linearity_r2_squash_symmetric": squash_r2_primary,
+                "margin_cap_linearity_r2_gain_matched_symmetric": gain_r2_primary,
             },
             "commitment_latch_attribution": {
                 "status": "RECORDED WITH NO THRESHOLD. mode-governance-engagement "
@@ -1443,7 +1787,12 @@ def main(dry_run: bool = False,
     out_dir.mkdir(parents=True, exist_ok=True)
 
     full_config = {
-        "bound_modes": BOUND_MODES,
+        "bound_arms": BOUND_ARMS,
+        "bound_arm_operator": BOUND_ARM_OPERATOR,
+        "external_task_drive_affinity_weight": EXTERNAL_TASK_DRIVE_AFFINITY_WEIGHT,
+        "gain_matched_drive_weight_by_cap": {
+            str(c): round(gain_matched_drive_weight(c), 6) for c in CAP_SWEEP
+        },
         "affinity_squash_sigma": AFFINITY_SQUASH_SIGMA,
         "affinity_squash_sigma_rule": "None MEANS sigma = affinity_input_cap (landed "
                                       "default, user decision 2026-09-19T09:45Z). "
@@ -1498,9 +1847,12 @@ def main(dry_run: bool = False,
                      "external_task drive (use_external_task_drive=True) + GAP-3 "
                      "dual_cue competing-goal env + goal_state clone fix + "
                      "salience_affinity_input_cap (trained at 2.0 under the CLAMP; "
-                     "EVAL cap swept in [0.75,1.0,1.25,1.5,1.75] CROSSED with "
-                     "salience_affinity_bound_mode in [clamp, squash] at the landed "
-                     "default sigma = cap, on clones). use_closure_operator OFF.",
+                     "EVAL cap swept in [0.75,1.0,1.25,1.5,1.75] CROSSED with THREE "
+                     "bound arms -- clamp_baseline, squash (sigma = cap), and "
+                     "clamp_gain_matched (clamp operator with the "
+                     "external_task_drive affinity weight cut to match the squash "
+                     "arm's gain at engagement 1.0) -- on RNG- and env-paired "
+                     "clones). use_closure_operator OFF.",
         "condition": CONDITION_LABEL,
         "predecessor": PREDECESSOR,
         "validates": "mode-governance-engagement ITEM (1) (bounding operator) ONLY; "
@@ -1514,16 +1866,18 @@ def main(dry_run: bool = False,
                        "and 467e use; confirmed by a pre-authoring one-tick probe "
                        "against the real coordinator). Training is held at cap 2.0 "
                        "under the CLAMP (464e/934 construction) so the clamp arm "
-                       "reproduces the banked V3-EXQ-934 baseline and both eval "
-                       "operators share one trained agent. Non-vacuity via "
+                       "reproduces the V3-EXQ-934 baseline design and all three "
+                       "bound arms share one trained agent. Cells are RNG- and "
+                       "env-paired across bound arms (per-cell seed excludes the "
+                       "bound arm), with the bound arm nested innermost. Non-vacuity via "
                        "experiments/_lib/regime_occupancy_gate.py, called ONCE per "
-                       "(bound_mode, arm) over ALL (seed, cap) cells with seed AND "
+                       "(bound_arm, rail_arm) over ALL (seed, cap) cells with seed AND "
                        "sweep_value populated -- never per-seed with booleans "
                        "counted afterwards (the V3-EXQ-934 shape that produced its "
                        "false routing), and never min-across-the-sweep.",
         "pre_registered_thresholds": {
             "cap_sweep": CAP_SWEEP,
-            "bound_modes": BOUND_MODES,
+            "bound_arms": BOUND_ARMS,
             "affinity_squash_sigma": AFFINITY_SQUASH_SIGMA,
             "affinity_input_cap_train": AFFINITY_INPUT_CAP_TRAIN,
             "occupancy_floor": OCCUPANCY_FLOOR,
