@@ -123,11 +123,70 @@ failure, and explicitly NOT a falsification of SD-036.
   6.4e-3 / 5.4e-3 against 4.8e-2 to 1.5e-1 of rollout noise -- which is why it is
   expected to be disqualified there.
 
+*** STATUS 2026-09-20: DO NOT QUEUE. RED-TEAM PASS 3 IS BLOCKING.          ***
+*** THE RESOLVABILITY GATE BELOW DOES NOT WORK AS DESCRIBED -- see           ***
+*** "PASS 3" at the end of this docstring before changing anything.          ***
+
   SO THE EXPECTED CLUSTER IS z_harm_a (sustain_ratio, monotonicity bar) AND
   z_beta (shape_deviation_vs_off, negated, per OPTION B). That is stated here, in
   the queue-entry note, and in the manifest's `cluster_definition` block so no
   reader mistakes a two-stream cluster for the full registered set, or a
   disqualification for a null.
+
+red-team pass 3 (fable, 2026-09-20), on the noise-floor design: **BLOCKING.**
+The gate's null distribution is not a distribution. VERIFIED from this driver's
+own dry-run manifest, not taken on trust:
+
+  * 9 of the 10 no-tone-change replicates are BIT-IDENTICAL -- to each other AND
+    to the UNSEEDED tone-1.0 sweep row (`n_distinct_trajectories = 2/10` on all
+    three streams; replicates 0,1,2,3,4,6,7,8,9 equal the sweep row exactly).
+  * So the "C(10,5) = 252 null subset ranges" collapse to TWO values,
+    {0.0, 0.021743} -- 126 of each. `floor / median_null_range` is exactly
+    2.000, the signature of a two-point null. The stated "0.95 quantile ->
+    false-admission rate 0.05 per stream per seed" therefore describes NO
+    property of this null: it has no tail to take a quantile of.
+  * The recorded SNRs (z_harm_a 475, z_beta 245) are `tone_range / (d/2)` for a
+    SINGLE replicate's departure. They are artifacts of the two-point null, not
+    signal-to-noise measurements.
+
+  WHY: the eval path is very nearly deterministic. The only RNG consumer reached
+  is `hippocampal/module.py:2276` (`torch.randn_like` in `propose_trajectories`),
+  and whether that candidate noise reaches the ACTION is gated by E3 -- non-E3
+  ticks return the held action (agent.py:7381) and committed ticks step the
+  committed trajectory (agent.py:6685-6686). When E3 holds, every replicate is
+  identical. Seeding the replicates is therefore INERT, which also answers why
+  seeded replicates match an unseeded sweep row bit-for-bit.
+
+  THE FAILURE MODE THIS CREATES IS THE PASS-2 ONE, THROUGH THE GATE BUILT TO
+  PREVENT IT. If at full scale a seed's trained agent holds its committed
+  trajectory across the eval, ALL 10 replicates are identical, so `floor = 0.0`
+  and the test `spread > floor` is TRUE for any non-zero spread. z_harm is then
+  ADMITTED carrying its 854-measured 4.8e-2 to 1.5e-1 UNORDERED spread, is
+  scored on rho (+0.10/+0.70/-0.50), fails, and the run records
+  `SD-036: weakens` at `non_degenerate: true` -- verbatim the false
+  falsification the gate exists to stop.
+
+  TWO FURTHER FINDINGS, recorded but not the block:
+  * Exchangeability is broken by mechanism: re-selection is triggered by the
+    z_harm_a norm crossing the MECH-091 urgency interrupt (agent.py:6688-6689,
+    :6754), so the MANIPULATION sets how much replicate noise a tone sees. The
+    floor is measured at BASELINE_TONE only. Measured tone dependence of the
+    replicate range: 1.8x-2.4x across tones 0.3/1.0/2.0 at toy scale.
+  * `_sd011_control_ok` is an `any()` over OFF seeds on TWO of C2's four bands,
+    while C2 itself requires >= 2 of 3 ON seeds on ALL four. OFF clearing in 1/3
+    and ON in 0-1/3 still records `SD-011: weakens`, which is indistinguishable
+    from "instrument marginal in both regimes".
+
+  A pre-registrable cheap confirmer, for whoever resumes this: both quantities
+  are already in the manifest -- require `n_distinct_trajectories >= 8` across
+  the replicates (and that replicate 0 is NOT bit-equal to the tone-1.0 sweep
+  row) before a floor is treated as measurable; otherwise record the stream
+  `noise_floor_not_measurable` and do NOT admit it. The dry run fails that check
+  today at 2/10.
+
+  NOT FIXED HERE. Per the campaign's standing instruction, a third BLOCKING
+  verdict is a STOP: the item waits for /governance to apply GFLAG-0372..0379
+  rather than being re-designed in-session.
 
   [RECORDED, emit-only] `pag_n_commits` is pinned at ~0 in both PAG arms.
       `duration_input_threshold = 0.4` (freeze_gate.py:67) but V3-EXQ-854's
