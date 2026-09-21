@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-09-20 (T01:10Z nightly)
+**Last updated:** 2026-09-21 (T01:10Z nightly)
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -236,6 +236,106 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-09-21T01:10Z nightly attestation (scheduled `/update-docs`, bot
+  identity).** ~24h window since the 2026-09-20T01:10Z snapshot -- a
+  substantive band. Flat `v3_exq_*` manifests on disk: **1042** (+4 vs
+  1038 at 2026-09-20T01:10Z); nested per-run manifests under
+  `evidence/experiments/*/runs/`: **2978** (+5 vs 2973). **Currently
+  queued (`experiment_queue.json` items[]): 1 item** -- V3-EXQ-1067
+  (MECH-266/SD-032a squash-vs-clamp affinity bounding-operator cap sweep
+  with gain-matched control arm, diagnostic; ree-v3 `b7f406b`, smoke
+  PASS + red-team CONTESTED -> option A gain-matched clamp control arm
+  added). V3-EXQ-1070 drained in-window (superseded by V3-EXQ-1070a
+  tick-budget repair). **Pending review (`pending_review.md`,
+  regenerated 2026-09-20T14:05:14Z): 0 items** -- unchanged. Coordinator-
+  DB 30-day rolling (per `experiment_error_rate.py` against the hub
+  `ree@91.98.130.117`, span 2026-08-22T00:01:18Z ..
+  2026-09-20T15:50:46Z): **69 PASS / 58 FAIL / 3 ERROR, ERROR rate 2.3%
+  (3 / 130 classified runs)** -- +2 PASS, +2 FAIL, +1 ERROR in-window.
+  (a) **NO new substrate landings in the window** -- SD-106
+  (2026-09-11) remains the most recent substrate; no
+  `substrate_queue.json` additions.
+  (b) **Three experiments queued in-window**: V3-EXQ-1067
+  (MECH-266/SD-032a squash-vs-clamp cap sweep, ree-v3 `b7f406b`;
+  see above); V3-EXQ-1066 (ARC-029 commitment-mode harm variance bar,
+  ree-v3 `405cd5f`); V3-EXQ-1057b (MECH-017 final-pass dose ladder,
+  smoke PASS + red-team CONTESTED -> 6 fixed / 1 declared, ree-v3
+  `50ba3b5`). V3-EXQ-1055 (SD-098 ghost-goal read-time re-ranking
+  A-B-A reversal) also landed via `1a09a04`. V3-EXQ-1069 QUEUED for
+  the INV-063 P1 re-measurement under 798a's exact P0 (ree-v3
+  `560fd6e`, user option (a)); V3-EXQ-1070a queued as the
+  tick-budget repair of V3-EXQ-1070 (ree-v3 `a7c8c97`, smoke PASS +
+  red-team CONTESTED -> 6 findings fixed); V3-EXQ-1071 queued to
+  restore the MECH-092 quiescent-replay branch (ree-v3 `9700362`).
+  (c) **Two drivers authored and REFUSED / NOT QUEUED**: V3-EXQ-541d
+  (MECH-204 F1 cold-start guard; SECOND red-team BLOCKING then
+  option C+D executed, falsifier unfirable without a drift source;
+  ree-v3 `0b47e31`, `bf92309`); V3-EXQ-1068 (SD-036 obs#3 / SD-011 /
+  MECH-279 regime matrix; measured noise-floor gate added, red-team
+  pass 3 still BLOCKING; ree-v3 `1ddda95`, `df5a6c2`, `2606dc7`).
+  (d) **Governance cycle 2 (2026-09-20) landed** on `REE_assembly`
+  master (`44a0665b4fc`, `34bf1508b1d`): recorded 4 user-approved
+  holds (MECH-037, MECH-074d conflict; MECH-316, MECH-317 V3
+  substrate); applied user decisions GFLAG-0390/0391 + stale notes
+  GFLAG-0392; resolved GFLAG-0389/0390/0391/0392/0379. Five
+  decisions applied to `decision_log.v1.jsonl` (MECH-091, MECH-314a,
+  MECH-317, MECH-316, MECH-074d) and 5 legacy resolve entries
+  landed. Derive-only pipeline output regenerated (`5a7ff3b514f`).
+  (e) **Twelve governance flags raised in-window** (all
+  `evidence_discrepancy` or `contested_disposition` unless noted):
+  ARC-031, ARC-085, ARC-092, MECH-325, MECH-359, MECH-095, MECH-278
+  (contested_disposition, `1b2d913ba21`); ARC-023, SD-006
+  (contested_disposition, `56421f15c87`); INV-063
+  (contested_disposition, `03f99cf36f5`, `087e67e6b43`); INV-086,
+  MECH-428, MECH-537 (evidence_discrepancy, `5ab7960a280`); MECH-091,
+  MECH-291 (stale_note, `26f8542df20`); MECH-204
+  (contested_disposition, `53bb4c9eb13`). A `/governance` cycle will
+  need to work this new bucket alongside the carry-forward from
+  2026-09-20.
+  (f) **INV-063 leg B staged C1 wording proposal** for
+  GFLAG-0364/0367/0382 -- de-pinned readout (`2b8045a5d40`);
+  proposal feasibility caches for MECH-204 RED and INV-063 RED
+  landed (`d9c6573e7d6`, `9504cfb3b73`).
+  (g) **V3-EXQ-1043b AMBER pre-flight smoke**: random rank-r
+  reference distribution measured, gate formula NOT chosen
+  (`dc39f672a09`).
+  (h) **`/thought-digestion`** waves continued: mutual-legibility
+  synthesis extended with targeted neuroscience (`d96e5899f71`);
+  unwritten-prerequisite discovery pilot pre-registered with
+  no-ship threshold (`5c486824fe8`).
+  (i) **Explorer UX fix**: stop the periodic refresh
+  jumping/resetting every view (`d7abd4faa85`); workset panel
+  received "Session starts" panel + `GET /api/session_start`
+  (bounded orchestrator U4, `e1037463033`).
+  (j) **Steward-sweep** adjudicated 5 D-006 near-duplicate flag
+  groups (2 chains annotated superseded, 4 suppressions with
+  reasons, `9c6fbdf6c77`).
+  (k) **IGW auto-tick**: IGW-241 spawned for MECH-078 proposal
+  (`55bc1eda9ca`, `dce8ac364f3`); multiple ledger updates in-window.
+  (l) **Coordination-plane background** stable: phase3-queue
+  snapshots (~13 in-window); igw auto-tick sweeps.
+  This attestation itself is the last content change:
+  `docs/ree-v3-spec.md` §0 date bump + Experiment Status entry, the
+  paired `docs/roadmap.md` snapshot, plus nav/status/goblin
+  re-stamp. **Bottleneck: unchanged in location, growing pressure on
+  `/governance`** -- 12 fresh governance flags stacked on top of the
+  10-flag carry-forward from 2026-09-20 gives a ~22-flag queue
+  spanning ARC-023, ARC-029, ARC-031, ARC-085, ARC-092, INV-063,
+  INV-086, MECH-018, MECH-043, MECH-066, MECH-091, MECH-095,
+  MECH-131, MECH-204, MECH-266, MECH-278, MECH-291, MECH-325,
+  MECH-359, MECH-428, MECH-537, MECH-566, SD-006, SD-032a. The
+  H-observation-interface convergence axis remains open (SD-106
+  IMPLEMENTED-and-partially-validated). Three red-team BLOCKING /
+  refusal cycles in the window (V3-EXQ-541d, V3-EXQ-1068 pass 3,
+  V3-EXQ-1067 pass 2) is the gate working as designed. Green-board
+  target 2026-07-19 now **64 days overdue**. **ETHICS-PERIMETER
+  Phase 0 datum** stays on the record (Phases 1-3 deferred;
+  NON-BLOCKING). Public-information-architecture impact: reviewed
+  against `docs/design/public_information_architecture.md` -- no
+  `/api/*` surface, generated visualization, or public export
+  changed; nightly snapshot + spec date bump + Experiment Status
+  entry only; no SD table rows added, moved, or restatused.
 
 - **2026-09-20T01:10Z nightly attestation (scheduled `/update-docs`, bot
   identity).** ~24h window since the 2026-09-19T01:10Z snapshot -- a
