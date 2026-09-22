@@ -198,6 +198,72 @@ z_goal plays no role in that outcome for the same arm-symmetry reason as every o
 member of this family: whatever the goal freezes at, it is identical across every cell
 of a given seed, so it cannot explain a between-cell or between-seed difference in
 occupancy grading.
+
+FAMILY GROWTH (2026-09-22). One new member: V3-EXQ-1067
+(`v3_exq_1067_mech266_squash_vs_clamp_cap_sweep.py`, ree-v3 `c817881` authored,
+`01bfae2` + `a4f9650` red-team passes), the MECH-266/SD-032a squash-vs-clamp cap sweep
+-- the next leg of the same 934/935/935a lineage. It arrived with `_FROZEN_FAMILY_SIZE`
+still at 33, and `a4f9650`'s own commit message ("re-smoke pending") is the admission
+that the corpus gate had not been re-run, so trunk's contract gate was red from
+`a4f9650` (2026-09-20T01:36:31Z) until this note. VERDICT: a fixed goal is INTENDED --
+no retrofit, pin 33 -> 34.
+
+Checked directly rather than assumed, same four questions as the 934/935/935a notes
+above. 1067 builds the curriculum ONCE per seed (`_run_seed` drives one `agent` through
+run_stage0_nursery / run_stage0b_consolidation / run_p0 / run_hazard_avoidance / run_p1
+/ run_p2) and evaluates every one of its CAP x RAIL_ARM x BOUND_ARM cells from a
+`_clone_for_arm()` copy of that single trained agent -- one call site, line 1078 -- which
+still carries `goal_state` across explicitly
+(`agent.goal_state.load_state_dict(trained_agent.goal_state.state_dict())`, the 464e
+fix, and 1067's own docstring for that function names the
+`external_task_drive_require_goal_active` hard-gate this addresses). It sets neither
+`goal_weight` nor `residue.benefit_terrain_live_producer`, and calls neither
+`update_z_goal` nor `_set_goal_pipeline_frozen`. The freeze is therefore the deliberate
+inherited state, and per the family's own convention (recorded once here, never
+per-script) 1067 carries no comment of its own about it.
+
+1067 inherits 934/935/935a's "one respect in which it is stronger" verbatim: it sets
+`use_external_task_drive=True` (line 672) with
+`external_task_drive_proximity_weight=1.0` (line 676), so the frozen goal sits directly
+on the causal path of its primary DV (external_task mode occupancy). Both containment
+arguments carry over unchanged -- (i) it is a fixed TARGET, not a frozen SIGNAL, since
+`goal_proximity` is recomputed per tick against the live `z_world`; and (ii) the read is
+a WITHIN-seed comparison across the cap x arm grid, and the goal state is identical
+across every cell of a seed, so it cannot produce a between-cell difference.
+
+TWO RESPECTS IN WHICH 1067 IS STRONGER THAN 935/935a, stated so they are not
+rediscovered as defects. (1) Its cells are RNG- AND ENV-PAIRED on top of the shared
+clone (red-team findings 2/3): the per-cell seed `cell_rng_seed(seed, cap, arm_label)`
+excludes the bound arm, and each cell gets its own identically-seeded env, so the three
+bound arms at one (cap, rail_arm) start from bit-identical RNG state as well as a
+bit-identical frozen z_goal -- arm-symmetry here is enforced on three axes, not one.
+(2) It is the first member to GATE on the frozen goal's magnitude rather than merely
+record it: the per-seed guard requires `p2.z_goal_norm_at_contact_peak > P2_ZGOAL_GATE`
+(0.4, line 1059) before the measurement phase is allowed to count, so a degenerate or
+near-zero frozen goal aborts the seed instead of silently producing an uninterpretable
+cell grid. It also keeps 935/935a's direct instrumentation (`ZGoalStreamAccumulator`,
+`_ZG.observe()` at the trained agent on line 1061 and at every evaluated cell on line
+1088, reported as `z_goal_stream_stats`), so the frozen value is recorded, not implicit.
+
+AND THE FREEZE IS LOAD-BEARING FOR 1067'S COMPARISON, so driving or re-freezing the goal
+here would BREAK the run rather than repair it -- the same point 935's note makes about
+its banked cap=2.0 reference, but sharper. 1067's clamp arm exists to reproduce 934's
+banked cells, which is why it keeps 934's SEEDS = [42, 43, 44] DELIBERATELY (the usual
+substitute-seed-44 caution is overridden for that recorded reason) and holds training at
+AFFINITY_INPUT_CAP_TRAIN = 2.0 under the clamp so the trained substrate is
+bit-comparable to the banked reference. The frozen post-curriculum goal is exactly the
+state that reference was measured in. Its one absolute-threshold criterion
+(`margin_engaged`, max `ext_margin_mean` > MARGIN_FLOOR) does read a level rather than a
+contrast, as 935's did -- but 1067 already hardened that in red-team pass 2 (F4): the
+margin is floored by `external_task_bias = 1.0` and so reads 0.33-0.50 even with the
+drive at exactly 0.0, so the drive's own engagement is asserted separately as a
+zero-test (`drive_engaged`, max `et_drive_mean` > 0.0).
+
+STATUS AT THE TIME OF THIS NOTE: V3-EXQ-1067 was `claimed` by DLAPTOP
+(2026-09-20T02:07:22Z) and RUNNING -- the measurement was in flight while this note was
+written, which is why the verdict was reached by reading the driver rather than by
+editing it. Nothing in the script was touched. No manifest yet, so the
+28-landed-manifest evidence-direction breakdown above is again unchanged.
 """
 import ast
 import sys
@@ -633,7 +699,7 @@ def test_scaffold_hands_off_with_the_goal_consumers_unfrozen():
 # every calibration / ARM_NORM-sweep / ARM_ABS cell from a goal_state-carrying
 # _clone_for_arm copy). A fixed goal is INTENDED. Full derivation in the third FAMILY
 # GROWTH addendum in this file's docstring.
-_FROZEN_FAMILY_SIZE = 33
+_FROZEN_FAMILY_SIZE = 34
 
 
 def test_frozen_z_goal_family_size_is_pinned():
