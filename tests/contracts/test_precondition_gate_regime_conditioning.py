@@ -240,8 +240,15 @@ def test_scoping_out_resolves_the_unsatisfiability():
     statuses = {(a["arm"], a["precondition"]): a["status"] for a in audited}
     assert statuses[
         ("harm_incumbent", "modulatory_authority_active_frac")] == "scoped_out"
+    # `clean_channel` IS a CH: regime, so this spec's structural_max returns None
+    # for it -- there is no bound to reason from, so nothing was proved about the
+    # pair. Until 2026-09-22 that was reported as "satisfiable", which is the
+    # conflation `not_evaluated` exists to end (see
+    # test_precondition_gate_structural_coverage.py). What this test is actually
+    # about is unchanged: scoping the spec out of the harm arm resolves the
+    # unsatisfiability and the run is no longer refused.
     assert statuses[
-        ("clean_channel", "modulatory_authority_active_frac")] == "satisfiable"
+        ("clean_channel", "modulatory_authority_active_frac")] == "not_evaluated"
 
 
 def test_correct_785_gate_still_flags_the_entropy_arm_as_vacuous():

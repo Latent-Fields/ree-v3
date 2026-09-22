@@ -128,6 +128,45 @@ per-criterion channel the indexer DOES honour. When ALL arms are red the run rea
 is vacuous, every precondition goes into the flat list, and the indexer's
 whole-run `precondition_unmet` is the correct verdict.
 
+WHY `not_evaluated` IS A CATEGORY AND NOT A QUIET `satisfiable`
+---------------------------------------------------------------
+`assert_no_structurally_unsatisfiable_gate` and `detect_structural_vacuity` can
+only reason from an explicitly declared `structural_max` / `structural_min`.
+A spec that declares neither is NOT CHECKED -- and until 2026-09-22 that was
+reported identically to a spec that was checked and found fine.
+
+Measured 2026-09-22 across `ree-v3/experiments/`: 108 drivers call the guard, 43
+declare a structural bound, and **65 (60%) declare neither** -- for those the
+guard ran, returned cleanly, and proved nothing. V3-EXQ-1062 is the confirmed
+instance: all eight of its PreconditionSpecs omit the bounds, so the guard could
+not fire even though `fresh_select_sample_floor` (200) was structurally
+unreachable under that run's own --dry-run P2 budget of 60 steps. See
+`REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-1062_2026-09-22.md`
+section 6.
+
+This is the negative-instrument failure class in CLAUDE.md General Rules:
+"'nothing found' must not read the same as 'the search broke'". The remedies
+applied here are that rule's first and third:
+
+  (1) an explicit CANNOT-DETERMINE category in the data model -- `not_evaluated`
+      is one of `STRUCTURAL_STATUSES`, carried on every audited pair with a
+      `reason`, so it survives refactoring and propagates into any manifest or
+      --json consumer that dumps the audit (787 and 970a already do);
+  (3) a printed pre-filter DENOMINATOR -- `summarize_structural_audit` /
+      `format_structural_audit_report`, printed by default, so a zero-coverage
+      run says so instead of reading as green.
+
+It deliberately does NOT block a driver that declares no bounds. 60% of call
+sites would fail at once, and CLAUDE.md is explicit that a guard which fires on
+correct code gets disabled. Report, do not block. Retro-fitting bounds onto the
+65 bare drivers is separate work and is not implied by this reporting.
+
+Callers needing the distinction programmatically:
+  - `summarize_structural_audit(audited)` -> counts + `coverage` + `proved_nothing`
+  - `structural_vacuity_verdict(specs, ctx)` -> "vacuous" / "clear" / "not_evaluated"
+    (`detect_structural_vacuity` keeps its Optional[str] shape, where None still
+    means only "not proved unsatisfiable")
+
 ASCII-only in printed output (Windows cp1252 terminals).
 """
 
@@ -144,7 +183,16 @@ __all__ = [
     "arm_criteria_non_degenerate",
     "assert_no_structurally_unsatisfiable_gate",
     "detect_structural_vacuity",
+    "structural_vacuity_verdict",
+    "summarize_structural_audit",
+    "format_structural_audit_report",
+    "STRUCTURAL_STATUSES",
 ]
+
+# The four dispositions a (arm, precondition) pair can land in. `not_evaluated`
+# is the load-bearing one: it is NOT a weaker `satisfiable`, it is the absence of
+# a verdict. See "WHY `not_evaluated` IS A CATEGORY" in the module docstring.
+STRUCTURAL_STATUSES = ("satisfiable", "unsatisfiable", "not_evaluated", "scoped_out")
 
 
 class StructurallyUnsatisfiableGate(AssertionError):
@@ -203,32 +251,60 @@ def _is_ceiling(direction: str) -> bool:
     return str(direction).strip().lower() in ("upper", "ceiling", "max", "upper_bound")
 
 
+def _spec_structural_verdict(spec: PreconditionSpec,
+                             arm_ctx: Dict[str, Any]) -> Dict[str, str]:
+    """Structural satisfiability of `spec` for `arm_ctx`, as an EXPLICIT verdict.
+
+    Returns {"status": one of "satisfiable" / "unsatisfiable" / "not_evaluated",
+             "reason": str}. `not_evaluated` is the whole point: there is no
+    structural bound to reason from, so NOTHING was proved about this pair. It
+    must never be collapsed into `satisfiable` -- that is the conflation that
+    made this guard a silent no-op for 60% of its call sites (measured
+    2026-09-22: 65 of 108 drivers declared neither bound). CLAUDE.md General
+    Rules, "Negative instruments".
+    """
+    ceiling = _is_ceiling(spec.direction)
+    bound_fn = spec.structural_min if ceiling else spec.structural_max
+    fn_name = "structural_min" if ceiling else "structural_max"
+    kind = "ceiling" if ceiling else "floor"
+
+    if bound_fn is None:
+        return {"status": "not_evaluated",
+                "reason": (f"no {fn_name} declared for this {kind} precondition -- "
+                           f"structural satisfiability was NOT checked")}
+    bound = bound_fn(arm_ctx)
+    if bound is None:
+        return {"status": "not_evaluated",
+                "reason": (f"{fn_name} returned None for this arm -- no structural "
+                           f"bound is derivable, so satisfiability was NOT checked")}
+    if ceiling:
+        if not float(bound) < float(spec.threshold):
+            return {"status": "unsatisfiable",
+                    "reason": (f"best attainable (minimum) value {float(bound):.6g} "
+                               f"cannot fall below the ceiling "
+                               f"{float(spec.threshold):.6g}")}
+        return {"status": "satisfiable",
+                "reason": (f"best attainable (minimum) value {float(bound):.6g} "
+                           f"clears the ceiling {float(spec.threshold):.6g}")}
+    if not float(bound) > float(spec.threshold):
+        return {"status": "unsatisfiable",
+                "reason": (f"best attainable (maximum) value {float(bound):.6g} "
+                           f"cannot exceed the floor {float(spec.threshold):.6g}")}
+    return {"status": "satisfiable",
+            "reason": (f"best attainable (maximum) value {float(bound):.6g} clears "
+                       f"the floor {float(spec.threshold):.6g}")}
+
+
 def _spec_unsatisfiable(spec: PreconditionSpec,
                         arm_ctx: Dict[str, Any]) -> Optional[str]:
-    """Return a reason string when `spec` is provably unmeetable by `arm_ctx`.
+    """Reason string when `spec` is PROVABLY unmeetable by `arm_ctx`, else None.
 
-    Only fires on an explicitly declared structural bound. Absent one, returns
-    None -- this is a design-audit aid, not an oracle.
+    A None here means "not proved unsatisfiable", which covers BOTH "proved
+    satisfiable" and "never checked". Callers that need to tell those apart must
+    use `_spec_structural_verdict` -- see `structural_vacuity_verdict`.
     """
-    if _is_ceiling(spec.direction):
-        if spec.structural_min is None:
-            return None
-        bound = spec.structural_min(arm_ctx)
-        if bound is None:
-            return None
-        if not float(bound) < float(spec.threshold):
-            return (f"best attainable (minimum) value {float(bound):.6g} cannot fall "
-                    f"below the ceiling {float(spec.threshold):.6g}")
-        return None
-    if spec.structural_max is None:
-        return None
-    bound = spec.structural_max(arm_ctx)
-    if bound is None:
-        return None
-    if not float(bound) > float(spec.threshold):
-        return (f"best attainable (maximum) value {float(bound):.6g} cannot exceed "
-                f"the floor {float(spec.threshold):.6g}")
-    return None
+    verdict = _spec_structural_verdict(spec, arm_ctx)
+    return verdict["reason"] if verdict["status"] == "unsatisfiable" else None
 
 
 def detect_structural_vacuity(specs: Sequence[PreconditionSpec],
@@ -257,11 +333,115 @@ def detect_structural_vacuity(specs: Sequence[PreconditionSpec],
             "measurements -- " + "; ".join(reasons))
 
 
+def structural_vacuity_verdict(specs: Sequence[PreconditionSpec],
+                               arm_ctx: Dict[str, Any]) -> Dict[str, Any]:
+    """`detect_structural_vacuity` with the cannot-determine case SPLIT OUT.
+
+    `detect_structural_vacuity` returns None for two very different things --
+    "checked, and this arm is fine" and "nothing here was checkable" -- and a
+    caller that treats the second as the first has read a silence as a clearance.
+    This is the same function with the distinction preserved:
+
+        verdict: "vacuous"       -- an applicable precondition is provably unmeetable
+                 "clear"         -- at least one applicable precondition was actually
+                                    evaluated, and none was unsatisfiable
+                 "not_evaluated" -- NOTHING was proved: no applicable precondition
+                                    carried a usable structural bound
+
+    `n_evaluated` is the denominator. `verdict == "not_evaluated"` with
+    `n_applicable > 0` is the silent-no-op case this module was audited for.
+    """
+    reasons: List[str] = []
+    per_spec: List[Dict[str, Any]] = []
+    n_applicable = n_evaluated = 0
+    for spec in specs:
+        if not spec.applies(arm_ctx):
+            per_spec.append({"precondition": spec.name, "status": "scoped_out",
+                             "reason": spec.applies_note or ""})
+            continue
+        n_applicable += 1
+        v = _spec_structural_verdict(spec, arm_ctx)
+        per_spec.append({"precondition": spec.name, "status": v["status"],
+                         "reason": v["reason"]})
+        if v["status"] != "not_evaluated":
+            n_evaluated += 1
+        if v["status"] == "unsatisfiable":
+            reasons.append(f"'{spec.name}': {v['reason']}")
+
+    if reasons:
+        verdict = "vacuous"
+    elif n_evaluated:
+        verdict = "clear"
+    else:
+        verdict = "not_evaluated"
+    return {
+        "verdict": verdict,
+        "vacuity_reason": detect_structural_vacuity(specs, arm_ctx) or "",
+        "n_specs": len(specs),
+        "n_applicable": n_applicable,
+        "n_evaluated": n_evaluated,
+        "n_not_evaluated": n_applicable - n_evaluated,
+        "per_spec": per_spec,
+    }
+
+
+def summarize_structural_audit(audited: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    """Pre-filter DENOMINATOR for an `assert_no_structurally_unsatisfiable_gate` audit.
+
+    `coverage` is the fraction of APPLICABLE (arm, precondition) pairs that a
+    structural bound could actually be evaluated for. `coverage == 0.0` means the
+    guard proved nothing about this run -- its clean pass is not evidence.
+    Serialisable, so it travels into a manifest / --json consumer unchanged.
+    """
+    counts = {s: 0 for s in STRUCTURAL_STATUSES}
+    for row in audited:
+        status = str(row.get("status", ""))
+        if status in counts:
+            counts[status] += 1
+    applicable = counts["satisfiable"] + counts["unsatisfiable"] + counts["not_evaluated"]
+    evaluated = counts["satisfiable"] + counts["unsatisfiable"]
+    return {
+        "n_pairs": len(audited),
+        "n_applicable": applicable,
+        "n_evaluated": evaluated,
+        "n_not_evaluated": counts["not_evaluated"],
+        "n_scoped_out": counts["scoped_out"],
+        "n_satisfiable": counts["satisfiable"],
+        "n_unsatisfiable": counts["unsatisfiable"],
+        "coverage": (evaluated / applicable) if applicable else 0.0,
+        "proved_nothing": applicable > 0 and evaluated == 0,
+    }
+
+
+def format_structural_audit_report(summary: Dict[str, Any]) -> List[str]:
+    """ASCII lines describing `summary`. Windows cp1252 terminals -- no Unicode."""
+    lines = [
+        "[structural-gate-audit] {n_pairs} (arm, precondition) pairs: "
+        "{n_applicable} applicable ({n_evaluated} evaluated -- {n_satisfiable} "
+        "satisfiable, {n_unsatisfiable} unsatisfiable; {n_not_evaluated} NOT "
+        "EVALUATED), {n_scoped_out} scoped out".format(**summary),
+    ]
+    if summary["proved_nothing"]:
+        lines.append(
+            "[structural-gate-audit] COVERAGE 0/{n_applicable} -- this guard PROVED "
+            "NOTHING for this run. A clean pass here is not evidence the gate is "
+            "satisfiable; no spec declared a usable structural_max/structural_min. "
+            "Declare one to make the guard load-bearing.".format(**summary))
+    elif summary["n_not_evaluated"]:
+        lines.append(
+            "[structural-gate-audit] COVERAGE {n_evaluated}/{n_applicable} -- the "
+            "remaining {n_not_evaluated} pair(s) were NOT checked (no usable "
+            "structural bound); the guard is silent about them, not clearing "
+            "them.".format(**summary))
+    return lines
+
+
 def assert_no_structurally_unsatisfiable_gate(
         specs: Sequence[PreconditionSpec],
         arm_contexts: Sequence[Dict[str, Any]],
         arm_id_key: str = "id",
-        acknowledged_vacuous_arms: Sequence[str] = ()) -> List[Dict[str, Any]]:
+        acknowledged_vacuous_arms: Sequence[str] = (),
+        report: bool = True) -> List[Dict[str, Any]]:
     """Refuse a run carrying an arm that cannot be scored, unless acknowledged.
 
     Call BEFORE the expensive phase (and in --dry-run). Two correct resolutions,
@@ -281,7 +461,37 @@ def assert_no_structurally_unsatisfiable_gate(
     arithmetic. Also raises when EVERY arm is vacuous, acknowledged or not: such a
     run can produce no scorable result and should not consume compute.
 
-    Returns the audited (spec, arm) pairs for logging.
+    WHAT A CLEAN RETURN DOES AND DOES NOT MEAN
+    ------------------------------------------
+    This guard can only reason from an explicitly declared `structural_max` /
+    `structural_min`. A spec carrying neither is NOT checked, and the returned
+    pair says so: `status == "not_evaluated"`, with `reason` naming the missing
+    bound. It is never folded into `"satisfiable"`.
+
+    That distinction is the point. Measured 2026-09-22 across ree-v3/experiments:
+    108 drivers call this guard and 65 of them (60%) declare no structural bound
+    at all, so for those the guard ran, "passed", and proved nothing -- a clean
+    return was indistinguishable from "there was nothing here to check".
+    V3-EXQ-1062 is the confirmed instance: all eight of its PreconditionSpecs
+    omit the bounds, so the guard could not fire even though its
+    `fresh_select_sample_floor` (200) was structurally unreachable under its own
+    --dry-run P2 budget of 60 steps. See
+    `REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-1062_2026-09-22.md`
+    section 6, and CLAUDE.md General Rules, "Negative instruments: 'nothing
+    found' must not read the same as 'the search broke'".
+
+    `report=True` (the default) prints the pre-filter denominator -- how many
+    pairs were checkable versus skipped for want of a bound -- so a zero-coverage
+    run announces itself instead of reading as green. Pass `report=False` to
+    silence it (tests, or a driver with its own logging).
+
+    This DELIBERATELY does not block a driver that declares no bounds: 60% of
+    call sites would fail at once, and a guard that fires on correct code gets
+    disabled (CLAUDE.md). It reports; it does not block.
+
+    Returns the audited (arm, precondition) pairs for logging, each with
+    `status` in STRUCTURAL_STATUSES and a `reason`. Pass the list to
+    `summarize_structural_audit` for the machine-readable denominator.
     """
     audited: List[Dict[str, Any]] = []
     problems: List[str] = []
@@ -296,18 +506,28 @@ def assert_no_structurally_unsatisfiable_gate(
         for spec in specs:
             if not spec.applies(ctx):
                 audited.append({"arm": arm_id, "precondition": spec.name,
-                                "status": "scoped_out"})
+                                "status": "scoped_out",
+                                "reason": spec.applies_note or (
+                                    "not meaningful for this regime "
+                                    "(no applies_note given)")})
                 continue
-            reason = _spec_unsatisfiable(spec, ctx)
+            verdict = _spec_structural_verdict(spec, ctx)
             audited.append({"arm": arm_id, "precondition": spec.name,
-                            "status": "unsatisfiable" if reason else "satisfiable"})
-            if reason:
+                            "status": verdict["status"],
+                            "reason": verdict["reason"]})
+            if verdict["status"] == "unsatisfiable":
                 arm_has_problem = True
                 if arm_id not in acknowledged:
                     problems.append(
-                        f"  arm '{arm_id}' precondition '{spec.name}': {reason}")
+                        f"  arm '{arm_id}' precondition '{spec.name}': "
+                        f"{verdict['reason']}")
         if arm_has_problem:
             vacuous_arms.append(arm_id)
+
+    if report:
+        for line in format_structural_audit_report(
+                summarize_structural_audit(audited)):
+            print(line)
 
     if problems:
         raise StructurallyUnsatisfiableGate(
