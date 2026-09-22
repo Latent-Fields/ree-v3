@@ -3012,6 +3012,41 @@ KNOWN_INERT = {
     # directly). tests/contracts/test_sd_056_multistep_amend.py's A1/A2 tests
     # only check config round-trip, per their own docstrings, never a
     # behavioural gate.
+    # SD-PP-B5 (2026-09-22, session elated-chandrasekhar-4a6e6a). SAME
+    # CONFIG-ONLY SHAPE as F-N1/F-N2 above, but BY DESIGN rather than by
+    # oversight, and the distinction matters when reading this bucket:
+    #
+    #   F-N1/F-N2 are DEAD -- their loss methods have zero callers anywhere and
+    #   nothing measures them. use_world_interventional's method,
+    #   E2FastPredictor.compute_world_interventional_loss (e2_fast.py), is LIVE
+    #   and MEASURED: on a real 120-row CausalGridWorldV2 rollout (seed 42) the
+    #   term raised the gradient reaching world_action_encoder from 0.0021 to
+    #   0.1445 and the loss from 0.00733 to 0.3644. Behaviour is pinned in
+    #   tests/contracts/test_action_sensitivity_gate.py (25 contracts).
+    #
+    # The FLAG itself gates nothing inside ree_core, and deliberately so. The
+    # method computes unconditionally because the alternative -- returning a
+    # zero loss when the flag is False -- is the MECH-307 silent-off trap: a
+    # driver that called it believing the feature was on would get 0.0 with no
+    # error. world_forward's P0/P1 training lives in experiment drivers, not on
+    # the agent path (V3-EXQ-1073's autopsy: "no default-on consumer of
+    # e2.world_forward ... absent by construction"), so there is no ree_core
+    # site that could honestly gate it. The flag's role is to DECLARE THE ARM in
+    # the run's config fingerprint; a driver must both set it and call the
+    # method. Wiring it into the sleep-side world_forward consolidation instead
+    # was rejected: that would change consolidation semantics and break the
+    # bit-identical-arms design V3-EXQ-1073 depends on.
+    #
+    # Revisit when a ree_core-side world_forward trainer exists; at that point
+    # this becomes a genuine gate and moves to PROBED.
+    # Record: ree-v3/docs/substrate/SD-PP-B5-action-sensitive-world-forward.md
+    "use_world_interventional": "SD-PP-B5: config-only BY DESIGN -- declares "
+    "the training arm for an experiment driver; compute_world_interventional_"
+    "loss computes unconditionally (gating it would be the MECH-307 silent-off "
+    "trap) and world_forward has no ree_core-side trainer to gate. The METHOD "
+    "is live and measured (grad 0.0021 -> 0.1445 on a real rollout), pinned by "
+    "tests/contracts/test_action_sensitivity_gate.py. See the block comment "
+    "above for why this is not the same as F-N1/F-N2.",
     "e2_action_contrastive_multistep_enabled": "F-N2: never read anywhere in "
     "ree_core/ (world_forward_contrastive_loss_multistep computes "
     "unconditionally); zero callers on the live agent path -- config-only, "

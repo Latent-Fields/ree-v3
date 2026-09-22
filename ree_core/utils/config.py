@@ -898,6 +898,17 @@ class E2Config:
     e2_action_contrastive_temperature: float = 0.1
     e2_action_contrastive_min_batch_classes: int = 2
 
+    # SD-PP-B5: action-margin (interventional) training term on world_forward.
+    # Port of SD-013's contrastive interventional loss (e2_harm_s.py:204) to the
+    # head V3-EXQ-1073 actually trains. Default OFF -- bit-identical to pre-B5.
+    # NOT the SD-056 InfoNCE form above: that is a CONFIRMED P0 destabiliser
+    # (V3-EXQ-701b ablation, carried by 798a). The margin loss has zero gradient
+    # once predictions are >= margin apart, so it cannot dominate reconstruction.
+    # See REE_assembly/docs/architecture/sd_pp_b5_action_sensitive_world_forward.md.
+    use_world_interventional: bool = False
+    world_interventional_fraction: float = 0.3
+    world_interventional_margin: float = 0.1
+
     # SD-056 multi-step rollout stability amend (2026-05-31).
     # Per V3-EXQ-569e autopsy: t=1 contrastive leaves get_world_state_sequence()
     # unbounded over the behavioural-runtime horizon (1e16+ magnitudes on most ON
@@ -7688,6 +7699,10 @@ class REEConfig:
         e2_action_contrastive_weight: float = 0.01,
         e2_action_contrastive_temperature: float = 0.1,
         e2_action_contrastive_min_batch_classes: int = 2,
+        # SD-PP-B5: action-margin training term on world_forward (default OFF)
+        use_world_interventional: bool = False,
+        world_interventional_fraction: float = 0.3,
+        world_interventional_margin: float = 0.1,
         # SD-056 multi-step rollout stability amend (2026-05-31)
         e2_action_contrastive_multistep_enabled: bool = False,
         e2_action_contrastive_horizon: int = 5,
@@ -9151,6 +9166,13 @@ class REEConfig:
         config.e2.e2_action_contrastive_weight = e2_action_contrastive_weight
         config.e2.e2_action_contrastive_temperature = e2_action_contrastive_temperature
         config.e2.e2_action_contrastive_min_batch_classes = e2_action_contrastive_min_batch_classes
+
+        # SD-PP-B5: action-margin (interventional) term on world_forward.
+        # Knobs land on config.e2; the helper lives on E2FastPredictor.
+        # Default OFF preserves bit-identical existing-experiment behaviour.
+        config.e2.use_world_interventional = use_world_interventional
+        config.e2.world_interventional_fraction = world_interventional_fraction
+        config.e2.world_interventional_margin = world_interventional_margin
 
         # SD-056 multi-step rollout stability amend (2026-05-31).
         # Lever (a) multi-step contrastive + lever (b) per-step rollout norm

@@ -347,6 +347,7 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
 - **[SD-025](docs/substrate/SD-025-hippocampal-module-curiosity-drive.md)** — hippocampal_module.curiosity_drive -- IMPLEMENTED (2026-07-16) *(~820 tok)*
 - **[SD-029](docs/substrate/SD-029-balanced-hazard-event-curriculum.md)** — Balanced Hazard-Event Curriculum (2026-04-21) *(~813 tok)*
 - **[SD-031](docs/substrate/SD-031-e2-world-single-pass-comparator-z-world.md)** — E2_world Single-Pass Comparator (z_world agency) (2026-06-06) *(~1,214 tok)*
+- **[SD-PP-B5](docs/substrate/SD-PP-B5-action-sensitive-world-forward.md)** — predictors.e2_fast.world_forward_action_sensitivity: action-sensitivity readiness gate (experiments/_lib) + SD-013 margin loss on world_forward -- IMPLEMENTED (2026-09-22) *(~1,050 tok)*
 - **[SD-032a](docs/substrate/SD-032a-mech-259-mech-261-salience-network.md)** — MECH-259 / MECH-261: Salience-Network Coordinator (2026-04-19) *(~832 tok)*
 - **[SD-032b](docs/substrate/SD-032b-mech-258-mech-260-arc-058-dacc-analog.md)** — MECH-258 / MECH-260 / ARC-058: dACC-analog Adaptive Control (2026-04-19) *(~1,394 tok)*
 - **[SD-032c](docs/substrate/SD-032c-cingulate-aic-analog-salience-urgency.md)** — cingulate.aic_analog_salience_urgency -- IMPLEMENTED (2026-04-19) *(~1,222 tok)*

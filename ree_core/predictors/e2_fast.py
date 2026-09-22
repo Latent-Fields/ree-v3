@@ -221,6 +221,82 @@ class E2FastPredictor(nn.Module):
         delta = self.world_transition(z_a)
         return z_world + delta
 
+    def compute_world_interventional_loss(
+        self,
+        z_world: torch.Tensor,
+        a_actual: torch.Tensor,
+        a_cf: torch.Tensor,
+    ) -> torch.Tensor:
+        """SD-PP-B5: contrastive interventional loss for world_forward action-sensitivity.
+
+        Pushes world_forward predictions for a_actual and a_cf apart by at least
+        `world_interventional_margin` in L2, so the head cannot converge to
+        copy-the-input and remain scoring well.
+
+        Margin loss: max(0, margin - ||z_pred_actual - z_pred_cf||_2)
+        Zero gradient once the predictions are already >= margin apart; positive
+        gradient when the head is action-invariant.
+
+        This is the SD-013 form (e2_harm_s.py:204) / the SD-031 z_world analogue
+        (e2_world.py:319) ported to the head that V3-EXQ-1073 actually trains.
+        E2WorldForward could not be used at that operating point: it hard-asserts
+        world_dim >= 128 and the run used WORLD_DIM = 16.
+
+        NOT the SD-056 InfoNCE auxiliary (world_forward_contrastive_loss, below):
+        that form is a CONFIRMED P0 destabiliser (V3-EXQ-701b ablation, carried by
+        798a) because it competes with reconstruction throughout training. The
+        margin form goes silent once the head is separated enough.
+
+        IMPORTANT: z_world MUST be detached from the encoder computation graph
+        before calling this (the same P1 stop-gradient discipline as the sibling
+        implementations).
+
+        CALLER CONTRACT: a_cf must DIFFER from a_actual. REE agents are monostrategy
+        for long stretches, so a naive draw can yield a_cf == a_actual on most rows;
+        those rows contribute a constant `margin` with no useful gradient direction.
+        Draw a_cf from the complement of a_actual per row.
+
+        Args:
+            z_world:  [batch, world_dim] -- current world latent (detached)
+            a_actual: [batch, action_dim] -- action actually taken
+            a_cf:     [batch, action_dim] -- counterfactual action (must differ)
+
+        Returns:
+            loss: scalar contrastive margin loss (>= 0)
+
+        Biological grounding:
+            Scholkopf et al. 2021 (Science): causal identifiability requires
+            interventional, not merely observational, data. The margin loss acts as
+            a soft interventional constraint under the strong ambient correlations
+            of world state (landmarks/resources/hazards persisting across steps).
+        """
+        z_pred_actual = self.world_forward(z_world, a_actual)
+        z_pred_cf = self.world_forward(z_world, a_cf)
+        # EPSILON UNDER THE SQRT: guards the DERIVATIVE BLOW-UP as the two
+        # predictions approach each other. d||d||/dd = d/||d||, which is
+        # numerically unstable for tiny non-zero ||d||; the epsilon bounds the
+        # denominator. Measured benefit is in that near-zero regime.
+        #
+        # WHAT IT DOES NOT DO -- stated because the obvious reading is wrong.
+        # It does NOT rescue the EXACTLY-collapsed case. At d == 0 the gradient
+        # is d/sqrt(eps) == 0 however small eps is: zero distance is a MINIMUM of
+        # ||d||, so EVERY smooth function of ||d|| is stationary there, and no
+        # epsilon, squared-margin or reformulation of this loss family escapes
+        # it. A head whose action path is EXACTLY zero therefore receives no
+        # gradient from this term. That state is measure-zero under random
+        # initialisation -- on a real rollout with an untrained head this term
+        # raised the gradient reaching world_action_encoder from 0.0021 to
+        # 0.1445 (SD-PP-B5 liveness probe, seed 42) -- and both reference
+        # implementations (e2_harm_s.py, e2_world.py compute_interventional_loss)
+        # share the property. It is documented, not fixed.
+        # Contract: tests/contracts/test_action_sensitivity_gate.py
+        # ::test_margin_loss_gradient_vanishes_only_at_exact_collapse.
+        eps = 1e-12
+        diff = z_pred_actual - z_pred_cf
+        l2_dist = (diff.pow(2).sum(dim=-1) + eps).sqrt()
+        margin = float(getattr(self.config, "world_interventional_margin", 0.1))
+        return F.relu(margin - l2_dist).mean()
+
     def cand_world_pairwise_dist(
         self,
         z_world_0: torch.Tensor,
