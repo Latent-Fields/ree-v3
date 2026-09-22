@@ -3948,7 +3948,16 @@ HEARTBEAT_LOG_TRIM_INTERVAL_SECONDS = float(
 # opens its own sqlite3 connection -- see app.py's per-request db.connect().
 # A race between two threads both deciding to trim at once is harmless: the
 # DELETE is idempotent and cheap (uses idx_heartbeat_log_machine_time).
-_last_heartbeat_log_trim = [0.0]
+#
+# None, NOT 0.0, is "never trimmed in this process". time.monotonic() is
+# seconds since BOOT on Linux, so an absolute 0.0 sentinel does not mean
+# "overdue" -- it means "overdue iff this host has been up longer than
+# HEARTBEAT_LOG_TRIM_INTERVAL_SECONDS". On the hub (uptime in months) that
+# coincidence held and the first heartbeat after a coordinator start trimmed;
+# on a freshly booted box the gate below read as "not yet due" for the whole
+# first hour of uptime and the trim never fired. Same defect, test side, in
+# coordinator/test_heartbeat_log.py (fixed fa7d373).
+_last_heartbeat_log_trim = [None]
 
 
 def trim_heartbeat_log(conn, retention_days=None):
@@ -3972,9 +3981,14 @@ def _maybe_trim_heartbeat_log(conn):
     separate timer/cron needed -- every POST /heartbeat is a chance to trim,
     throttled so the DELETE only actually runs ~once/hour regardless of
     heartbeat volume.
+
+    The FIRST call after process start always trims -- the throttle marker is
+    None until then -- regardless of how long the host has been booted. See
+    the _last_heartbeat_log_trim comment for why that is not spelled 0.0.
     """
     now = time.monotonic()
-    if now - _last_heartbeat_log_trim[0] < HEARTBEAT_LOG_TRIM_INTERVAL_SECONDS:
+    last = _last_heartbeat_log_trim[0]
+    if last is not None and now - last < HEARTBEAT_LOG_TRIM_INTERVAL_SECONDS:
         return
     _last_heartbeat_log_trim[0] = now
     trim_heartbeat_log(conn)

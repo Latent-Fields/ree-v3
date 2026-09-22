@@ -31,6 +31,15 @@ sys.path.insert(0, str(HERE))
 import db  # noqa: E402
 
 
+# The value db._last_heartbeat_log_trim holds at PROCESS START, captured here
+# at import time -- before any fixture has had a chance to mutate it, since
+# module import precedes test execution under both pytest collection and
+# unittest discovery, and _Fixture.tearDown restores it besides. Read from db
+# rather than restated as a literal, so the contract below tracks the real
+# initialiser instead of a stale copy of it.
+_PROCESS_START_TRIM_MARKER = db._last_heartbeat_log_trim[0]
+
+
 def _trim_is_due():
     """A `_last_heartbeat_log_trim` value that reads as DUE on any host.
 
@@ -238,6 +247,45 @@ class TestRetentionTrim(_Fixture):
             "the trim must fire on a host whose UPTIME is below the trim "
             "interval -- i.e. on a fresh CI runner, not only on a box that "
             "has been up for hours")
+
+    def test_process_start_marker_reads_as_due_on_a_low_uptime_host(self):
+        """The PRODUCTION-side half of the 2026-09-18 CI red (run 35345586544).
+
+        fa7d373 fixed this FILE; db.py kept the absolute 0.0 initialiser, so a
+        coordinator on a box whose uptime was under
+        HEARTBEAT_LOG_TRIM_INTERVAL_SECONDS never trimmed at all for the first
+        hour after boot -- 0.0 reads as "overdue" only on a host already up
+        longer than the interval, which the hub (uptime in months) always was.
+
+        The sibling test above pins the gate once the marker has been reset by
+        hand. This one pins the INITIALISER, which is what a just-started
+        coordinator actually holds and is the only thing the production defect
+        lived in. It FAILS with the 0.0 form restored.
+        """
+        fresh_boot_uptime = 60.0
+        self.assertLess(
+            fresh_boot_uptime, db.HEARTBEAT_LOG_TRIM_INTERVAL_SECONDS,
+            "this scenario requires a host uptime BELOW the trim interval")
+        db.upsert_heartbeat(self._conn, "ree-cloud-2", "running",
+                            "V3-EXQ-001", {}, {})
+        self._conn.execute(
+            "UPDATE heartbeat_log SET observed_at='2020-01-01T00:00:00Z'")
+        with mock.patch.object(db.time, "monotonic",
+                               lambda: fresh_boot_uptime):
+            # Exactly the state a coordinator holds right after process start.
+            db._last_heartbeat_log_trim[0] = _PROCESS_START_TRIM_MARKER
+            # Any subsequent heartbeat (even a no-op repeat) is a trim chance.
+            db.upsert_heartbeat(self._conn, "ree-cloud-2", "running",
+                                "V3-EXQ-001", {}, {})
+            rows = self._conn.execute(
+                "SELECT * FROM heartbeat_log "
+                "WHERE observed_at='2020-01-01T00:00:00Z'").fetchall()
+        self.assertEqual(
+            len(rows), 0,
+            "a just-started coordinator must trim on its first heartbeat even "
+            "when host uptime is below the trim interval -- time.monotonic() "
+            "counts from BOOT, so the never-trimmed marker must not be an "
+            "absolute 0.0")
 
 
 class TestTableProvisioning(_Fixture):
