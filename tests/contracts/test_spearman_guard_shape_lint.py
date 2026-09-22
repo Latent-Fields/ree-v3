@@ -349,6 +349,16 @@ def test_real_safe_average_rank_helpers_not_flagged():
             assert V.spearman_guard_shape_lint(real) is None, fname
 
 
+# THE PIN IS 0, SO IT NEEDS A NON-VACUITY GUARD (negative_instrument_audit_20260922.md
+# finding 14 / section 6 item 6 -- ported from the sibling gates, e.g.
+# test_hardcoded_dry_run_lint.py's `_MIN_CORPUS_FILES_FOR_A_MEANINGFUL_PIN`). `fires == []`
+# is true of a walk that scanned NOTHING, so without the floor below this becomes a silent
+# no-op the moment the shared corpus walk breaks or is re-scoped -- a NONZERO pin cannot
+# fail this way (an empty walk yields 0 fires, which is != the pin, so it fails loudly),
+# which is why only 0-pinned gates need this guard.
+_MIN_CORPUS_FILES_FOR_A_MEANINGFUL_PIN = 500
+
+
 def test_corpus_has_zero_fires(corpus_scan):
     """All 18 defective copies were migrated to the canonical helper, so the live corpus
     must carry ZERO of this shape. A rise means a new hand-rolled defective helper landed
@@ -356,5 +366,11 @@ def test_corpus_has_zero_fires(corpus_scan):
 
     Shared corpus walk -- same file set, lint and order as the old inline
     comprehension; see tests/contracts/conftest.py."""
+    # NON-VACUITY, and it must come FIRST -- see the comment above.
+    assert corpus_scan.n_glob_files > _MIN_CORPUS_FILES_FOR_A_MEANINGFUL_PIN, (
+        f"corpus walk covered only {corpus_scan.n_glob_files} v3_exq_* drivers, below the "
+        f"{_MIN_CORPUS_FILES_FOR_A_MEANINGFUL_PIN} floor -- the fire-count pin below is 0 "
+        f"and would pass VACUOUSLY on a walk this small. Fix the walk "
+        f"(tests/contracts/conftest.py) rather than lowering this floor.")
     fires = [p.name for p in corpus_scan["spearman_guard_shape_lint"]]
     assert fires == [], f"unexpected spearman-guard-shape fires: {fires}"

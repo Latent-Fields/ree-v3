@@ -208,13 +208,33 @@ def test_l5_exempt_marker_silences(tmp_path):
     assert _lint(tmp_path, exempt) is None
 
 
+# THE PIN IS 0 (offenders == []), SO IT NEEDS A NON-VACUITY GUARD
+# (negative_instrument_audit_20260922.md finding 14 / section 6 item 6 -- ported from the
+# sibling gates, e.g. test_hardcoded_dry_run_lint.py's
+# `_MIN_CORPUS_FILES_FOR_A_MEANINGFUL_PIN`). `offenders == []` is true of a walk that
+# enumerated NOTHING, so without the floor below this test silently becomes a no-op the
+# moment EXPERIMENTS_DIR is empty, moved, or the glob pattern breaks. A NONZERO pin cannot
+# fail this way -- an empty walk yields 0 offenders, which is != the pin, so it fails
+# loudly -- which is why only 0-pinned gates need this guard. This test does its OWN glob
+# (not the shared `corpus_scan` fixture other lints in this family use), so the floor is
+# asserted directly against this walk's own file count.
+_MIN_CORPUS_FILES_FOR_A_MEANINGFUL_PIN = 500
+
+
 def test_l6_lint_silent_on_the_current_corpus():
     """The standing lint must add ZERO noise today: 734 wires the guard, and no other corpus
     script emits a ceiling route with a random_walk floor. A future regression is what it is
     for. (If this fails, a driver emitted a ceiling route without the guard -- wire it or
     CEILING_ANCHOR_FLOOR_EXEMPT it; do not weaken this test.)"""
+    files = sorted(EXPERIMENTS_DIR.glob("v3_exq_*.py"))
+    # NON-VACUITY, and it must come FIRST -- see the comment above.
+    assert len(files) > _MIN_CORPUS_FILES_FOR_A_MEANINGFUL_PIN, (
+        f"corpus walk covered only {len(files)} v3_exq_* drivers, below the "
+        f"{_MIN_CORPUS_FILES_FOR_A_MEANINGFUL_PIN} floor -- the offenders pin below is 0 "
+        f"(offenders == []) and would pass VACUOUSLY on a walk this small. Fix the glob "
+        f"(EXPERIMENTS_DIR) rather than lowering this floor.")
     offenders = []
-    for f in sorted(EXPERIMENTS_DIR.glob("v3_exq_*.py")):
+    for f in files:
         if V.ceiling_route_anchor_floor_lint(f):
             offenders.append(f.name)
     assert offenders == [], f"unexpected ceiling-route-anchor-floor warnings: {offenders}"
