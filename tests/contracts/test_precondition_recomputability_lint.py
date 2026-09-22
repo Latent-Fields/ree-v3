@@ -677,6 +677,103 @@ def test_r0r_one_sided_floor_not_flagged():
 
 
 # ---------------------------------------------------------------------------
+# r0r2-r0r4: branch (e) NARROWED -- a NaN-DROP FILTER IS NOT A PARTITION
+# (2026-09-22). See the r0z corpus-pin derivation at the bottom of this file for
+# how it was found. `pe_rows = [r for r in rows if r["v"] == r["v"]]` is the
+# stdlib-free NaN test: it drops rows with NO measurement and keeps every row
+# that has one. Structurally it is a single-condition filtered comprehension over
+# a bare Name, so `_filtered_subsets` accepts it -- but branch (e)'s defect shape
+# presumes the UNCHECKED COMPLEMENT contains rows that could have saturated, and
+# a NaN drop's complement is exactly the rows that have no value to saturate. A
+# band over the NaN-dropped set is the WIDEST guard available, not a narrow one.
+
+_NAN_DROP_SCOPED = '''
+V_LOW = 0.02
+V_HIGH = 0.98
+FLOOR = 0.05
+
+
+def main():
+    rows = [
+        {"arm": "T0P0", "v": 0.61, "lift": 0.2},
+        {"arm": "T1P0", "v": 0.85, "lift": 0.2},
+        {"arm": "T1P1", "v": float("nan"), "lift": 0.2},
+    ]
+    v_rows = [r for r in rows if r["v"] == r["v"]]
+    on_rows = [r for r in rows if r["lift"] >= FLOOR]
+    worst = min((r["v"] for r in v_rows), default=0.0)
+    in_band = bool(v_rows) and V_LOW < worst < V_HIGH
+    interpretation = {
+        "preconditions": [
+            {
+                "name": "realized_variance_in_band",
+                "measured": float(worst),
+                "threshold_low": V_LOW,
+                "threshold_high": V_HIGH,
+                "comparator_low": ">",
+                "comparator_high": "<",
+                "direction": "interval",
+                "met": in_band,
+            },
+        ],
+        "n_on": len(on_rows),
+    }
+    return interpretation
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def test_r0r2_nan_drop_filter_is_not_a_partition():
+    """The narrowing itself: a band over a NaN-dropped subset must NOT fire, even
+    though a sibling filtered subset of the same collection exists."""
+    out = _lint(_NAN_DROP_SCOPED)
+    assert out is None or "SATURATION GUARD" not in out, out
+
+
+def test_r0r3_an_arm_partition_of_the_same_shape_still_fires():
+    """NON-DEGENERACY of the narrowing -- it must key on the NaN-drop CONDITION, not
+    on the surrounding shape. Swap only the filter condition for a genuine arm
+    partition and the identical file must fire again."""
+    src = _NAN_DROP_SCOPED.replace(
+        'v_rows = [r for r in rows if r["v"] == r["v"]]',
+        'v_rows = [r for r in rows if r["arm"] == "T0P0"]')
+    out = _lint(src)
+    assert out is not None and "SATURATION GUARD" in out, out
+    assert "realized_variance_in_band" in out, out
+
+
+def test_r0r4_nan_drop_still_counts_as_sibling_evidence():
+    """The narrowing is applied to the CHECKED side ONLY, deliberately: a NaN-drop
+    subset stays eligible as the SIBLING that shows a genuine partition went
+    unguarded. Here the band is scoped to a real arm partition and the ONLY other
+    subset is a NaN drop -- it must still fire, or the narrowing would have bought
+    a false negative it did not need to."""
+    src = _NAN_DROP_SCOPED.replace(
+        'on_rows = [r for r in rows if r["lift"] >= FLOOR]',
+        'on_rows = [r for r in rows if r["v"] == r["v"]]').replace(
+        'v_rows = [r for r in rows if r["v"] == r["v"]]',
+        'v_rows = [r for r in rows if r["arm"] == "T0P0"]')
+    out = _lint(src)
+    assert out is not None and "SATURATION GUARD" in out, out
+
+
+def test_r0r5_real_541d_is_the_false_positive_witness():
+    """Pins the narrowing against the REAL file that exposed it, not only a synthetic
+    shape -- the same discipline test_r0y12/test_r0x apply to the detection side.
+
+    v3_exq_541d takes the band on the WORST cell of `pe_rows` by log-distance from
+    the band centre, i.e. every measured arm is guarded, worst-case. It fired only
+    because the guard-ON subset satisfied the 'sibling partitions exist' conjunct."""
+    real = EXPERIMENTS_DIR / "v3_exq_541d_mech204_f1_coldstart_guard_validation.py"
+    if not real.exists():
+        return
+    out = V.precondition_recomputability_lint(real)
+    assert out is None or "SATURATION GUARD" not in out, out
+
+
+# ---------------------------------------------------------------------------
 # r0t-r0w: branch (e) widened to ONE-SIDED CEILINGS (2026-07-19).
 #
 # Branch (e) originally required _is_two_sided. The stated rationale -- "a one-sided
@@ -1041,6 +1138,52 @@ def test_r0y12_real_914_is_the_detection_witness():
 # v3_exq_720_..., v3_exq_725_..., v3_exq_725a_...) were ALREADY in the 148
 # baseline via other branches (no_direction / central_vs_worst) -- branch (f) adds
 # a second reason to an existing warning there, not a new file to the total.
+#
+# PIN HELD AT 150 AFTER A 151 RED -- NARROWED THE LINT, DID NOT MOVE THE PIN
+# (2026-09-22). Trunk was red here from some point after ree-v3 `aac7d68`
+# (2026-09-19T22:48Z) until this note: `151 vs pinned 150`. Recorded because the
+# obvious diagnosis was wrong twice over and the next reader should not have to
+# re-derive it.
+#
+# NAMING THE MEMBER. This pin stores a COUNT, so there is no set to diff against.
+# The member was found by computing the fired SET at HEAD and at the pin's own base
+# `655d885` (a throwaway detached worktree, the real
+# `V.precondition_recomputability_lint` in both, not a re-implementation) and
+# diffing: exactly one added, none removed --
+# `v3_exq_541d_mech204_f1_coldstart_guard_validation.py`, precondition
+# `realized_pe_variance_in_band`, on branch (e) (SATURATION GUARD).
+#
+# THE TWO WRONG STORIES, SO NEITHER IS RE-RUN.
+#   (1) "None of the 142 drivers added since 655d885 is in the Fired list, so it must
+#       be an existing script that drifted, or a widened branch." Both halves false:
+#       541d was ADDED on 2026-09-19 (`aac7d68`, then `bf92309` / `0b47e31`) and is
+#       absent from 655d885's tree entirely, and no branch was touched -- `git diff
+#       655d885..HEAD -- validate_experiments.py` adds new lints but does not modify
+#       `precondition_recomputability_lint` or any predicate it calls. It IS a new
+#       script; the earlier cross-check that said otherwise was simply wrong.
+#   (2) "A new script in this list is very likely a genuine defect -- fix the script."
+#       That is this assertion's own message and it is usually right; here it is not.
+#       541d's band is taken on the WORST cell of `pe_rows` by log-distance from the
+#       band centre, where `pe_rows = [r for r in rows if r["realized_pe_variance"]
+#       == r["realized_pe_variance"]]` is a NaN drop. Every MEASURED arm is guarded,
+#       worst-case -- the widest form of the guard, the opposite of branch (e)'s
+#       defect (baseline arm checked, effect-carrying arms unguarded). It fired only
+#       because the unrelated `on = [r for r in rows if r["guard"]]` satisfied the
+#       "sibling partitions exist" conjunct. So the script is correct and the LINT
+#       was over-broad: `_filtered_subsets` accepted a completeness filter as a
+#       partition.
+#
+# THE FIX is `_nan_drop_subsets` in validate_experiments.py, excluding a NaN-drop
+# subset from the CHECKED side of branch (e) only -- it stays eligible as SIBLING
+# evidence, which is the narrower change and cannot lose a true positive
+# (test_r0r4). Re-measured over the whole corpus afterwards, per this branch's own
+# standing instruction to re-measure whenever it moves: total back to 150 with a
+# set IDENTICAL to 655d885's, and branch (e)'s own hits unchanged at exactly the 5
+# documented files (777, 777a, 779, 779a, 779b). So the pin is not a stale number
+# that happens to match -- the corpus it describes is the same corpus.
+#
+# 541d HAS NOT RUN (its three commits all say NOT QUEUED, red-team blocking), so
+# there is no result whose interpretability this touches either way.
 _PINNED_CORPUS_FIRE_COUNT = 150
 
 # The branch-(f)-specific subset, isolated from the other five branches sharing

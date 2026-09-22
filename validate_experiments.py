@@ -1378,6 +1378,63 @@ def _filtered_subsets(tree: ast.Module) -> Dict[str, Tuple[str, str]]:
     return out
 
 
+def _nan_drop_subsets(tree: ast.Module) -> Set[str]:
+    """Names bound to `X = [r for r in SRC if EXPR == EXPR]` -- a NaN filter.
+
+    `r["v"] == r["v"]` (or the `!=` complement) is the stdlib-free NaN test: it
+    keeps every row whose readout is a real number and drops only the ones that
+    have no measurement at all. Structurally it is a single-condition filtered
+    comprehension over a bare Name, so `_filtered_subsets` above accepts it --
+    but SEMANTICALLY it is a COMPLETENESS filter, not an arm/condition
+    PARTITION, and branch (e) must not treat it as the "one partition" a
+    saturation guard was scoped to.
+
+    Why that distinction is load-bearing rather than pedantic: branch (e)'s
+    defect shape is "the band inspects the BASELINE arm and leaves the
+    effect-carrying arms unguarded" -- it presumes the unchecked complement
+    contains rows that COULD have saturated. A NaN drop's complement is exactly
+    the rows with no value, which cannot be band-checked by anyone and whose
+    exclusion is what makes the check well-defined in the first place. A band
+    over the NaN-dropped set is therefore a band over EVERY measurable row: the
+    widest guard available, the opposite of the defect.
+
+    Confirmed false positive (2026-09-22, V3-EXQ-541d
+    `realized_pe_variance_in_band`): `pe_rows = [r for r in rows if
+    r["realized_pe_variance"] == r["realized_pe_variance"]]`, then the band is
+    taken on the WORST cell of `pe_rows` by log-distance from the band centre --
+    i.e. every measured arm is guarded, worst-case. It fired only because the
+    guard-ON subset `on = [r for r in rows if r["guard"]]` satisfied the
+    "sibling partitions exist" conjunct. See this file's r0z corpus-pin
+    derivation in tests/contracts/test_precondition_recomputability_lint.py.
+
+    Deliberately NARROW: only the textual self-comparison shape. A
+    `math.isnan`/`np.isnan` drop is the same idea and is NOT recognised here,
+    because no corpus script expresses it that way today and a predicate that
+    fires on a shape nobody writes is untestable conservatism. Add it, with a
+    re-measured corpus fire count, if one ever appears.
+    """
+    out: Set[str] = set()
+    for sub in ast.walk(tree):
+        if not isinstance(sub, ast.Assign) or len(sub.targets) != 1:
+            continue
+        tgt = sub.targets[0]
+        if not isinstance(tgt, ast.Name):
+            continue
+        comp = sub.value
+        if not isinstance(comp, ast.ListComp) or len(comp.generators) != 1:
+            continue
+        gen = comp.generators[0]
+        if len(gen.ifs) != 1 or not isinstance(gen.iter, ast.Name):
+            continue
+        cond = gen.ifs[0]
+        if not (isinstance(cond, ast.Compare) and len(cond.ops) == 1
+                and isinstance(cond.ops[0], (ast.Eq, ast.NotEq))):
+            continue
+        if ast.dump(cond.left) == ast.dump(cond.comparators[0]):
+            out.add(tgt.id)
+    return out
+
+
 def _precondition_dicts(tree: ast.Module) -> List[Tuple[str, Dict[str, ast.expr]]]:
     """(name, string-keyed fields) for every precondition-shaped dict literal.
 
@@ -1506,6 +1563,7 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
     partition_scoped: List[str] = []
     unfalsifiable_floor: List[str] = []
     subsets = _filtered_subsets(tree)
+    nan_drop_subsets = _nan_drop_subsets(tree)
     for name, fields in preconds:
         # (e) TWO-SIDED SATURATION BAND scoped to ONE partition while SIBLING
         # partitions of the same collection go unchecked. A headroom band exists to
@@ -1551,7 +1609,12 @@ def precondition_recomputability_lint(path: Path) -> Optional[str]:
             resolved_e = _resolve_one_level(met_node_e, tree)
             if _is_two_sided(resolved_e) or _is_one_sided_ceiling(resolved_e):
                 e_names, _ = _expr_atoms(resolved_e)
-                for sub_name in sorted(e_names & set(subsets)):
+                # A NaN-drop filter is a completeness filter, not a partition --
+                # see _nan_drop_subsets. Excluded from the CHECKED side only: it
+                # stays in `subsets` so it can still count as sibling evidence
+                # that a genuine partition went unguarded (the narrower change,
+                # and the one that cannot lose a true positive).
+                for sub_name in sorted((e_names & set(subsets)) - nan_drop_subsets):
                     src, cond = subsets[sub_name]
                     if src in e_names:
                         continue  # band also covers the unfiltered collection
