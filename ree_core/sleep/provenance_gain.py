@@ -76,9 +76,15 @@ class ProvenanceGainConfig:
         "provenance_nohist" -- the rule with r_i == 1, i.e. historical model
             precision removed (ARM C-nohist; intake F1 asks whether historical
             precision is load-bearing at all).
-        "residual_only"     -- g_i = global_scale * l_i / mean_j(l_j) from the
-            CURRENT per-row loss, detached, unclipped (ARM D-residual: current
-            residual only, budget matched to `global_scale`).
+        "residual_only"     -- g_i = clip(gain_max * sqrt(pe_cur_i / v_ref),
+            gain_min, gain_max) from the CURRENT per-row residual of the head on
+            the replayed triple (ARM D-residual: C's magnitude factor with
+            K = 1, r = 1 and the CURRENT rather than the STORED innovation; no
+            packet, no precision term, no global_scale). Redesigned pre-freeze
+            2026-09-22 (V3-EXQ-1073 freeze record item 6): the earlier
+            budget-matched form inherited a pooled global budget and could not
+            reallocate across epistemic regimes, so it was not the current-
+            residual rival the design needs.
         "global"            -- g_i = global_scale (ARM D-global: matched budget
             carrying no per-row information).
     gain_min / gain_max:
@@ -182,6 +188,7 @@ def compute_provenance_gains(
     pi_cur: float,
     per_row_loss: Optional[torch.Tensor],
     config: ProvenanceGainConfig,
+    per_row_residual: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, Dict[str, float]]:
     """Per-row consolidation gains plus a flat diagnostics dict.
 
@@ -194,9 +201,11 @@ def compute_provenance_gains(
             `per_row_loss` and no row can be "missing".
         pi_cur: current global epistemic precision (SD-PP-2
             `current_read().pi_epi`), read at sleep entry.
-        per_row_loss: [K] per-row current loss. REQUIRED for `residual_only`;
-            ignored by the other modes. Always read detached -- no gradient
-            ever flows into a gain.
+        per_row_loss: [K] per-row current loss (InfoNCE CE). Used only to
+            size K when `packets` is None. Always read detached.
+        per_row_residual: [K] per-row CURRENT mean-squared residual of the
+            head on the replayed triple, mean_d((world_forward(z0,a) - z1)^2).
+            REQUIRED for `residual_only`; ignored by the other modes. Detached.
         config: `ProvenanceGainConfig`.
 
     Returns:
@@ -221,9 +230,10 @@ def compute_provenance_gains(
     if mode not in GAIN_MODES:
         raise ValueError(f"mode must be one of {GAIN_MODES}; got {mode!r}")
 
-    if mode == "residual_only" and per_row_loss is None:
+    if mode == "residual_only" and per_row_residual is None:
         raise ValueError(
-            "mode 'residual_only' requires per_row_loss; got None"
+            "mode 'residual_only' requires per_row_residual (current per-row "
+            "MSE of the head on the replayed triple); got None"
         )
 
     if packets is not None:
@@ -292,25 +302,20 @@ def compute_provenance_gains(
             gains.append(float(g))
 
     elif mode == "residual_only":
-        loss_detached = per_row_loss.detach().reshape(-1).to(torch.float32)
-        if int(loss_detached.numel()) != n_rows:
+        res = per_row_residual.detach().reshape(-1).to(torch.float32)
+        if int(res.numel()) != n_rows:
             raise ValueError(
-                "per_row_loss length does not match packets length: "
-                f"{int(loss_detached.numel())} vs {n_rows}"
+                "per_row_residual length does not match the row count: "
+                f"{int(res.numel())} vs {n_rows}"
             )
-        mean_loss = float(loss_detached.mean().item()) if n_rows > 0 else 0.0
-        scale = float(config.global_scale)
         for idx in range(n_rows):
-            if missing[idx]:
+            r_i = float(res[idx].item())
+            if not math.isfinite(r_i) or r_i < 0.0:
                 gains.append(1.0)
                 continue
-            l_i = float(loss_detached[idx].item())
-            if mean_loss == 0.0 or not math.isfinite(mean_loss):
-                g = scale
-            else:
-                g = scale * (l_i / mean_loss)
-            if not math.isfinite(g):
-                g = scale
+            m_i = math.sqrt(r_i / float(config.v_ref))
+            g = float(config.gain_max) * m_i
+            g = min(max(g, float(config.gain_min)), float(config.gain_max))
             gains.append(float(g))
 
     else:  # "global" -- matched budget, no per-row information

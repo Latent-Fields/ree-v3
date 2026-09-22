@@ -12778,8 +12778,13 @@ class REEAgent(nn.Module):
             return zero_loss
         packets = [self.replay_provenance.get(i + 1) for i in idx]
         pi_cur = float(self.world_forward_precision.current_read().pi_epi)
+        # CURRENT per-row residual of the head on the replayed triple -- the
+        # only input the residual_only rival reads (no packet, no precision).
+        # A second no_grad forward; draws no RNG, so the arms stay paired.
+        with torch.no_grad():
+            _res = (self.e2.world_forward(z0, acts) - z1).pow(2).mean(dim=-1)
         gains, diag = compute_provenance_gains(
-            packets, pi_cur, rows.detach(), _gain_cfg
+            packets, pi_cur, rows.detach(), _gain_cfg, per_row_residual=_res
         )
         loss = weighted_row_loss(rows, gains.to(device=rows.device, dtype=rows.dtype))
         diag = dict(diag)

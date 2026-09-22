@@ -130,3 +130,15 @@
     Per the cross-machine class-contract rule, do not tighten this to a bitwise
     assertion on any machine class.
   See MECH-572, MECH-574, MECH-016, ARC-055, MECH-043, MECH-368/431, ARC-137.
+
+
+### Amendment 2026-09-22 (pre-freeze, V3-EXQ-1073 freeze record item 6): `residual_only` redesigned
+- `residual_only` now reads `per_row_residual` (the CURRENT per-row mean-squared residual of
+  `e2.world_forward` on the replayed triple, computed under `no_grad` inside
+  `agent.compute_e2_world_loss` and passed as a new keyword to `compute_provenance_gains`) and
+  schedules `g_i = clip(gain_max * sqrt(pe_cur_i / v_ref), gain_min, gain_max)` -- C's magnitude
+  factor with K = 1, r = 1 and the current rather than the stored innovation. No packet, no
+  precision term, `global_scale` ignored. The earlier budget-matched form (`global_scale * l_i /
+  mean(l)`) inherited a pooled global budget and could not reallocate across epistemic regimes, so
+  it was not the current-residual rival the design needs. Test T5 pins the new form; the `global`
+  mode is unchanged and remains the matched-total-budget rival (ARM D-global).

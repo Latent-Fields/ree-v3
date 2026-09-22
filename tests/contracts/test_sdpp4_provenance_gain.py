@@ -11,7 +11,7 @@ section 5. Eleven contracts, numbered as the spec numbers them.
       precision enters only through r_i, and r_i >= 1 always.
   T4  noisy contradiction -- large pe that is fully explained by evidence noise
       (noise_gain * evidence_variance_z >= pe) collapses to gain_min.
-  T5  residual_only mean == global_scale EXACTLY; global is constant.
+  T5  residual_only = clip(gain_max*sqrt(res/v_ref)) from the CURRENT residual only; global is constant.
   T6  provenance_nohist <= provenance rowwise (r >= 1 is the whole difference).
   T7  missing packet -> 1.0, and counted in n_missing.
   T8  config validation.
@@ -208,24 +208,30 @@ def test_t4_noisy_contradiction_gets_gain_min():
 # ----------------------------------------------------------------------
 def test_t5_control_modes_budget():
     losses = torch.tensor([0.5, 1.5, 2.0, 4.0])
+    residual = torch.tensor([1e-6, 1e-4, 1e-2, 1.0])
     packets = [_packet(10.0, 1e-4, 0.01, 1.0) for _ in range(4)]
 
-    cfg_res = ProvenanceGainConfig(mode="residual_only", global_scale=1.0)
+    # residual_only: g = clip(gain_max * sqrt(res / v_ref), gain_min, gain_max);
+    # reads ONLY the current residual (no packet, no precision, no global_scale).
+    cfg_res = ProvenanceGainConfig(mode="residual_only", global_scale=0.25)
     g_res, d_res = compute_provenance_gains(packets, pi_cur=10.0,
                                             per_row_loss=losses,
-                                            config=cfg_res)
-    assert float(g_res.mean()) == pytest.approx(cfg_res.global_scale, abs=1e-7)
-    # proportional to the per-row loss
-    expected = losses / losses.mean()
+                                            config=cfg_res,
+                                            per_row_residual=residual)
+    expected = torch.clamp(
+        cfg_res.gain_max * torch.sqrt(residual / cfg_res.v_ref),
+        cfg_res.gain_min, cfg_res.gain_max)
     assert torch.allclose(g_res, expected.to(torch.float32), atol=1e-6)
+    assert float(g_res[0]) == pytest.approx(cfg_res.gain_min)   # floors
+    assert float(g_res[3]) == pytest.approx(cfg_res.gain_max)   # caps
     assert d_res["mode"] == float(GAIN_MODES.index("residual_only"))
     # rule diagnostics are nan: this mode never evaluates the rule
     assert math.isnan(d_res["k_mean"]) and math.isnan(d_res["r_mean"])
-
-    cfg_res2 = ProvenanceGainConfig(mode="residual_only", global_scale=0.25)
-    g_res2, _ = compute_provenance_gains(packets, pi_cur=10.0,
-                                         per_row_loss=losses, config=cfg_res2)
-    assert float(g_res2.mean()) == pytest.approx(0.25, abs=1e-7)
+    # packets are not consulted: None packets give the same gains
+    g_res_np, _ = compute_provenance_gains(None, pi_cur=10.0,
+                                           per_row_loss=losses, config=cfg_res,
+                                           per_row_residual=residual)
+    assert torch.equal(g_res, g_res_np)
 
     cfg_glob = ProvenanceGainConfig(mode="global", global_scale=0.7)
     g_glob, d_glob = compute_provenance_gains(packets, pi_cur=10.0,
@@ -235,9 +241,9 @@ def test_t5_control_modes_budget():
     assert d_glob["gain_sd"] == pytest.approx(0.0)
     assert d_glob["mode"] == float(GAIN_MODES.index("global"))
 
-    # residual_only NEEDS the loss
+    # residual_only NEEDS the current residual
     with pytest.raises(ValueError):
-        compute_provenance_gains(packets, pi_cur=10.0, per_row_loss=None,
+        compute_provenance_gains(packets, pi_cur=10.0, per_row_loss=losses,
                                  config=cfg_res)
 
 
