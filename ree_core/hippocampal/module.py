@@ -3275,10 +3275,32 @@ class HippocampalModule(nn.Module):
         Formula:
             best_score = min residue cost across trajectories (lower = better)
             completion_signal = sigmoid(-best_score * 0.5)
-            -> maps [0, inf) residue to [0.5, 1.0) signal
-            -> high completion (near 0 residue) -> signal near 1.0
-            -> poor completion (high residue) -> signal near 0.5
+            -> maps [0, inf) residue to (0.0, 0.5] signal
+            -> high completion (residue 0) -> signal 0.5, the MAXIMUM here
+            -> poor completion (high residue) -> signal near 0.0
             -> empty list -> 0.0
+
+        RANGE CORRECTION 2026-09-22 (GFLAG-0344). The three lines above previously
+        read "maps [0, inf) residue to [0.5, 1.0)", "near 0 residue -> signal near
+        1.0" and "high residue -> signal near 0.5". All three were INVERTED, and the
+        arithmetic is not subtle: sigmoid(-x*0.5) is 0.5 at x=0 and DECREASES as x
+        grows, so non-negative residue can only ever map at or BELOW 0.5, never above.
+
+        WHY THIS MATTERS RATHER THAN BEING A TYPO -- it makes MECH-105's specified
+        completion-release threshold of 0.75 UNREACHABLE AS AN IDENTITY, not merely
+        untuned. Clearing 0.75 requires best_score <= -2.197, i.e. a NEGATIVE residue
+        cost. But ResidueField.evaluate_trajectory returns
+        (rbf_field + 0.1 * neural_field).sum(dim=-1), the RBF weights initialise to
+        ZERO and accumulate POSITIVE harm magnitude through a NON-NEGATIVE kernel, and
+        _score_trajectory's only subtractive terms (wanting_weight, curiosity_weight,
+        mode_conditioning_enabled) are all OFF at their defaults. So at default config
+        best_score is non-negative up to the small signed 0.1*neural_field
+        contribution, and an ON/OFF ablation specified against a 0.75 release point
+        yields BIT-IDENTICAL arms -- a precondition that dominates its own criterion.
+        No seed or config search reaches it; the threshold itself, or the subtractive
+        terms, has to change. That build is registered as substrate_queue entry
+        residue-completion-signal-threshold-unreachable and is NOT done here: this
+        note corrects the documentation only, and deliberately changes no behaviour.
 
         The result is cached in self._last_completion_signal.
 
@@ -3286,7 +3308,10 @@ class HippocampalModule(nn.Module):
             trajectories: List of Trajectory objects (as returned by propose_trajectories).
 
         Returns:
-            float in [0.0, 1.0): dopamine-analog completion quality signal.
+            float in [0.0, 1.0): dopamine-analog completion quality signal. The
+            FORMULA's range is (0.0, 1.0) plus 0.0 for the empty-list case, but the
+            REACHABLE range at default config is [0.0, ~0.5] -- see RANGE CORRECTION
+            above before relying on any threshold in the upper half.
         """
         if not trajectories:
             self._last_completion_signal = 0.0
