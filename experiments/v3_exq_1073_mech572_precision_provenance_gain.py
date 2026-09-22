@@ -3240,12 +3240,19 @@ def main(dry_run: bool = False, liveness_only: bool = False,
             d_p7, f_p7, seeds, req, m_p7, sd_p7, src_p7, False),
     ]
 
-    p2 = bool(contrasts[1]["passed"])
-    p3 = bool(contrasts[2]["passed"])
-    p4 = bool(contrasts[3]["passed"])
-    p5 = bool(contrasts[4]["passed"])
-    p6 = bool(contrasts[5]["passed"])
-    p7 = bool(contrasts[6]["passed"])
+    # Bind by NAME, never by position. The landed 2026-09-22T182856Z manifest
+    # was written with positional binding after P2b had been inserted at index
+    # 2, so its flat readout.p3..p7 and the counts in evidence_direction_note
+    # are shifted by one (p4 read P3's flag, etc.); interpretation.criteria[]
+    # is authoritative and was unaffected, as was the label (which reads only
+    # p2 once cond 3 is unreadable). Found by the V3-EXQ-1073 autopsy red-team.
+    _by_name = {c["name"].split("_", 1)[0]: bool(c["passed"]) for c in contrasts}
+    p2 = _by_name["P2"]
+    p3 = _by_name["P3"]
+    p4 = _by_name["P4"]
+    p5 = _by_name["P5"]
+    p6 = _by_name["P6"]
+    p7 = _by_name["P7"]
 
     # ---- routing ----------------------------------------------------------
     outcome = "PASS" if validity_pass else "FAIL"
