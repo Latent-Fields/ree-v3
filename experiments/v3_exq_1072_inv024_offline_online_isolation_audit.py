@@ -1,43 +1,6 @@
 """
 V3-EXQ-1072 -- INV-024: offline consolidation / online commitment write-locus isolation audit
 
-!!! NOT QUEUED -- RED-TEAM PASS 2: BLOCKING on the ONLINE half. DO NOT QUEUE AS-IS. !!!
-The OFFLINE half (C1) is sound and measured green. The ONLINE half (C2) cannot be built as
-INV-024's what_would_answer specifies it, and that is a CLAIM-LEVEL falsifier defect, not a
-driver defect:
-
-  INV-024 names the online lineage source as "E3 committed_trajectory set". That handle is
-  set ONLY inside E3.select_action (e3_selector.py:4526) and torn down as the last statement
-  of every post_action_update (e3_selector.py:4908), while E3 itself runs only on an
-  e3_tick -- every 10 env steps (heartbeat e3_steps_per_tick=10), or the step after a
-  phase_reset, which update_residue triggers on every harm tick (agent.py:11062). So a
-  per-step read of that latch measures "did E3 tick this step", NOT "was the agent
-  committed". On a harm tick that FOLLOWS a non-harm tick the agent is still committed
-  (persistent handle and beta latch both set) yet the latch reads None, and the write is
-  counted lineage-less.
-
-  MEASURED, real 400-step cell, seed 42, through the real arm_cell loop:
-  lineage_less_after_first_commit = 2 at ticks 82 and 370, both with persistent+beta SET
-  (the recorded broad predicate classifies only 5 of the 7 as lineage-less, versus 7 narrow).
-  So C2 as pre-registered FAILS at full length, routes evidence_direction "weakens", and
-  would commission a MECH-067 build on a read-point artifact. The 60-step smoke passed only
-  because seed 42's first non-harm tick is t=81 -- the smoke was structurally blind to the
-  regime that produces the failure.
-
-  Choosing a replacement predicate (score only e3_tick steps / use the persistent+beta
-  predicate / carry commit state across held ticks) changes what is measured and is NOT the
-  authoring session's call. Raised as decision chip
-  chip-20260922-inv024-online-falsifier-unrunnable and as a governance flag; the recommended
-  route is to re-specify INV-024's online falsifier in claims.yaml and, meanwhile, queue the
-  OFFLINE half alone.
-
-  Red-team pass-2 Attack 1 ("sws_enabled/rem_enabled are False, so the sleep cycle is inert")
-  is DISMISSED, with citation: use_sleep_aggregation_cluster=True invokes
-  enable_sleep_aggregation_cluster() from REEConfig.__post_init__ (config.py:7347), which
-  sets sws_enabled and rem_enabled True. MEASURED: both True on this driver's own config, 43
-  cycle metrics, mech018_residue_integration_fired=1.0. The reviewer read _build_config
-  literally and missed the resolver. Attacks 3 and 4 raised only cosmetic items (see the
-  queue-entry note); the stale in-code comments they flagged are corrected below.
 
 Claims: INV-024 (Offline consolidation and online commitment must remain isolated at
 responsibility-bearing write loci.)
@@ -92,11 +55,41 @@ them are recorded here.
   measurement above shows we cannot establish how much configuration drift is enough. The
   untestability is carried by GFLAG-0410 as a substrate finding, not buried here.
 
-CONSEQUENCE FOR THE ONLINE CRITERION, stated so it cannot be misread: the pre-registered
-lineage predicate remains the WWA's disjunction, but its SECOND DISJUNCT IS STRUCTURALLY DEAD
-on this configuration and closure_entry_ticks is emitted (expected 0) as the standing witness
-of that. A lineage-less write here means "not preceded by an E3 commit"; it does NOT rule out
-that a closure commit intent would have licensed it on some other configuration.
+  Decision 3 (2026-09-22, user, AMENDS THE CLAIM'S FALSIFIER): the online lineage predicate
+  is the SD-084 PERSISTENT COMMITTED-PROGRAM HANDLE plus the BETA LATCH, not the transient
+  E3 _committed_trajectory the what_would_answer originally named.
+
+  MEASUREMENT that forced it (Step 4.5 red-team pass 2, verified by a real 400-step run
+  through the arm_cell loop): _committed_trajectory is set only inside E3.select_action
+  (e3_selector.py:4526) and torn down as the LAST statement of post_action_update
+  (e3_selector.py:4908), while E3 runs only on an e3_tick -- cadence 10, or the step after a
+  phase_reset, which update_residue triggers on every harm tick (agent.py:11062). So a
+  per-step read of that handle measures "did E3 tick this step", NOT "was the agent
+  committed". On a harm tick FOLLOWING a non-harm tick the agent is still committed -- the
+  persistent handle and the beta latch are both set -- yet the transient handle reads None.
+  MEASURED, 400 steps: seed 42 gives 2 such false lineage-less writes at ticks 82 and 370,
+  seed 43 one at 340, seed 45 one at 182 -- and under the corrected predicate ALL THREE SEEDS
+  give ZERO. Seed 42's first harm-after-non-harm tick is 82, seed 43's is 13, seed 45's is 42.
+
+  THIS IS A CLAIM DEFECT, NOT A DRIVER PREFERENCE, and the discriminating fact is recorded in
+  GFLAG-0411 rather than only here: of the three candidate repairs, TWO (persistent+beta, and
+  score-only-e3_tick-steps) would have PASSED the run as measured while the registered
+  predicate FAILED it. A predicate whose choice flips the verdict is not an implementation
+  detail. The falsifier amendment is routed through governance -- claims.yaml is never
+  hand-edited here.
+
+  MEASURED AND vs OR: the conjunction (persistent AND beta) and the disjunction
+  (persistent OR beta) give IDENTICAL results -- zero lineage-less writes on all three seeds
+  at 400 steps -- so the conjunction/disjunction choice is not load-bearing at this operating
+  point. The driver pre-registers the CONJUNCTION (the literal reading of "handle plus latch",
+  and the stricter test) and RECORDS the disjunction plus the superseded E3 predicate
+  alongside, so a later reader can re-derive any of the three without a re-run.
+
+CONSEQUENCE FOR THE ONLINE CRITERION, stated so it cannot be misread: the closure disjunct
+INV-024 also names is STRUCTURALLY DEAD on this configuration (decision 2), and
+closure_entry_ticks is emitted (expected 0) as the standing witness. A lineage-less write here
+means "the agent did not hold a committed program under an elevated beta gate at the moment
+of the write".
 =============================================================================================
 
 TWO ONLINE MEASURES, BOTH RECORDED -- the load-bearing one is NOT the whole-run fraction
@@ -110,8 +103,9 @@ structurally lineage-less write, and a whole-run fraction would be decided by ea
 random-walk geometry rather than by write-locus isolation (MEASURED: the two-arm smoke's
 first_commit_entry_tick = 5 and first_lineage_less_ticks = [0,1,2,3,4] in both arms).
 Therefore:
-  C2  (LOAD-BEARING) lineage_less_after_first_commit == 0 -- writes at ticks where commitment
-      was POSSIBLE. This tests BYPASS, which is what INV-024 is about.
+  C2  (LOAD-BEARING) lineage_less_after_first_commit == 0 under the DECISION-3 predicate
+      (persistent handle AND beta latch) -- writes at ticks where commitment was POSSIBLE.
+      This tests BYPASS, which is what INV-024 is about.
   C2b (SECONDARY, not gating) the whole-run lineage_less_fraction, retained and reported so
       the warm-up gap stays legible in the manifest instead of being silently excluded.
 C2 has its own vacuity guard: durable_writes_after_first_commit must exceed zero, or C2 would
@@ -166,8 +160,20 @@ Falsifying per INV-024: one observed authority-store mutation during a cycle, or
 online write with no commit lineage. One confirmed instance refutes the invariant AS
 IMPLEMENTED and routes to MECH-067 (the enforcement mechanism), not to a re-run.
 
-Red-team: Step 4.5 pass 1 (fable) BLOCKING -> both findings fixed by user decisions 1-2 above
-plus the C3/C4 fixes; re-reviewed pass 2 (see queue entry note for the verdict).
+Red-team: Step 4.5 pass 1 (fable) BLOCKING -> fixed by user decisions 1-2 plus the C3/C4
+fixes. Pass 2 (fable) BLOCKING on the online half -> fixed by user decision 3 (the falsifier
+amendment above), which is the repair the finding itself pointed at. Pass-2 Attack 1
+("sws_enabled/rem_enabled are False so the cycle is inert") was DISMISSED with citation:
+use_sleep_aggregation_cluster=True invokes enable_sleep_aggregation_cluster() from
+REEConfig.__post_init__ (config.py:7347), which sets both True -- measured True on this
+driver's own config, 43 cycle metrics, mech018_residue_integration_fired = 1.0. Reading
+_build_config literally misses the resolver.
+
+SMOKE LENGTH IS A CORRECTNESS REQUIREMENT HERE, not a formality. The pass-1 60-step smoke was
+green only because seed 42's first harm-after-non-harm tick lands at 82 -- structurally blind
+to the regime that breaks the superseded predicate, by accident. --dry-run therefore runs TWO
+seeds at SMOKE_STEPS and ASSERTS that the regime was actually reached (see _assert_smoke_
+coverage), printing the exercised tick indices rather than assuming them.
 
 Output:
   evidence/experiments/v3_exq_1072_inv024_offline_online_isolation_audit/
@@ -227,6 +233,12 @@ NUM_RESOURCES = 3
 MAX_EPISODE_STEPS = 200
 # SINGLE ARM -- the closure arm was dropped by user decision 2 (see DESIGN HISTORY).
 ARMS = ["ASNAMED"]
+# Smoke geometry is a CORRECTNESS requirement (see docstring). Seed 42's first
+# harm-after-non-harm tick is 82, seed 43's is 13, seed 45's is 42 (all MEASURED at 400
+# steps), so 150 steps on two seeds provably reaches the regime on both -- and the driver
+# ASSERTS it rather than trusting these numbers.
+SMOKE_STEPS = 150
+SMOKE_SEEDS = 2
 
 # ---- pre-registered thresholds (constants; NOT derived from this run) ----
 MAX_AUTHORITY_MUTATIONS = 0      # C1: zero mutated authority stores
@@ -244,6 +256,25 @@ MIN_REPR_DELTA = 0.0             # readiness floor (strict >): the cycle must be
 # --------------------------------------------------------------------------------------
 # hashing / snapshots
 # --------------------------------------------------------------------------------------
+def _has_commit_lineage(w: Dict[str, Any]) -> bool:
+    """PRE-REGISTERED online lineage predicate (user decision 3, 2026-09-22).
+
+    "Committed" = the SD-084 PERSISTENT committed-program handle is held AND the beta gate is
+    elevated. NOT E3's transient _committed_trajectory, which is torn down as the last
+    statement of post_action_update and only ever re-set on an e3_tick, so a per-step read of
+    it reports "did E3 tick this step" rather than "was the agent committed" (MEASURED: it
+    produces false lineage-less writes at ticks 82/370 on seed 42). The superseded predicate
+    and the disjunctive variant are both RECORDED alongside, so any of the three can be
+    re-derived from the manifest without a re-run.
+    """
+    return bool(w.get("persistent_committed")) and bool(w.get("beta_elevated"))
+
+
+def _has_superseded_e3_lineage(w: Dict[str, Any]) -> bool:
+    """The predicate INV-024's what_would_answer originally named. Recorded, NOT gating."""
+    return bool(w.get("e3_committed")) or bool(w.get("closure_committed"))
+
+
 def _hash_tensor(t: Any) -> str:
     """Content hash of an authority-store value. Stable, byte-level, order-preserving."""
     if t is None:
@@ -448,9 +479,21 @@ def _run_cell(arm: str, seed: int, waking_steps: int) -> Dict[str, Any]:
 
     tick_state["phase"] = "waking"
     harm_events_start = float(residue_field.num_harm_events)
+    harm_ticks: List[int] = []
+    harm_after_nonharm_ticks: List[int] = []
+    prev_harm = False
     for step_index in range(waking_steps):
         tick_state["index"] = step_index
         result = harness.step(obs)
+        is_harm = bool(result.harm_signal < 0)
+        if is_harm:
+            harm_ticks.append(step_index)
+            # THE REGIME THAT BROKE THE SUPERSEDED PREDICATE: harm on a tick whose predecessor
+            # was not harm, so no phase_reset forced an e3_tick and the transient handle is
+            # None while the agent is still committed. Coverage of this is asserted in --dry-run.
+            if step_index > 0 and not prev_harm:
+                harm_after_nonharm_ticks.append(step_index)
+        prev_harm = is_harm
         lineage = tick_state["lineage"] or {}
         if lineage.get("e3_committed"):
             commit_entry_ticks += 1
@@ -466,10 +509,8 @@ def _run_cell(arm: str, seed: int, waking_steps: int) -> Dict[str, Any]:
 
     harm_events_end = float(residue_field.num_harm_events)
     durable_writes = len(writes)
-    lineage_less = [
-        w for w in writes
-        if not (w.get("e3_committed") or w.get("closure_committed"))
-    ]
+    lineage_less = [w for w in writes if not _has_commit_lineage(w)]
+    lineage_less_superseded = [w for w in writes if not _has_superseded_e3_lineage(w)]
     lineage_less_fraction = (len(lineage_less) / durable_writes) if durable_writes else 0.0
     # DECISIVE DIAGNOSTIC: is a lineage-less write a STARTUP artifact or an ONGOING breach?
     # E3 selects on a cadence (heartbeat.e3_steps_per_tick, default 10), so no commitment can
@@ -477,8 +518,7 @@ def _run_cell(arm: str, seed: int, waking_steps: int) -> Dict[str, Any]:
     # without lineage. Writes AFTER the first observed commit entry cannot be explained that
     # way. Recording both lets governance separate the two readings without a re-run; the
     # NOTE: C2 is the after-first-commit measure; the whole-run fraction is C2b (secondary).
-    commit_ticks = [w.get("tick", -1) for w in writes
-                    if w.get("e3_committed") or w.get("closure_committed")]
+    commit_ticks = [w.get("tick", -1) for w in writes if _has_commit_lineage(w)]
     first_commit_tick = min(commit_ticks) if commit_ticks else None
     if first_commit_tick is None:
         lineage_less_after_first_commit = len(lineage_less)
@@ -496,9 +536,17 @@ def _run_cell(arm: str, seed: int, waking_steps: int) -> Dict[str, Any]:
     # alternative need not be re-run. Not the pre-registered criterion.
     lineage_less_broad = [
         w for w in writes
-        if not (w.get("e3_committed") or w.get("closure_committed")
-                or w.get("persistent_committed") or w.get("beta_elevated"))
+        if not (w.get("persistent_committed") or w.get("beta_elevated"))
     ]
+    # Superseded-predicate counterpart of C2, recorded so the amendment's effect is auditable
+    # from the manifest: this is the number the ORIGINAL what_would_answer would have scored.
+    if first_commit_tick is None:
+        lineage_less_superseded_after_commit = len(lineage_less_superseded)
+    else:
+        lineage_less_superseded_after_commit = sum(
+            1 for w in lineage_less_superseded
+            if int(w.get("tick", -1)) > int(first_commit_tick)
+        )
 
     # --- OFFLINE half: hash audit around ONE forced sleep cycle ----------------------
     active_centers_pre = float(residue_field.rbf_field.active_mask.sum().item())
@@ -566,6 +614,11 @@ def _run_cell(arm: str, seed: int, waking_steps: int) -> Dict[str, Any]:
         "harm_events_start": float(harm_events_start),
         "harm_events_end": float(harm_events_end),
         "harm_events_delta": float(harm_events_end - harm_events_start),
+        "harm_ticks_count": int(len(harm_ticks)),
+        "harm_after_nonharm_ticks_count": int(len(harm_after_nonharm_ticks)),
+        "harm_after_nonharm_ticks": [int(t) for t in harm_after_nonharm_ticks[:24]],
+        "lineage_less_superseded_predicate": int(len(lineage_less_superseded)),
+        "lineage_less_superseded_after_first_commit": int(lineage_less_superseded_after_commit),
         # offline half
         "authority_stores_audited": int(len(pre_authority)),
         "authority_stores_discriminating": int(len(discriminating_stores)),
@@ -684,15 +737,55 @@ def _arm_measured(rows: List[Dict[str, Any]], self_test: Dict[str, float]) -> Di
 # --------------------------------------------------------------------------------------
 # run
 # --------------------------------------------------------------------------------------
+class SmokeCoverageError(AssertionError):
+    """The smoke did not reach the regime that breaks the superseded predicate."""
+
+
+def _assert_smoke_coverage(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """A --dry-run that never sees a harm tick FOLLOWING a non-harm tick proves nothing about
+    the online criterion. Pass-1's 60-step smoke was green purely because seed 42's first such
+    tick is 82. So ASSERT the regime was reached, on every smoke seed, rather than assuming it
+    from the measured tick numbers -- those are a design input, not a runtime guarantee.
+    """
+    report = {
+        r["seed"]: {
+            "harm_after_nonharm_ticks_count": r["harm_after_nonharm_ticks_count"],
+            "harm_after_nonharm_ticks": r["harm_after_nonharm_ticks"],
+            "first_commit_entry_tick": r["first_commit_entry_tick"],
+            "durable_writes_after_first_commit": r["durable_writes_after_first_commit"],
+        }
+        for r in rows
+    }
+    for r in rows:
+        print("  [smoke-coverage] seed=%d harm_after_nonharm=%d ticks=%s"
+              % (r["seed"], r["harm_after_nonharm_ticks_count"],
+                 r["harm_after_nonharm_ticks"][:10]), flush=True)
+    barren = [r["seed"] for r in rows if r["harm_after_nonharm_ticks_count"] < 1]
+    if barren:
+        raise SmokeCoverageError(
+            "smoke did not reach a harm tick following a non-harm tick on seed(s) %s -- it is "
+            "structurally blind to the regime the online criterion is about. Raise SMOKE_STEPS "
+            "or change SMOKE_SEEDS; do NOT read this smoke as evidence about C2." % barren
+        )
+    starved = [r["seed"] for r in rows if r["durable_writes_after_first_commit"] < 1]
+    if starved:
+        raise SmokeCoverageError(
+            "no durable writes after the first commit entry on seed(s) %s -- C2's denominator "
+            "is empty and the smoke cannot exercise it." % starved
+        )
+    return report
+
+
 def run(seeds: Optional[List[int]] = None, dry_run: bool = False) -> dict:
     if seeds is None:
         seeds = list(DEFAULT_SEEDS)
     waking_steps = WAKING_STEPS
     if dry_run:
-        seeds = seeds[:1]
-        waking_steps = 60   # NOTE: too short to reach the first non-harm tick on seed 42
-                            # (t=81), which is the regime red-team pass 2 showed the online
-                            # criterion fails in. A smoke here is NOT evidence about C2.
+        # TWO seeds, not one: the blind spot is seed-dependent and a single seed can be
+        # accidentally green. Length chosen so the regime is reachable on both, and ASSERTED
+        # below rather than assumed.
+        seeds = seeds[:SMOKE_SEEDS]
+        waking_steps = SMOKE_STEPS
 
     print("[V3-EXQ-1072] INV-024 offline/online isolation audit", flush=True)
     print("  Arms: %s  Seeds: %s  Waking steps/cell: %d"
@@ -727,6 +820,8 @@ def run(seeds: Optional[List[int]] = None, dry_run: bool = False) -> dict:
                 row = _run_cell(arm, seed, waking_steps)
                 cell.stamp(row)
             rows.append(row)
+
+    smoke_coverage = _assert_smoke_coverage(rows) if dry_run else None
 
     # --- per-arm readiness gates (never AND the whole run -- V3-EXQ-785) --------------
     arm_gates = []
@@ -804,6 +899,12 @@ def run(seeds: Optional[List[int]] = None, dry_run: bool = False) -> dict:
         "c2_online_lineage_complete_after_first_commit": 1.0 if c2 else 0.0,
         "c2b_online_lineage_complete_whole_run": 1.0 if c2b else 0.0,
         "lineage_less_after_first_commit_max": float(worst_lineage_less_after_commit),
+        "lineage_less_superseded_after_first_commit_max": float(
+            max(r["lineage_less_superseded_after_first_commit"] for r in rows)
+        ),
+        "harm_after_nonharm_ticks_min": float(
+            min(r["harm_after_nonharm_ticks_count"] for r in rows)
+        ),
         "durable_writes_after_first_commit_min": float(
             min(r["durable_writes_after_first_commit"] for r in rows)
         ),
@@ -1039,10 +1140,22 @@ authority-store hash snapshots.
         "instrument_self_test": self_test,
         "diagnostics": {
             "hash_ledger_self_test": self_test,
-            "lineage_predicate_preregistered": "e3_committed OR closure_committed",
-            "lineage_predicate_broad_recorded": (
-                "e3_committed OR closure_committed OR persistent_committed OR beta_elevated"
+            "lineage_predicate_preregistered": (
+                "persistent_committed AND beta_elevated (SD-084 persistent committed-program "
+                "handle held under an elevated beta gate) -- user decision 3, 2026-09-22, "
+                "amending INV-024's what_would_answer via GFLAG-0411"
             ),
+            "lineage_predicate_superseded_recorded": (
+                "e3_committed OR closure_committed -- the predicate the what_would_answer "
+                "originally named; recorded, NOT gating. It reports 'did E3 tick this step' "
+                "rather than 'was the agent committed'"
+            ),
+            "lineage_predicate_disjunctive_recorded": (
+                "persistent_committed OR beta_elevated -- MEASURED identical to the "
+                "pre-registered conjunction (zero lineage-less on all three seeds at 400 "
+                "steps), so the AND/OR choice is not load-bearing at this operating point"
+            ),
+            "smoke_coverage": smoke_coverage,
             "lineage_read_point": (
                 "StepHarness on_action hook -- after select_action, before env.step and "
                 "before update_residue (which tears down _committed_trajectory)"
