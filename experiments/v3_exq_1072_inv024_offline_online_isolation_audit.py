@@ -1,47 +1,43 @@
 """
 V3-EXQ-1072 -- INV-024: offline consolidation / online commitment write-locus isolation audit
 
-!!! NOT QUEUED -- RED-TEAM VERDICT: BLOCKING (fable, 2026-09-22). DO NOT QUEUE AS-IS. !!!
-Step 4.5 adversarial design review returned BLOCKING with two findings, BOTH INDEPENDENTLY
-VERIFIED AGAINST LIVE SOURCE by the authoring session before being accepted:
+!!! NOT QUEUED -- RED-TEAM PASS 2: BLOCKING on the ONLINE half. DO NOT QUEUE AS-IS. !!!
+The OFFLINE half (C1) is sound and measured green. The ONLINE half (C2) cannot be built as
+INV-024's what_would_answer specifies it, and that is a CLAIM-LEVEL falsifier defect, not a
+driver defect:
 
-  B1. THE CLOSURE DISJUNCT IS STILL DEAD IN ARM_CLOSURE_ON -- the arm does not do its job.
-      _closure_committed_trajectory is set at exactly one site (agent.py:9720-9752) under the
-      hard conjunct `self.goal_state is not None and self.goal_state.is_active()`. goal_state
-      is built only when config.goal.z_goal_enabled is True (agent.py:3427); from_dims
-      defaults it False (config.py:7556) and this driver never sets it. MEASURED: the smoke
-      records closure_entry_ticks = 0 in CLOSURE_ON despite closure_operator_present = True.
-      So the six-flag closure stack instantiates the ClosureOperator but can never ARM the
-      latch, and CLOSURE_ON tests the SAME single disjunct as CLOSURE_OFF. This defeats the
-      purpose of the two-arm design (attributability of a FAIL), which was a user decision.
+  INV-024 names the online lineage source as "E3 committed_trajectory set". That handle is
+  set ONLY inside E3.select_action (e3_selector.py:4526) and torn down as the last statement
+  of every post_action_update (e3_selector.py:4908), while E3 itself runs only on an
+  e3_tick -- every 10 env steps (heartbeat e3_steps_per_tick=10), or the step after a
+  phase_reset, which update_residue triggers on every harm tick (agent.py:11062). So a
+  per-step read of that latch measures "did E3 tick this step", NOT "was the agent
+  committed". On a harm tick that FOLLOWS a non-harm tick the agent is still committed
+  (persistent handle and beta latch both set) yet the latch reads None, and the write is
+  counted lineage-less.
 
-  B2. C2's THRESHOLD OF EXACTLY 0.0 IS UNATTAINABLE FOR A REASON THAT IS NOT ISOLATION.
-      E3 commits iff _running_variance < commitment_threshold. rv starts at precision_init
-      0.5 (config.py:1126), the bar is 0.40 (config.py:1124), the EMA alpha is 0.05, and rv
-      updates once per tick inside post_action_update. Best case rv = 0.5 * 0.95^n, so
-      0.5*0.95^4 = 0.4073 > 0.40 and 0.5*0.95^5 = 0.3869 < 0.40: NO commit is possible before
-      tick 5, in any cell, any seed, any arm. Meanwhile update_residue (agent.py:11048-11058)
-      writes durable residue on every harm tick with no commit check. So any hazard-approach
-      in a cell's first five ticks is a structurally lineage-less write, and whether a cell
-      fails C2 is decided by early random-walk geometry. CONFIRMED by this script's own smoke:
-      first_commit_entry_tick = 5 and first_lineage_less_ticks = [0,1,2,3,4] in BOTH arms,
-      with lineage_less_after_first_commit = 0.
+  MEASURED, real 400-step cell, seed 42, through the real arm_cell loop:
+  lineage_less_after_first_commit = 2 at ticks 82 and 370, both with persistent+beta SET
+  (the recorded broad predicate classifies only 5 of the 7 as lineage-less, versus 7 narrow).
+  So C2 as pre-registered FAILS at full length, routes evidence_direction "weakens", and
+  would commission a MECH-067 build on a read-point artifact. The 60-step smoke passed only
+  because seed 42's first non-harm tick is t=81 -- the smoke was structurally blind to the
+  regime that produces the failure.
 
-  Also corrected by the reviewer: the "E3 selects on a cadence (default 10)" attribution in
-  the lineage-prefix comment below is WRONG -- the smoke's commit_entry_ticks = 55/60 refutes
-  a 10-tick cadence. The real mechanism is the rv warm-up in B2.
+  Choosing a replacement predicate (score only e3_tick steps / use the persistent+beta
+  predicate / carry commit state across held ticks) changes what is measured and is NOT the
+  authoring session's call. Raised as decision chip
+  chip-20260922-inv024-online-falsifier-unrunnable and as a governance flag; the recommended
+  route is to re-specify INV-024's online falsifier in claims.yaml and, meanwhile, queue the
+  OFFLINE half alone.
 
-  Two further CONTESTED findings, both verified and both to be fixed alongside: (C3) C1/C2
-  are max() over ALL rows rather than green-arm rows, so a red arm's cell can still drive a
-  "weakens" verdict; (C4) two of the audited "authority stores" (e3_committed_trajectory,
-  e3_closure_trajectory) are False pre AND post by construction, so authority_stores_audited
-  overstates the discriminating witness count by two.
-
-  DISPOSITION: the fixes are NOT the authoring session's to make -- both change what gets
-  measured (B1 changes the substrate configuration; B2 changes a pre-registered criterion),
-  which is a consent stop. Raised as decision chip chip-20260922-inv024-c2-predicate-and-
-  closure-arm and governance flag; this file is committed UNQUEUED so the verified design work
-  and the red-team findings are not lost. Queue only after the user rules on both.
+  Red-team pass-2 Attack 1 ("sws_enabled/rem_enabled are False, so the sleep cycle is inert")
+  is DISMISSED, with citation: use_sleep_aggregation_cluster=True invokes
+  enable_sleep_aggregation_cluster() from REEConfig.__post_init__ (config.py:7347), which
+  sets sws_enabled and rem_enabled True. MEASURED: both True on this driver's own config, 43
+  cycle metrics, mech018_residue_integration_fired=1.0. The reviewer read _build_config
+  literally and missed the resolver. Attacks 3 and 4 raised only cosmetic items (see the
+  queue-entry note); the stale in-code comments they flagged are corrected below.
 
 Claims: INV-024 (Offline consolidation and online commitment must remain isolated at
 responsibility-bearing write loci.)
@@ -61,13 +57,65 @@ phase-manager path (43 metrics, integration_fired=1.0).
 WHAT IS UNDER TEST. INV-024's what_would_answer, implemented literally, in two halves:
   OFFLINE half -- across one full sleep cycle the AUTHORITY stores (ResidueField rbf_field
     weights/centres/active_mask, the harm-replay attribution buffer, BetaGate latch state,
-    E3 committed/closure trajectory state, ClosureOperator state where present) must be
-    BIT-IDENTICAL, while some REPRESENTATIONAL parameter changes (the cycle is live and
-    touches only representation).
+    E3 committed/closure trajectory state) must be BIT-IDENTICAL, while some
+    REPRESENTATIONAL parameter changes (the cycle is live and touches only representation).
   ONLINE half -- every durable attribution write (ResidueField.accumulate with
     hypothesis_tag False) must be preceded by a commit event on the same trajectory
-    (E3 committed_trajectory set, OR a closure commit intent), so the fraction of durable
-    accumulate calls without commit lineage is 0.
+    (E3 committed_trajectory set, OR a closure commit intent).
+
+=========================== DESIGN HISTORY -- READ BEFORE EDITING ===========================
+THIS SINGLE-ARM DESIGN SUPERSEDES AN EARLIER USER DECISION FOR A TWO-ARM DESIGN. A later
+reader must not read the reversal as drift, so both decisions and the measurement between
+them are recorded here.
+
+  Decision 1 (2026-09-22, user, option C): run TWO arms, CLOSURE_OFF and CLOSURE_ON, so that
+  a FAIL would be ATTRIBUTABLE -- INV-024's online predicate accepts lineage from "E3
+  committed_trajectory set, OR a closure commit intent", and the closure disjunct is dead at
+  the WWA-named defaults. If lineage-less writes vanished under CLOSURE_ON the gap would be a
+  closure-wiring matter; if they persisted, a genuine breach.
+
+  MEASUREMENT that overturned it (Step 4.5 red-team, model fable, verdict BLOCKING; verified
+  against live source by the authoring session AND independently by the orchestrator):
+  the CLOSURE_ON arm could never have armed the latch. _closure_committed_trajectory is set
+  at exactly one site (agent.py:9720) under the hard conjunct "self.goal_state is not None
+  and self.goal_state.is_active()"; goal_state is built only when config.goal.z_goal_enabled
+  is True (agent.py:3427), and from_dims defaults that False (config.py:7556). MEASURED: the
+  two-arm smoke recorded closure_entry_ticks = 0 in CLOSURE_ON while
+  closure_operator_present = True. The six-flag closure stack instantiated the ClosureOperator
+  but tested the SAME single disjunct as CLOSURE_OFF.
+
+  Decision 2 (2026-09-22, user, supersedes decision 1): DROP the closure arm. Run the single
+  as-named configuration and register the closure disjunct as STRUCTURALLY UNTESTABLE at
+  current defaults. Reason: arming the latch requires z_goal_enabled, which ALSO populates the
+  SD-024 benefit terrain via accumulate_benefit and un-zeroes the SD-025 curiosity bonus in
+  HippocampalModule._curiosity_bonus -- the arm would change three things to test one, and the
+  measurement above shows we cannot establish how much configuration drift is enough. The
+  untestability is carried by GFLAG-0410 as a substrate finding, not buried here.
+
+CONSEQUENCE FOR THE ONLINE CRITERION, stated so it cannot be misread: the pre-registered
+lineage predicate remains the WWA's disjunction, but its SECOND DISJUNCT IS STRUCTURALLY DEAD
+on this configuration and closure_entry_ticks is emitted (expected 0) as the standing witness
+of that. A lineage-less write here means "not preceded by an E3 commit"; it does NOT rule out
+that a closure commit intent would have licensed it on some other configuration.
+=============================================================================================
+
+TWO ONLINE MEASURES, BOTH RECORDED -- the load-bearing one is NOT the whole-run fraction
+(user decision 2026-09-22). E3 commits iff _running_variance < commitment_threshold; rv starts
+at precision_init 0.5 (config.py:1126), the bar is 0.40 (config.py:1124) and rv decays by the
+EMA alpha 0.05 once per tick, so the best case is rv = 0.5 * 0.95^n: 0.5*0.95^4 = 0.407253 >
+0.40 and 0.5*0.95^5 = 0.386890 < 0.40. NO commit is possible before tick 5, in any cell or
+seed. Meanwhile REEAgent.update_residue (agent.py:11048-11058) writes durable residue on every
+harm tick with no commit check. So a harm event in a cell's first five ticks is a
+structurally lineage-less write, and a whole-run fraction would be decided by early
+random-walk geometry rather than by write-locus isolation (MEASURED: the two-arm smoke's
+first_commit_entry_tick = 5 and first_lineage_less_ticks = [0,1,2,3,4] in both arms).
+Therefore:
+  C2  (LOAD-BEARING) lineage_less_after_first_commit == 0 -- writes at ticks where commitment
+      was POSSIBLE. This tests BYPASS, which is what INV-024 is about.
+  C2b (SECONDARY, not gating) the whole-run lineage_less_fraction, retained and reported so
+      the warm-up gap stays legible in the manifest instead of being silently excluded.
+C2 has its own vacuity guard: durable_writes_after_first_commit must exceed zero, or C2 would
+pass on an empty denominator.
 
 EVIDENCE ASYMMETRY -- REGISTERED PER HALF, NOT RUN-WIDE. The two halves carry very
 different evidential weight and a reader must not average them:
@@ -76,52 +124,29 @@ different evidential weight and a reader must not average them:
     and targets are computed under torch.no_grad() (residue/field.py:1122-1170), so
     no-erasure holds BY CONSTRUCTION. A PASS here confirms that the current implementation
     honours the isolation -- NOT that isolation is architecturally necessary. Treat it as a
-    contract regression-guard. A FAIL would be very strong evidence (a construction-level
-    guarantee breached).
+    contract regression-guard. A FAIL would be very strong evidence.
   * ONLINE half: genuinely discriminating, and this is where a real FAIL can come from.
     There are TWO durable-write paths. e3_selector.py:4664 IS commitment-gated by
     construction. But agent.py:11051 (REEAgent.update_residue) is gated only on
     `owned and not hypothesis_tag and self._current_latent is not None`, where
     `owned: bool = True` is a parameter with default True (agent.py:10873) and NO commit
-    state is consulted at that site at all. So the online criterion is not construction-
-    guaranteed and can fail on live measurement.
-This asymmetry is emitted in the manifest under `evidence_asymmetry_per_half` so governance
-cannot later read an overall PASS as confirmation of the necessity claim.
+    state is consulted at that site at all.
+Emitted as `evidence_asymmetry_per_half`, with a governance_note forbidding averaging.
 
 LINEAGE READ POINT = COMMIT ENTRY, NOT WRITE TIME (instrumentation correctness, ratified).
 `self._committed_trajectory = None` is the LAST statement of E3.post_action_update, and
 REEAgent.update_residue calls post_action_update BEFORE its own durable write. So at the
 instant of the write the E3 commit latch is ALWAYS None by construction, and a naive
-write-time read would report ~100% lineage-less as a pure ordering artifact rather than a
-finding. This driver therefore snapshots commit state in the StepHarness `on_action` hook
-(after select_action, before env.step and before update_residue) and attributes each durable
-write to THAT tick's snapshot.
+write-time read would report ~100% lineage-less as a pure ordering artifact. This driver
+snapshots commit state in the StepHarness `on_action` hook (after select_action, before
+env.step and before update_residue) and attributes each durable write to THAT tick's snapshot.
 
-TWO ARMS, and why (user decision 2026-09-22, via the orchestrator decision lane).
-INV-024's online predicate accepts lineage from "E3 committed_trajectory set, OR a closure
-commit intent". But agent.closure_operator is None on the configuration the WWA names, so
-the SECOND DISJUNCT IS STRUCTURALLY DEAD there (it needs use_closure_operator=True AND
-use_lateral_pfc_analog=True; e3_selector.py:562 records that with the closure trajectory flag
-off "every consuming union reduces to the bool-latch behaviour"). Testing a disjunctive
-predicate with one disjunct dead would inflate the falsification and could commission the
-wrong MECH-067 build. The user chose to run BOTH configurations so a FAIL is ATTRIBUTABLE:
-  ARM_CLOSURE_OFF -- the WWA-named configuration; closure disjunct structurally dead.
-  ARM_CLOSURE_ON  -- closure plane live, so both disjuncts are evaluable.
-If lineage-less writes vanish under CLOSURE_ON the gap is a closure-wiring matter; if they
-persist it is a genuine isolation violation and MECH-067 is correctly commissioned.
-
-ARM-DIFFERENCE CAVEAT, recorded rather than papered over. The closure plane cannot be
-enabled in isolation: agent.py:1538-1560 enforces a mandatory precondition chain, so
-ARM_CLOSURE_ON necessarily carries SIX flags (use_closure_operator, use_lateral_pfc_analog,
-use_closure_commit_entry, use_closure_commit_beta_coupling, use_natural_commit_latch_hold,
-use_closure_commit_entry_trajectory). use_natural_commit_latch_hold in particular changes
-commit occupancy dynamics. There is NO configuration in which the closure disjunct is live
-without these, so this is a substrate fact, not a design choice. CONSEQUENCE FOR READING: a
-CROSS-ARM DIFFERENCE is attributable to "the closure commit plane as a whole", not to the
-closure disjunct in isolation. The PRIMARY criteria are deliberately PER-ARM ABSOLUTE (no
-authority mutation; lineage-less fraction 0), not a cross-arm delta, so each arm
-independently answers "does isolation hold on this configuration" and the verdict does not
-depend on the cross-arm contrast being clean.
+TWO AUTHORITY STORES ARE STRUCTURALLY CONSTANT and are reported as such rather than counted
+as discriminating witnesses. e3_committed_trajectory is torn down by post_action_update, and
+e3_closure_trajectory can never arm (see DESIGN HISTORY), so both read False pre AND post by
+construction. They are still hashed -- INV-024's what_would_answer names them -- but
+`authority_store_witness_classes` marks them structurally_constant and
+`authority_stores_discriminating` reports the honest witness count.
 
 THE PAIRING TRAP (both flags required, not one). phase_manager.py:679 gates the WRITEBACK
 integrate() CALL on use_sleep_residue_integration; whether that call TRAINS is
@@ -131,14 +156,18 @@ are pinned ON here and both are asserted live in the readiness preconditions.
 
 Pre-registered acceptance (NOT derived from this run's statistics):
   C1  offline_authority_stores_unmutated -- every audited authority-store hash is identical
-      pre- and post-cycle, for every seed and BOTH arms. (load-bearing)
-  C2  online_lineage_complete -- lineage_less_fraction == 0 over all durable accumulate
-      calls, for every seed and BOTH arms. (load-bearing)
-  PASS iff the per-arm readiness gate is green AND C1 AND C2.
+      pre- and post-cycle, every seed. (load-bearing)
+  C2  online_lineage_complete_after_first_commit -- zero durable writes lacking commit lineage
+      at ticks after the first commit entry, every seed. (load-bearing)
+  C2b online_lineage_complete_whole_run -- whole-run fraction. (SECONDARY, not gating)
+  PASS iff the readiness gate is green AND C1 AND C2.
 
 Falsifying per INV-024: one observed authority-store mutation during a cycle, or one durable
-online write with no commit lineage. Either refutes the invariant AS IMPLEMENTED and routes
-to MECH-067 (the enforcement mechanism), not to a re-run.
+online write with no commit lineage. One confirmed instance refutes the invariant AS
+IMPLEMENTED and routes to MECH-067 (the enforcement mechanism), not to a re-run.
+
+Red-team: Step 4.5 pass 1 (fable) BLOCKING -> both findings fixed by user decisions 1-2 above
+plus the C3/C4 fixes; re-reviewed pass 2 (see queue entry note for the verdict).
 
 Output:
   evidence/experiments/v3_exq_1072_inv024_offline_online_isolation_audit/
@@ -186,20 +215,29 @@ SLEEP_DRIVER_PATTERN = (
 )
 
 # ---- run geometry ----
-DEFAULT_SEEDS = [42, 43, 45]   # 44 excluded per CLAUDE.md reef-config instability precedent
+DEFAULT_SEEDS = [42, 43, 45, 46, 47]  # 44 excluded per CLAUDE.md reef-config instability
+                                      # precedent. WWA asks >=3; the audit is cheap (one
+                                      # cycle per seed, no training beyond warm-up) and
+                                      # INV-024 falsifies on ONE instance, so more seeds is
+                                      # strictly more chances to catch a rare violation.
 WAKING_STEPS = 400             # waking steps per cell -- denominator of the `ep N/M` prints
 GRID_SIZE = 8
 NUM_HAZARDS = 2
 NUM_RESOURCES = 3
 MAX_EPISODE_STEPS = 200
-ARMS = ["CLOSURE_OFF", "CLOSURE_ON"]
+# SINGLE ARM -- the closure arm was dropped by user decision 2 (see DESIGN HISTORY).
+ARMS = ["ASNAMED"]
 
 # ---- pre-registered thresholds (constants; NOT derived from this run) ----
 MAX_AUTHORITY_MUTATIONS = 0      # C1: zero mutated authority stores
-MAX_LINEAGE_LESS_FRACTION = 0.0  # C2: zero durable writes without commit lineage
+MAX_LINEAGE_LESS_AFTER_COMMIT = 0   # C2 (LOAD-BEARING): zero lineage-less durable writes
+                                    # at ticks where commitment was POSSIBLE
+MAX_LINEAGE_LESS_FRACTION = 0.0  # C2b (SECONDARY, not gating): whole-run fraction
 MIN_ACTIVE_CENTERS = 0.0         # readiness floor (strict >): residue field must be populated
 MIN_COMMIT_ENTRIES = 0.0         # readiness floor (strict >): commitment must have occurred
 MIN_DURABLE_WRITES = 0.0         # readiness floor (strict >): the online DV must have a denominator
+MIN_WRITES_AFTER_COMMIT = 0.0    # readiness floor (strict >): C2 vacuity guard -- without
+                                 # writes after the first commit, C2 passes on an empty set
 MIN_REPR_DELTA = 0.0             # readiness floor (strict >): the cycle must be LIVE
 
 
@@ -219,6 +257,13 @@ def _hash_tensor(t: Any) -> str:
             return "repr:" + hashlib.sha256(repr(t).encode()).hexdigest()[:16]
     arr = t.detach().cpu().contiguous().numpy()
     return hashlib.sha256(arr.tobytes()).hexdigest()[:16]
+
+
+# C4 fix: these two read False pre AND post by construction -- e3_committed_trajectory is
+# torn down by post_action_update, and e3_closure_trajectory can never arm at these defaults
+# (DESIGN HISTORY). They are still hashed because INV-024's what_would_answer names them, but
+# they are NOT discriminating witnesses and must not inflate the audited count.
+STRUCTURALLY_CONSTANT_STORES = ("e3_committed_trajectory", "e3_closure_trajectory")
 
 
 def _authority_snapshot(agent: REEAgent) -> Dict[str, str]:
@@ -324,18 +369,11 @@ def _arm_config_slice(env: Any, arm: str) -> Dict[str, Any]:
         # Acceptance constants ride the slice: they affect the recorded cell_pass readout,
         # so a consumer with a different scheme must MISS rather than false-HIT these cells.
         "max_authority_mutations": MAX_AUTHORITY_MUTATIONS,
+        "max_lineage_less_after_commit": MAX_LINEAGE_LESS_AFTER_COMMIT,
         "max_lineage_less_fraction": MAX_LINEAGE_LESS_FRACTION,
     }
-    if arm == "CLOSURE_ON":
-        # Mandatory precondition chain enforced at agent.py:1538-1560 -- all six or none.
-        slice_.update({
-            "use_closure_operator": True,
-            "use_lateral_pfc_analog": True,
-            "use_closure_commit_entry": True,
-            "use_closure_commit_beta_coupling": True,
-            "use_natural_commit_latch_hold": True,
-            "use_closure_commit_entry_trajectory": True,
-        })
+    # NO closure flags: user decision 2 dropped that arm (see DESIGN HISTORY). The closure
+    # disjunct is structurally untestable at these defaults and GFLAG-0410 carries the reason.
     return slice_
 
 
@@ -350,15 +388,6 @@ def _build_config(env: Any, arm: str) -> REEConfig:
         use_offline_integration_gradient_step=True,
         sleep_loop_episodes_K=10_000_000,
     )
-    if arm == "CLOSURE_ON":
-        kwargs.update(
-            use_closure_operator=True,
-            use_lateral_pfc_analog=True,
-            use_closure_commit_entry=True,
-            use_closure_commit_beta_coupling=True,
-            use_natural_commit_latch_hold=True,
-            use_closure_commit_entry_trajectory=True,
-        )
     return REEConfig.from_dims(**kwargs)
 
 
@@ -447,15 +476,21 @@ def _run_cell(arm: str, seed: int, waking_steps: int) -> Dict[str, Any]:
     # exist before the first E3 tick and a harm event in that prefix necessarily writes
     # without lineage. Writes AFTER the first observed commit entry cannot be explained that
     # way. Recording both lets governance separate the two readings without a re-run; the
-    # PRE-REGISTERED criterion C2 remains the whole-run fraction either way.
+    # NOTE: C2 is the after-first-commit measure; the whole-run fraction is C2b (secondary).
     commit_ticks = [w.get("tick", -1) for w in writes
                     if w.get("e3_committed") or w.get("closure_committed")]
     first_commit_tick = min(commit_ticks) if commit_ticks else None
     if first_commit_tick is None:
         lineage_less_after_first_commit = len(lineage_less)
+        durable_writes_after_first_commit = durable_writes
     else:
         lineage_less_after_first_commit = sum(
             1 for w in lineage_less if int(w.get("tick", -1)) > int(first_commit_tick)
+        )
+        # C2's DENOMINATOR, and its vacuity guard: without writes after the first commit the
+        # load-bearing criterion would pass on an empty set.
+        durable_writes_after_first_commit = sum(
+            1 for w in writes if int(w.get("tick", -1)) > int(first_commit_tick)
         )
     # Generous recording: a BROADER predicate a later reader might prefer, banked so the
     # alternative need not be re-run. Not the pre-registered criterion.
@@ -482,6 +517,15 @@ def _run_cell(arm: str, seed: int, waking_steps: int) -> Dict[str, Any]:
     mutated_stores = sorted(
         k for k in pre_authority if pre_authority[k] != post_authority.get(k)
     )
+    # C4: separate the honest witness count from the raw audited count.
+    discriminating_stores = sorted(
+        k for k in pre_authority if k not in STRUCTURALLY_CONSTANT_STORES
+    )
+    witness_classes = {
+        k: ("structurally_constant_by_construction"
+            if k in STRUCTURALLY_CONSTANT_STORES else "discriminating")
+        for k in sorted(pre_authority)
+    }
     changed_repr = sorted(k for k in pre_repr if pre_repr[k] != post_repr.get(k))
 
     integration_fired = float(cycle_metrics.get("mech018_residue_integration_fired", 0.0) or 0.0)
@@ -498,11 +542,11 @@ def _run_cell(arm: str, seed: int, waking_steps: int) -> Dict[str, Any]:
 
     cell_pass = (
         len(mutated_stores) <= MAX_AUTHORITY_MUTATIONS
-        and lineage_less_fraction <= MAX_LINEAGE_LESS_FRACTION
+        and lineage_less_after_first_commit <= MAX_LINEAGE_LESS_AFTER_COMMIT
     )
-    print("verdict: %s seed=%d arm=%s mutated=%d lineage_less=%.4f"
-          % ("PASS" if cell_pass else "FAIL", seed, arm,
-             len(mutated_stores), lineage_less_fraction), flush=True)
+    print("verdict: %s seed=%d arm=%s mutated=%d ll_after_commit=%d ll_whole_run=%.4f"
+          % ("PASS" if cell_pass else "FAIL", seed, arm, len(mutated_stores),
+             lineage_less_after_first_commit, lineage_less_fraction), flush=True)
 
     return {
         "arm": arm,
@@ -518,11 +562,14 @@ def _run_cell(arm: str, seed: int, waking_steps: int) -> Dict[str, Any]:
         "first_lineage_less_ticks": [int(w.get("tick", -1)) for w in lineage_less[:20]],
         "first_commit_entry_tick": (int(first_commit_tick) if first_commit_tick is not None else -1),
         "lineage_less_after_first_commit": int(lineage_less_after_first_commit),
+        "durable_writes_after_first_commit": int(durable_writes_after_first_commit),
         "harm_events_start": float(harm_events_start),
         "harm_events_end": float(harm_events_end),
         "harm_events_delta": float(harm_events_end - harm_events_start),
         # offline half
         "authority_stores_audited": int(len(pre_authority)),
+        "authority_stores_discriminating": int(len(discriminating_stores)),
+        "authority_store_witness_classes": witness_classes,
         "authority_stores_mutated": int(len(mutated_stores)),
         "mutated_store_names": mutated_stores,
         "representational_stores_changed": changed_repr,
@@ -595,6 +642,16 @@ def _precondition_specs() -> List[PreconditionSpec]:
             threshold=MIN_DURABLE_WRITES, direction="lower", kind="readiness",
         ),
         PreconditionSpec(
+            name="durable_writes_after_first_commit",
+            description=(
+                "C2 VACUITY GUARD: durable writes occurred at ticks AFTER the first commit "
+                "entry, so the load-bearing criterion has a non-empty denominator. Without "
+                "this C2 passes trivially on a run whose every write predates commitment"
+            ),
+            control="audited non-hypothesis accumulate calls at ticks > first_commit_entry_tick",
+            threshold=MIN_WRITES_AFTER_COMMIT, direction="lower", kind="readiness",
+        ),
+        PreconditionSpec(
             name="offline_integration_call_fired_and_trains",
             description=(
                 "THE PAIRING TRAP: use_sleep_residue_integration supplied the WRITEBACK "
@@ -615,6 +672,9 @@ def _arm_measured(rows: List[Dict[str, Any]], self_test: Dict[str, float]) -> Di
         "residue_active_centers_pre_cycle": float(min(r["active_centers_pre_cycle"] for r in rows)),
         "commitment_events_occurred": float(min(r["commit_entry_ticks"] for r in rows)),
         "durable_writes_occurred": float(min(r["durable_writes"] for r in rows)),
+        "durable_writes_after_first_commit": float(
+            min(r["durable_writes_after_first_commit"] for r in rows)
+        ),
         "offline_integration_call_fired_and_trains": float(
             min(r["mech018_integration_fired"] * r["mech018_residue_trains"] for r in rows)
         ),
@@ -630,7 +690,9 @@ def run(seeds: Optional[List[int]] = None, dry_run: bool = False) -> dict:
     waking_steps = WAKING_STEPS
     if dry_run:
         seeds = seeds[:1]
-        waking_steps = 60   # smoke still exercises BOTH arms end to end
+        waking_steps = 60   # NOTE: too short to reach the first non-harm tick on seed 42
+                            # (t=81), which is the regime red-team pass 2 showed the online
+                            # criterion fails in. A smoke here is NOT evidence about C2.
 
     print("[V3-EXQ-1072] INV-024 offline/online isolation audit", flush=True)
     print("  Arms: %s  Seeds: %s  Waking steps/cell: %d"
@@ -641,7 +703,7 @@ def run(seeds: Optional[List[int]] = None, dry_run: bool = False) -> dict:
     print("  [instrument] hash ledger self-test: %s" % self_test, flush=True)
 
     specs = _precondition_specs()
-    arm_contexts = {arm: {"arm": arm, "id": arm, "closure_plane": (arm == "CLOSURE_ON")}
+    arm_contexts = {arm: {"arm": arm, "id": arm, "closure_plane": False}
                     for arm in ARMS}
     # Design-time refusal: no precondition may be structurally unsatisfiable for an arm.
     assert_no_structurally_unsatisfiable_gate(specs, list(arm_contexts.values()),
@@ -676,10 +738,22 @@ def run(seeds: Optional[List[int]] = None, dry_run: bool = False) -> dict:
     aggregate = aggregate_arm_gates(arm_gates)
 
     # --- pre-registered criteria -----------------------------------------------------
-    worst_mutations = max(r["authority_stores_mutated"] for r in rows)
-    worst_lineage_less = max(r["lineage_less_fraction"] for r in rows)
+    # C3 fix: score over GREEN-ARM rows only. A red arm's readouts are artifacts
+    # (precondition_gate.py:466-471) and must not drive a claim verdict. With no green arm
+    # the gate below routes to substrate_not_ready_requeue and the criteria are not read.
+    green_arms = set(aggregate["green_arms"])
+    scored_rows = [r for r in rows if r["arm"] in green_arms] or rows
+    excluded_rows = [r for r in rows if r["arm"] not in green_arms]
+
+    worst_mutations = max(r["authority_stores_mutated"] for r in scored_rows)
+    worst_lineage_less_after_commit = max(
+        r["lineage_less_after_first_commit"] for r in scored_rows
+    )
+    worst_lineage_less = max(r["lineage_less_fraction"] for r in scored_rows)
     c1 = bool(worst_mutations <= MAX_AUTHORITY_MUTATIONS)
-    c2 = bool(worst_lineage_less <= MAX_LINEAGE_LESS_FRACTION)
+    c2 = bool(worst_lineage_less_after_commit <= MAX_LINEAGE_LESS_AFTER_COMMIT)
+    # SECONDARY, deliberately NOT in the PASS rule (user decision 2026-09-22).
+    c2b = bool(worst_lineage_less <= MAX_LINEAGE_LESS_FRACTION)
 
     gate_green = bool(aggregate["any_green"])
     passed = bool(gate_green and c1 and c2)
@@ -710,6 +784,12 @@ def run(seeds: Optional[List[int]] = None, dry_run: bool = False) -> dict:
             ),
             "durable_writes_total": sum(r["durable_writes"] for r in arm_rows),
             "lineage_less_writes_total": sum(r["lineage_less_writes"] for r in arm_rows),
+            "lineage_less_after_first_commit_max": max(
+                r["lineage_less_after_first_commit"] for r in arm_rows
+            ),
+            "durable_writes_after_first_commit_total": sum(
+                r["durable_writes_after_first_commit"] for r in arm_rows
+            ),
             "closure_entry_ticks_total": sum(r["closure_entry_ticks"] for r in arm_rows),
             "closure_operator_present": all(r["closure_operator_present"] for r in arm_rows),
         }
@@ -721,7 +801,20 @@ def run(seeds: Optional[List[int]] = None, dry_run: bool = False) -> dict:
         "authority_stores_mutated_max": float(worst_mutations),
         "lineage_less_fraction_max": float(worst_lineage_less),
         "c1_offline_authority_stores_unmutated": 1.0 if c1 else 0.0,
-        "c2_online_lineage_complete": 1.0 if c2 else 0.0,
+        "c2_online_lineage_complete_after_first_commit": 1.0 if c2 else 0.0,
+        "c2b_online_lineage_complete_whole_run": 1.0 if c2b else 0.0,
+        "lineage_less_after_first_commit_max": float(worst_lineage_less_after_commit),
+        "durable_writes_after_first_commit_min": float(
+            min(r["durable_writes_after_first_commit"] for r in rows)
+        ),
+        "durable_writes_after_first_commit_total": float(
+            sum(r["durable_writes_after_first_commit"] for r in rows)
+        ),
+        "authority_stores_discriminating_min": float(
+            min(r["authority_stores_discriminating"] for r in rows)
+        ),
+        "closure_entry_ticks_total": float(sum(r["closure_entry_ticks"] for r in rows)),
+        "n_cells_excluded_by_red_gate": float(len(excluded_rows)),
         "readiness_gate_green": 1.0 if gate_green else 0.0,
         "hash_ledger_detects_mutation": float(self_test["detects_mutation"]),
         "durable_writes_total": float(sum(r["durable_writes"] for r in rows)),
@@ -746,12 +839,6 @@ def run(seeds: Optional[List[int]] = None, dry_run: bool = False) -> dict:
         "mech018_rbf_weight_abs_sum_delta_max_abs": float(
             max(abs(r["mech018_rbf_weight_abs_sum_delta"]) for r in rows)
         ),
-        "closure_off_lineage_less_fraction_max": float(
-            per_arm_summary["CLOSURE_OFF"]["lineage_less_fraction_max"]
-        ),
-        "closure_on_lineage_less_fraction_max": float(
-            per_arm_summary["CLOSURE_ON"]["lineage_less_fraction_max"]
-        ),
     }
 
     criteria = [
@@ -766,14 +853,33 @@ def run(seeds: Optional[List[int]] = None, dry_run: bool = False) -> dict:
             "measured_note": "worst cell: max mutated authority stores across all cells",
         },
         {
-            "name": "C2_online_lineage_complete",
+            "name": "C2_online_lineage_complete_after_first_commit",
             "load_bearing": True,
             "passed": c2,
+            "measured": float(worst_lineage_less_after_commit),
+            "threshold": float(MAX_LINEAGE_LESS_AFTER_COMMIT),
+            "comparator": "<=",
+            "direction": "upper",
+            "measured_note": (
+                "worst green-arm cell: durable writes lacking commit lineage at ticks AFTER "
+                "the first commit entry, i.e. where commitment was POSSIBLE. This tests "
+                "BYPASS rather than the E3 precision warm-up"
+            ),
+        },
+        {
+            "name": "C2b_online_lineage_complete_whole_run",
+            "load_bearing": False,
+            "passed": c2b,
             "measured": float(worst_lineage_less),
             "threshold": float(MAX_LINEAGE_LESS_FRACTION),
             "comparator": "<=",
             "direction": "upper",
-            "measured_note": "worst cell: max lineage-less durable-write fraction across all cells",
+            "measured_note": (
+                "SECONDARY, NOT GATING (user decision 2026-09-22): the whole-run lineage-less "
+                "fraction, retained so the pre-commit warm-up gap stays legible rather than "
+                "being silently excluded. Expected non-zero whenever a harm event lands in a "
+                "cell's first five ticks, which is E3 precision warm-up, not isolation"
+            ),
         },
     ]
 
@@ -789,40 +895,55 @@ def run(seeds: Optional[List[int]] = None, dry_run: bool = False) -> dict:
                 and self_test["detects_mutation"] > 0.0
                 and min(r["representational_delta_witness"] for r in rows) > 0.0
             ),
-            "C2_online_lineage_complete": bool(
+            "C2_online_lineage_complete_after_first_commit": bool(
+                min(r["durable_writes_after_first_commit"] for r in rows) > 0
+                and min(r["commit_entry_ticks"] for r in rows) > 0
+            ),
+            "C2b_online_lineage_complete_whole_run": bool(
                 min(r["durable_writes"] for r in rows) > 0
                 and min(r["commit_entry_ticks"] for r in rows) > 0
             ),
         },
         "criteria": criteria,
         "combination_rule": (
-            "PASS = per-arm readiness gate green (any arm green; never ANDed whole-run) "
-            "AND C1_offline_authority_stores_unmutated AND C2_online_lineage_complete. "
-            "Both criteria are worst-cell over all (arm x seed) cells, so a single "
-            "violating cell fails the run -- INV-024's own 'one confirmed instance refutes "
-            "the invariant AS IMPLEMENTED'."
+            "PASS = readiness gate green (any arm green; never ANDed whole-run) AND "
+            "C1_offline_authority_stores_unmutated AND "
+            "C2_online_lineage_complete_after_first_commit. "
+            "C2b_online_lineage_complete_whole_run is RECORDED BUT NOT GATING (user decision "
+            "2026-09-22): it is expected to fail whenever a harm event lands before the first "
+            "possible commit at tick 5, which is E3 precision warm-up rather than a write-locus "
+            "breach. Both gating criteria are worst-cell over GREEN-ARM cells only, so a single "
+            "violating cell fails the run -- INV-024's own 'one confirmed instance refutes the "
+            "invariant AS IMPLEMENTED'."
         ),
         "dv_symmetry_note": (
-            "ARM_CLOSURE_OFF: the DV is a content hash of the authority stores and a count "
-            "of durable writes lacking a commit-entry snapshot. Its symmetry group is "
-            "permutation of write ORDER within a tick; the manipulation (running a sleep "
-            "cycle) is NOT invariant under it -- a cycle that wrote an authority store would "
-            "change the hash regardless of ordering, and the hash ledger's sensitivity to a "
-            "1e-6 perturbation is measured, not assumed. "
-            "ARM_CLOSURE_ON: same DV and same symmetry group. The manipulation (enabling the "
-            "closure commit plane) is not invariant under it either -- it adds a second, "
-            "independently-observable lineage source (closure_entry_ticks is recorded "
-            "separately), so an arm difference is a real change in the predicate's "
-            "satisfiability rather than a relabelling. Neither arm's DV is a broadcast "
-            "constant, a monotone rescaling, or a set-aggregate over interchangeable units."
+            "ASNAMED (single arm): the DV is a content hash of the authority stores plus a "
+            "count of durable writes lacking a commit-entry snapshot. Its symmetry group is "
+            "permutation of write ORDER within a tick; the manipulation (running one full "
+            "sleep cycle) is NOT invariant under it -- a cycle that wrote an authority store "
+            "would change the hash regardless of ordering, and the ledger's sensitivity to a "
+            "1e-6 perturbation is MEASURED in P0 rather than assumed. The DV is not a "
+            "broadcast constant, a monotone rescaling, or a set-aggregate over interchangeable "
+            "units. The online count is likewise not invariant: a write that acquires commit "
+            "lineage leaves the numerator while staying in the denominator."
         ),
-        "arm_difference_caveat": (
-            "The closure plane cannot be enabled in isolation: agent.py:1538-1560 enforces a "
-            "mandatory six-flag precondition chain, and use_natural_commit_latch_hold in "
-            "particular changes commit occupancy. A CROSS-ARM DIFFERENCE is therefore "
-            "attributable to the closure commit plane AS A WHOLE, not to the closure "
-            "disjunct alone. The pre-registered criteria are per-arm ABSOLUTE, not a "
-            "cross-arm delta, so each arm independently answers the isolation question."
+        "closure_disjunct_untestable": (
+            "INV-024's online predicate accepts lineage from an E3 commit OR a closure commit "
+            "intent. The SECOND DISJUNCT IS STRUCTURALLY DEAD at these defaults: "
+            "_closure_committed_trajectory is set only at agent.py:9720 under "
+            "'goal_state is not None and goal_state.is_active()', goal_state needs "
+            "config.goal.z_goal_enabled (agent.py:3427), and from_dims defaults it False "
+            "(config.py:7556). closure_entry_ticks is emitted (expected 0) as the standing "
+            "witness. A two-arm design that enabled the closure plane was tried and dropped by "
+            "user decision -- arming the latch also populates SD-024 benefit terrain and "
+            "un-zeroes the SD-025 curiosity bonus, changing three things to test one. The "
+            "untestability is registered as a substrate finding under GFLAG-0410. CONSEQUENCE: "
+            "a lineage-less write here means 'not preceded by an E3 commit'; it does not rule "
+            "out that a closure commit intent would have licensed it on another configuration."
+        ),
+        "scored_rows_note": (
+            "Criteria are scored over GREEN-ARM cells only; cells excluded by a red readiness "
+            "gate are reported in per_cell_results but do not drive the verdict."
         ),
     }
 
@@ -863,31 +984,37 @@ def run(seeds: Optional[List[int]] = None, dry_run: bool = False) -> dict:
     summary_markdown = """# V3-EXQ-1072 -- INV-024 offline/online write-locus isolation audit
 
 **Status:** {outcome} -- label: `{label}`
-**Purpose:** evidence (INV-024). Two arms x {nseeds} seeds = {ncells} cells.
+**Purpose:** evidence (INV-024). Single as-named config x {nseeds} seeds = {ncells} cells.
 
-- C1 offline authority stores unmutated: **{c1}** (worst cell: {mut} mutated, threshold {c1t})
-- C2 online lineage complete: **{c2}** (worst cell: {ll:.4f}, threshold {c2t})
-- readiness gate green: {green} ({greenarms})
-- durable writes audited: {dw} | lineage-less: {llw}
-- CLOSURE_OFF lineage-less fraction (max): {off:.4f}
-- CLOSURE_ON  lineage-less fraction (max): {on:.4f}
+- C1 offline authority stores unmutated: **{c1}** (worst cell {mut}, threshold {c1t})
+- C2 online lineage complete AFTER first commit (LOAD-BEARING): **{c2}** (worst cell {llac}, threshold {c2t})
+- C2b whole-run lineage-less fraction (SECONDARY, not gating): {c2b} (worst cell {ll:.4f})
+- readiness gate green: {green}
+- durable writes audited: {dw} | after first commit: {dwac} | lineage-less (whole run): {llw}
+- closure_entry_ticks total: {cet} (expected 0 -- the closure disjunct is structurally dead)
+
+**C2 is deliberately NOT the whole-run fraction.** No E3 commit is possible before tick 5
+(rv = 0.5*0.95^n against a 0.40 bar), so a harm event in a cell's first five ticks is a
+structurally lineage-less write. C2 therefore scores only writes at ticks where commitment
+was POSSIBLE -- testing bypass, not scheduling. C2b keeps the warm-up gap visible.
 
 **Evidence asymmetry is registered PER HALF** -- see `evidence_asymmetry_per_half`. An
-overall PASS is a contract regression-guard on the offline half (which is construction-
-guaranteed) plus a moderate live confirmation on the online half (which is not). Do not
-read it as confirmation that isolation is architecturally necessary.
+overall PASS is a contract regression-guard on the offline half (construction-guaranteed)
+plus a moderate live confirmation on the online half. Do not average them, and do not read a
+PASS as confirmation that isolation is architecturally necessary.
 
-See `interpretation` for the pre-registered acceptance rule, the per-arm readiness gate and
-the arm-difference caveat, and `per_cell_results` for the full (arm x seed) table including
-the pre/post authority-store hash snapshots.
+See `interpretation.closure_disjunct_untestable` for why the second lineage disjunct could
+not be tested here, and `per_cell_results` for the full per-seed table with the pre/post
+authority-store hash snapshots.
 """.format(
         outcome=outcome, label=label, nseeds=len(seeds), ncells=len(rows),
         c1=c1, mut=worst_mutations, c1t=MAX_AUTHORITY_MUTATIONS,
-        c2=c2, ll=worst_lineage_less, c2t=MAX_LINEAGE_LESS_FRACTION,
-        green=gate_green, greenarms=", ".join(aggregate["green_arms"]) or "none",
-        dw=int(readout["durable_writes_total"]), llw=int(readout["lineage_less_writes_total"]),
-        off=per_arm_summary["CLOSURE_OFF"]["lineage_less_fraction_max"],
-        on=per_arm_summary["CLOSURE_ON"]["lineage_less_fraction_max"],
+        c2=c2, llac=worst_lineage_less_after_commit, c2t=MAX_LINEAGE_LESS_AFTER_COMMIT,
+        c2b=c2b, ll=worst_lineage_less, green=gate_green,
+        dw=int(readout["durable_writes_total"]),
+        dwac=int(readout["durable_writes_after_first_commit_total"]),
+        llw=int(readout["lineage_less_writes_total"]),
+        cet=int(readout["closure_entry_ticks_total"]),
     )
 
     manifest: Dict[str, Any] = {
@@ -933,13 +1060,17 @@ the pre/post authority-store hash snapshots.
             "use_cross_module_consolidation": True,
             "use_sleep_residue_integration": True,
             "use_offline_integration_gradient_step": True,
-            "closure_on_flags": [
-                "use_closure_operator", "use_lateral_pfc_analog",
-                "use_closure_commit_entry", "use_closure_commit_beta_coupling",
-                "use_natural_commit_latch_hold", "use_closure_commit_entry_trajectory",
-            ],
+            "closure_plane_enabled": False,
+            "closure_arm_dropped_by_user_decision": (
+                "2026-09-22 decision 2 SUPERSEDES the earlier option-C two-arm decision: the "
+                "CLOSURE_ON arm could never arm the closure latch (measured "
+                "closure_entry_ticks=0), and arming it needs z_goal_enabled, which also "
+                "populates SD-024 benefit terrain and un-zeroes the SD-025 curiosity bonus. "
+                "Registered as a substrate finding under GFLAG-0410."
+            ),
             "max_authority_mutations": MAX_AUTHORITY_MUTATIONS,
-            "max_lineage_less_fraction": MAX_LINEAGE_LESS_FRACTION,
+            "max_lineage_less_after_commit": MAX_LINEAGE_LESS_AFTER_COMMIT,
+            "max_lineage_less_fraction_secondary": MAX_LINEAGE_LESS_FRACTION,
         },
     }
     return manifest
