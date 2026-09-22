@@ -126,6 +126,8 @@ class SleepLoopManager:
         cross_module_consolidation_lr: float = 1e-3,
         cross_module_consolidation_batch: int = 16,
         sleep_world_forward_consolidation: bool = False,
+        provenance_consolidation_gain: bool = False,
+        cross_module_consolidation_record_trace: bool = False,
         mel_consumer: Optional["MELConsumer"] = None,
         within_life_trigger: bool = False,
         within_life_step_ceiling: int = 1000,
@@ -193,6 +195,15 @@ class SleepLoopManager:
         # arms are bit-identical. See _run_cycle for why that matters.
         self.sleep_world_forward_consolidation = bool(
             sleep_world_forward_consolidation
+        )
+        # SD-PP-4: provenance-conditioned gain on the e2_world module (the
+        # step-scale closure reads agent._last_consolidation_gain["mean"],
+        # which compute_e2_world_loss sets as a side effect of the loss call
+        # the consolidator makes BEFORE it steps) + the per-step trace. Both
+        # default False -> consolidate() is called with neither kwarg.
+        self.provenance_consolidation_gain = bool(provenance_consolidation_gain)
+        self.cross_module_consolidation_record_trace = bool(
+            cross_module_consolidation_record_trace
         )
         # SD-MEL-CONSUMER (GAP-5b): adaptive sleep-cadence MEL consumer. None ->
         # the K-episode-deterministic scheduler + fixed-duration cycle are
@@ -774,6 +785,17 @@ class SleepLoopManager:
                         lambda: agent.compute_e2_world_loss(batch_size=_batch)
                     )
                     _cmc_params["e2_world"] = _world_params
+            # SD-PP-4: only when the lever is on (and the e2_world closure
+            # exists) are the two new kwargs passed at all; OFF is the
+            # pre-build call shape exactly.
+            _cmc_extra: Dict[str, object] = {}
+            if self.cross_module_consolidation_record_trace:
+                _cmc_extra["record_trace"] = True
+            if self.provenance_consolidation_gain and "e2_world" in _cmc_losses:
+                def _e2_world_step_scale() -> float:
+                    _g = getattr(agent, "_last_consolidation_gain", None) or {}
+                    return float(_g.get("mean", 1.0))
+                _cmc_extra["module_step_scale"] = {"e2_world": _e2_world_step_scale}
             cmc_metrics = self.cross_module_consolidator.consolidate(
                 module_losses=_cmc_losses,
                 module_params=_cmc_params,
@@ -781,10 +803,29 @@ class SleepLoopManager:
                 schedule=self.cross_module_consolidation_schedule,
                 lr=self.cross_module_consolidation_lr,
                 simulation_mode=False,  # legitimate offline weight consolidation
+                **_cmc_extra,
             )
             merged.update(
                 {f"cross_module_consolidation_{k}": v for k, v in cmc_metrics.items()}
             )
+            # SD-PP-1..4 telemetry (fishtank maximalism): producer / recorder /
+            # last-step gain diagnostics into the cycle metrics. None -> no key.
+            for _attr, _prefix in (
+                ("observation_reliability", ""),
+                ("world_forward_precision", ""),
+                ("replay_provenance", ""),
+            ):
+                _obj = getattr(agent, _attr, None)
+                if _obj is not None and hasattr(_obj, "get_metrics"):
+                    merged.update({
+                        f"{_prefix}{k}": float(v) for k, v in _obj.get_metrics().items()
+                    })
+            _lg = getattr(agent, "_last_consolidation_gain", None)
+            if self.provenance_consolidation_gain and _lg:
+                merged.update({
+                    f"provenance_gain_last_{k}": float(v) for k, v in _lg.items()
+                    if isinstance(v, (int, float))
+                })
 
         # infant_substrate:GAP-8 -- post_sleep_z_goal_retention telemetry.
         # -1.0 sentinel when goal_state absent or z_goal_before <= 1e-8

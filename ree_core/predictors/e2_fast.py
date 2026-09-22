@@ -285,6 +285,7 @@ class E2FastPredictor(nn.Module):
         temperature: Optional[float] = None,
         min_batch_classes: Optional[int] = None,
         simulation_mode: bool = False,
+        reduction: str = "mean",
     ) -> torch.Tensor:
         """SD-056 auxiliary InfoNCE contrastive loss on world_forward.
 
@@ -330,13 +331,25 @@ class E2FastPredictor(nn.Module):
             simulation_mode:   MECH-094 gate. True -> tensor(0.0); no state
                                advance (helper is stateless beyond the
                                weights it shares with world_forward).
+            reduction:         SD-PP-4. "mean" (default) returns the 0-d mean
+                               CE, bitwise as before; "none" returns the
+                               per-row CE [K] so a caller can apply per-row
+                               consolidation gains. The three degenerate
+                               early-returns above yield a 0-d zero under
+                               EITHER value.
 
         Returns:
             0-d Tensor: contrastive loss (unweighted CE). Caller multiplies
-            by w_contrast before adding to L_E2.
+            by w_contrast before adding to L_E2. With reduction="none",
+            a [K] Tensor of per-row CE instead.
         """
         device = actions.device
         dtype = z_world_1_targets.dtype
+
+        if reduction not in ("mean", "none"):
+            raise ValueError(
+                f"reduction must be 'mean' or 'none'; got {reduction!r}"
+            )
 
         if simulation_mode:
             return torch.zeros((), device=device, dtype=dtype)
@@ -399,7 +412,7 @@ class E2FastPredictor(nn.Module):
         logits = -sq_dists / float(temperature)
 
         labels = torch.arange(K, device=device)
-        return F.cross_entropy(logits, labels)
+        return F.cross_entropy(logits, labels, reduction=reduction)
 
     def world_forward_contrastive_loss_multistep(
         self,

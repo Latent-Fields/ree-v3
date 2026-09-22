@@ -318,9 +318,13 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
 
 ## Substrate feature index
 
-257 per-feature records, 156 feature IDs, in `docs/substrate/`. Read the
+261 per-feature records, 160 feature IDs, in `docs/substrate/`. Read the
 "when to follow a pointer" rule at the top of this file before deciding to skip one.
 - **SD-011** — 3 records, ~5,449 tok total.
+- **[SD-PP-1](docs/substrate/SD-PP-1-observation-reliability.md)** — precision.observation_reliability: evidence (sensory) precision producer (2026-09-22) *(~548 tok)*
+- **[SD-PP-2](docs/substrate/SD-PP-2-world-forward-epistemic-precision.md)** — precision.world_forward_epistemic_precision: model precision producer for e2.world_forward, historical + current (2026-09-22) *(~1557 tok)*
+- **[SD-PP-3](docs/substrate/SD-PP-3-replay-provenance-packet.md)** — hippocampal.replay_provenance_packet: per-transition epistemic provenance bound to the replay buffer index (2026-09-22) *(~555 tok)*
+- **[SD-PP-4](docs/substrate/SD-PP-4-provenance-conditioned-consolidation-gain.md)** — sleep.provenance_conditioned_consolidation_gain: bounded Kalman-form gain rule + consolidator step-scale hook + trace (2026-09-22) *(~1458 tok)*
     - [Second Source: Harm History Input (2026-04-08)](docs/substrate/SD-011-second-source-harm-history-input.md) *(~455 tok)*
     - [SD-012 E3 Integration (2026-04-05)](docs/substrate/SD-011-sd-012-e3-integration.md) *(~325 tok)*
     - [P0h Affective-Harm-Encoder Warmup (2026-09-18)](docs/substrate/SD-011-p0h-affective-encoder-warmup.md) *(~4,669 tok)*

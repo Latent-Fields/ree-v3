@@ -2352,6 +2352,27 @@ def test_use_loop_local_eligibility_traces_excludes_the_losing_loops_channel():
 
 # Flags with a behavioural probe in this file (asserting ON changes an observable).
 PROBED = {
+    # SD-PP-1..4 precision-provenance substrate (2026-09-22, session
+    # compassionate-pike-fe9174; contract REE_assembly/docs/architecture/
+    # precision_provenance_substrate_spec.md). Probed by
+    # tests/contracts/test_sdpp4_consolidation_gain_consumer.py, not here:
+    # test_i1_default_off_is_structural_absence (OFF: all four agent objects
+    # None, SleepLoopManager flags False, a forced sleep cycle emits none of
+    # the obs_reliability_*/wf_precision_*/replay_provenance_*/step_scale_*
+    # keys) against test_i4_gain_is_live_and_instrumented (the full ON set
+    # emits step_scale_* + provenance_gain_last_* keys, 8 e2_world trace
+    # steps, and a world-head displacement that differs from gain-OFF) and
+    # test_i5_global_scale_liveness_on_real_pass (displacement strictly
+    # increasing in the gain scale). test_i2_store_only_is_bitwise_neutral
+    # pins that the three producer/recorder flags ON with the gain OFF are
+    # BITWISE neutral on the buffers and the post-sleep head -- so the
+    # producers are observable only through their emitted metrics (I4) and
+    # never through behaviour, which is the SD-PP-3 design contract (ARM B
+    # of V3-EXQ-1073 is the storage-neutrality arm).
+    "use_observation_reliability",
+    "use_world_forward_epistemic_precision",
+    "use_replay_precision_provenance",
+    "use_provenance_conditioned_consolidation_gain",
     # SD-RESIDUE-VALENCE-BOUND (ResidueConfig, not REEConfig top-level -- covered by
     # the nested-config scan below). Probed by
     # test_sd_residue_valence_bound_bounds_the_accumulator: OFF is bit-identical to

@@ -3011,6 +3011,92 @@ class REEAgent(nn.Module):
                 )
             )
 
+        # SD-PP-1..4 (2026-09-22): precision-provenance producers, the replay
+        # provenance recorder and the consolidation-gain config. Contract:
+        # REE_assembly/docs/architecture/precision_provenance_substrate_spec.md.
+        # Every flag defaults False -> the attribute stays None and NOTHING
+        # downstream (sense, _e1_tick, compute_e2_world_loss, the sleep pass)
+        # references it -> bit-identical by structural absence.
+        self.observation_reliability = None
+        self.world_forward_precision = None
+        self.replay_provenance = None
+        self.provenance_gain_config = None
+        self._last_consolidation_gain: Optional[Dict[str, float]] = None
+        self._provenance_env_reset_pending: bool = False
+        if getattr(config, "use_observation_reliability", False):
+            from ree_core.precision.observation_reliability import (
+                ObservationReliabilityConfig,
+                ObservationReliabilityEstimator,
+            )
+            self.observation_reliability = ObservationReliabilityEstimator(
+                ObservationReliabilityConfig(
+                    use_observation_reliability=True,
+                    obs_ema_alpha=float(getattr(
+                        config, "observation_reliability_obs_ema_alpha", 0.2)),
+                    kappa_ema_alpha=float(getattr(
+                        config, "observation_reliability_kappa_ema_alpha", 0.05)),
+                    sigma_floor=float(getattr(
+                        config, "observation_reliability_sigma_floor", 0.005)),
+                )
+            )
+        if getattr(config, "use_world_forward_epistemic_precision", False):
+            from ree_core.precision.world_forward_epistemic_precision import (
+                WorldForwardEpistemicPrecision,
+                WorldForwardEpistemicPrecisionConfig,
+            )
+            self.world_forward_precision = WorldForwardEpistemicPrecision(
+                WorldForwardEpistemicPrecisionConfig(
+                    use_world_forward_epistemic_precision=True,
+                    source=str(getattr(
+                        config, "world_forward_precision_source", "sd063_or_ema")),
+                    pe_ema_alpha=float(getattr(
+                        config, "world_forward_precision_pe_ema_alpha", 0.05)),
+                    v_floor=float(getattr(
+                        config, "world_forward_precision_v_floor", 1e-6)),
+                    noise_gain=float(getattr(
+                        config, "world_forward_precision_noise_gain", 2.0)),
+                ),
+                world_dim=int(config.latent.world_dim),
+            )
+        if getattr(config, "use_replay_precision_provenance", False):
+            if self.world_forward_precision is None or self.observation_reliability is None:
+                raise ValueError(
+                    "use_replay_precision_provenance requires BOTH "
+                    "use_world_forward_epistemic_precision and "
+                    "use_observation_reliability (SD-PP-3 carries what SD-PP-1/2 produce)"
+                )
+            from ree_core.hippocampal.replay_provenance import ReplayProvenanceRecorder
+            self.replay_provenance = ReplayProvenanceRecorder(
+                epistemic=self.world_forward_precision,
+                reliability=self.observation_reliability,
+                noise_gain=float(getattr(
+                    config, "world_forward_precision_noise_gain", 2.0)),
+                max_len=1000,  # == the experience-buffer trim length in _e1_tick
+            )
+        if getattr(config, "use_provenance_conditioned_consolidation_gain", False):
+            if self.replay_provenance is None or not getattr(
+                config, "use_sleep_world_forward_consolidation", False
+            ):
+                raise ValueError(
+                    "use_provenance_conditioned_consolidation_gain requires "
+                    "use_replay_precision_provenance AND "
+                    "use_sleep_world_forward_consolidation (the e2_world module "
+                    "is the only consumer)"
+                )
+            from ree_core.sleep.provenance_gain import ProvenanceGainConfig
+            self.provenance_gain_config = ProvenanceGainConfig(
+                use_provenance_conditioned_consolidation_gain=True,
+                mode=str(getattr(config, "provenance_gain_mode", "provenance")),
+                gain_min=float(getattr(config, "provenance_gain_min", 0.02)),
+                gain_max=float(getattr(config, "provenance_gain_max", 2.0)),
+                surprise_beta=float(getattr(config, "provenance_gain_surprise_beta", 0.5)),
+                reopen_max=float(getattr(config, "provenance_gain_reopen_max", 3.0)),
+                v_ref=float(getattr(config, "provenance_gain_v_ref", 1e-2)),
+                noise_gain=float(getattr(
+                    config, "world_forward_precision_noise_gain", 2.0)),
+                global_scale=float(getattr(config, "provenance_gain_global_scale", 1.0)),
+            )
+
         if getattr(config, "use_sleep_loop", False):
             # Phase B: when use_mech285_sampler is on AND anchor_set exists,
             # construct SleepReplaySampler over the broad pool. Falls back
@@ -3210,6 +3296,17 @@ class REEAgent(nn.Module):
                     getattr(
                         config, "use_sleep_world_forward_consolidation", False
                     )
+                ),
+                # SD-PP-4: provenance-conditioned gain on the e2_world module +
+                # the per-step trace. Both default False -> consolidate() is
+                # called with neither new kwarg (bit-identical).
+                provenance_consolidation_gain=bool(
+                    getattr(
+                        config, "use_provenance_conditioned_consolidation_gain", False
+                    )
+                ),
+                cross_module_consolidation_record_trace=bool(
+                    getattr(config, "cross_module_consolidation_record_trace", False)
                 ),
                 # SD-MEL-CONSUMER (GAP-5b): adaptive sleep-cadence MEL consumer.
                 mel_consumer=self.mel_consumer,
@@ -3609,6 +3706,8 @@ class REEAgent(nn.Module):
         self._last_e3_selection_result = None
         self._last_e3_score_bias = None
         self._committed_step_idx = 0
+        # SD-PP-1/3: a life reset is also an env reset for the provenance path.
+        self.notify_env_reset()
         # ARC-108 JOB-1 step-1: clear the within-episode learned-channel-gating
         # eligibility trace + pending flag (w_chan / V-hat_t persist across episodes).
         self.e3.clear_learned_channel_eligibility()
@@ -4944,6 +5043,11 @@ class REEAgent(nn.Module):
         obs_body  = obs_body.to(self.device).float()
         obs_world = obs_world.to(self.device).float()
 
+        # SD-PP-1: exteroceptive reliability read on the RAW frame, BEFORE
+        # encode (it differences consecutive observations). None -> no call.
+        if self.observation_reliability is not None:
+            self.observation_reliability.observe_obs(obs_world)
+
         # SD-049 Phase 3: cache the per-axis drive vector for downstream
         # SD-032 consumer ticks. Stored verbatim (detached, on-device);
         # the per_axis_drive helper in ree_core/utils accepts torch/numpy/
@@ -4993,6 +5097,9 @@ class REEAgent(nn.Module):
             volatility_signal=vol_signal,
             self_e1_anchor=self_e1_anchor,  # SELF-1/DR-13: None unless use_self_recurrence
         )
+        # SD-PP-1: encoder-gain update from this tick's (dz, dobs) pair.
+        if self.observation_reliability is not None:
+            self.observation_reliability.observe_latent(new_latent.z_world)
 
         # MECH-423 R2: cache the iterative-inference convergence readout for the
         # EXP-0380 R2 readiness check (None unless use_iterative_inference is on).
@@ -6031,6 +6138,31 @@ class REEAgent(nn.Module):
                     self._action_experience_buffer]:
             if len(buf) > 1000:
                 del buf[:-1000]
+        # SD-PP-3: one epistemic provenance packet per buffer entry, bound by
+        # position to the entry just appended. A placeholder (z_prev=None,
+        # has_prev=False, NO estimator update) is recorded when the transition
+        # is not a real waking test of a real previous state: hypothesis-tagged
+        # (replay/simulation, MECH-094), no executed action, or spanning an env
+        # reset (notify_env_reset). None (default) -> nothing runs.
+        if self.replay_provenance is not None:
+            _wb = self._world_experience_buffer
+            _placeholder = (
+                bool(getattr(latent_state, "hypothesis_tag", False))
+                or self._last_action is None
+                or self._provenance_env_reset_pending
+                or len(_wb) < 2
+            )
+            self._provenance_env_reset_pending = False
+            self.replay_provenance.record(
+                self.e2,
+                None if _placeholder else _wb[-2],
+                self._action_experience_buffer[-1],
+                _wb[-1],
+                buffer_index=len(_wb) - 1,
+                tick=int(self._step_count),
+                head=getattr(self, "e2_world_uncertainty", None),
+            )
+            self.replay_provenance.trim_to(len(_wb))
 
         # Run E1 for prior generation. z_goal is also under MECH-269b gating
         # because GoalState.z_goal is one of the streams MECH-269 Phase 1
@@ -11203,6 +11335,23 @@ class REEAgent(nn.Module):
             out[0, idx] = 1.0
         return out
 
+    def notify_env_reset(self) -> None:
+        """SD-PP-1/3: tell the provenance path the environment was reset.
+
+        Drivers that call env.reset() WITHOUT agent.reset() (the V3-EXQ-1063
+        P1 loop, and every driver descended from it) must call this at each
+        episode boundary, in EVERY arm, so that (a) the observation-reliability
+        estimator does not difference a post-reset frame against a pre-reset
+        one, and (b) the next replay-provenance packet is a placeholder rather
+        than a bogus cross-episode "prediction error". No-op when neither
+        SD-PP-1 nor SD-PP-3 is wired (default) -- safe to call unconditionally.
+        agent.reset() calls it itself.
+        """
+        if self.observation_reliability is not None:
+            self.observation_reliability.on_episode_reset()
+        if self.replay_provenance is not None:
+            self._provenance_env_reset_pending = True
+
     def record_executed_action(self, action: torch.Tensor) -> None:
         """
         SD-e1-rollout-consistency-training ITEM 1: tell the agent which action
@@ -12588,19 +12737,55 @@ class REEAgent(nn.Module):
         # tests/test_flag_inertness.py exists to catch. Measured on a real
         # 19-transition single-class replay batch: floor 2 -> loss 0.0, no
         # gradient; floor 1 -> loss 2.94, max |grad| 0.16.
-        loss = self.e2.world_forward_contrastive_loss(
+        _gain_cfg = self.provenance_gain_config
+        if _gain_cfg is None:
+            loss = self.e2.world_forward_contrastive_loss(
+                z_world_0=z0,
+                actions=acts,
+                z_world_1_targets=z1,
+                min_batch_classes=1,
+                simulation_mode=False,
+            )
+            # The helper's degenerate-batch guards (K < 2, too few distinct
+            # first-action classes) return a DETACHED torch.zeros(()). Normalise
+            # that to the graph-anchored sentinel so "no replay content" has one
+            # shape rather than two.
+            if not torch.is_tensor(loss) or not loss.requires_grad:
+                return zero_loss
+            return loss
+
+        # SD-PP-4: provenance-conditioned gain. SAME draw, SAME rows, SAME
+        # objective -- only the per-row weights (direction) and, via the
+        # step-scale closure the sleep pass reads from
+        # _last_consolidation_gain["mean"], the step's lr (magnitude) change.
+        # Packet for training triple (world[i], action[i+1], world[i+1]) is
+        # packets[i+1] (SD-PP-3 alignment).
+        from ree_core.sleep.provenance_gain import (
+            compute_provenance_gains,
+            weighted_row_loss,
+        )
+        rows = self.e2.world_forward_contrastive_loss(
             z_world_0=z0,
             actions=acts,
             z_world_1_targets=z1,
             min_batch_classes=1,
             simulation_mode=False,
+            reduction="none",
         )
-        # The helper's degenerate-batch guards (K < 2, too few distinct
-        # first-action classes) return a DETACHED torch.zeros(()). Normalise
-        # that to the graph-anchored sentinel so "no replay content" has one
-        # shape rather than two.
-        if not torch.is_tensor(loss) or not loss.requires_grad:
+        if (not torch.is_tensor(rows) or not rows.requires_grad
+                or rows.dim() != 1):
+            self._last_consolidation_gain = {"mean": 1.0, "n_rows": 0.0}
             return zero_loss
+        packets = [self.replay_provenance.get(i + 1) for i in idx]
+        pi_cur = float(self.world_forward_precision.current_read().pi_epi)
+        gains, diag = compute_provenance_gains(
+            packets, pi_cur, rows.detach(), _gain_cfg
+        )
+        loss = weighted_row_loss(rows, gains.to(device=rows.device, dtype=rows.dtype))
+        diag = dict(diag)
+        diag["mean"] = float(diag.get("gain_mean", 1.0))
+        diag["n_rows"] = float(rows.numel())
+        self._last_consolidation_gain = diag
         return loss
 
     def offline_integration(self) -> Dict[str, float]:

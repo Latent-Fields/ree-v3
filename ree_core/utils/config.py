@@ -7259,6 +7259,43 @@ class REEConfig:
     # between the e1 and e2 replay draws, shifting every existing arm.
     use_sleep_world_forward_consolidation: bool = False
 
+    # SD-PP-1..4 (2026-09-22): precision-provenance producers, replay
+    # provenance packet and provenance-conditioned consolidation gain.
+    # Contract: REE_assembly/docs/architecture/precision_provenance_substrate_spec.md
+    # Every flag defaults False -> no object is built, no call is made, no RNG
+    # is drawn, consolidate() receives neither new kwarg (bit-identical OFF).
+    # SD-PP-1 evidence (sensory) precision producer
+    # (ree_core/precision/observation_reliability.py).
+    use_observation_reliability: bool = False
+    observation_reliability_sigma_floor: float = 0.005
+    observation_reliability_obs_ema_alpha: float = 0.2
+    observation_reliability_kappa_ema_alpha: float = 0.05
+    # SD-PP-2 model precision producer for e2.world_forward
+    # (ree_core/precision/world_forward_epistemic_precision.py).
+    use_world_forward_epistemic_precision: bool = False
+    world_forward_precision_source: str = "sd063_or_ema"  # "ema" | "sd063" | "sd063_or_ema"
+    world_forward_precision_pe_ema_alpha: float = 0.05
+    world_forward_precision_v_floor: float = 1e-6
+    world_forward_precision_noise_gain: float = 2.0
+    # SD-PP-3 per-transition provenance packet bound to the replay buffer index
+    # (ree_core/hippocampal/replay_provenance.py). REQUIRES both producers on.
+    use_replay_precision_provenance: bool = False
+    # SD-PP-4 provenance-conditioned consolidation gain
+    # (ree_core/sleep/provenance_gain.py). REQUIRES use_replay_precision_provenance
+    # AND use_sleep_world_forward_consolidation (the "e2_world" module is the
+    # only consumer). Modes: provenance | provenance_nohist | residual_only | global.
+    use_provenance_conditioned_consolidation_gain: bool = False
+    provenance_gain_mode: str = "provenance"
+    provenance_gain_min: float = 0.02
+    provenance_gain_max: float = 2.0
+    provenance_gain_surprise_beta: float = 0.5
+    provenance_gain_reopen_max: float = 3.0
+    provenance_gain_v_ref: float = 1e-2
+    provenance_gain_global_scale: float = 1.0
+    # SD-PP-4 instrumentation: per-step {module, loss, step_scale, grad_norm}
+    # trace on CrossModuleConsolidator.last_step_trace. Default off.
+    cross_module_consolidation_record_trace: bool = False
+
     # MECH-457: first-class RPE-driven actor-critic action-learning substrate
     # (sd_actor_critic_action_learning). A dorsal-striatal-analog actor + value
     # critic, architecturally distinct from the lateral_pfc / ofc bias_head
@@ -10521,6 +10558,59 @@ class REEConfig:
         )
         config.cross_module_consolidation_batch = int(
             kwargs.pop("cross_module_consolidation_batch", 16)
+        )
+        # SD-PP-1..4 (2026-09-22): precision-provenance flags. from_dims
+        # SILENTLY SWALLOWS unknown kwargs, so every field is popped here.
+        config.use_observation_reliability = bool(
+            kwargs.pop("use_observation_reliability", False)
+        )
+        config.observation_reliability_sigma_floor = float(
+            kwargs.pop("observation_reliability_sigma_floor", 0.005)
+        )
+        config.observation_reliability_obs_ema_alpha = float(
+            kwargs.pop("observation_reliability_obs_ema_alpha", 0.2)
+        )
+        config.observation_reliability_kappa_ema_alpha = float(
+            kwargs.pop("observation_reliability_kappa_ema_alpha", 0.05)
+        )
+        config.use_world_forward_epistemic_precision = bool(
+            kwargs.pop("use_world_forward_epistemic_precision", False)
+        )
+        config.world_forward_precision_source = str(
+            kwargs.pop("world_forward_precision_source", "sd063_or_ema")
+        )
+        config.world_forward_precision_pe_ema_alpha = float(
+            kwargs.pop("world_forward_precision_pe_ema_alpha", 0.05)
+        )
+        config.world_forward_precision_v_floor = float(
+            kwargs.pop("world_forward_precision_v_floor", 1e-6)
+        )
+        config.world_forward_precision_noise_gain = float(
+            kwargs.pop("world_forward_precision_noise_gain", 2.0)
+        )
+        config.use_replay_precision_provenance = bool(
+            kwargs.pop("use_replay_precision_provenance", False)
+        )
+        config.use_provenance_conditioned_consolidation_gain = bool(
+            kwargs.pop("use_provenance_conditioned_consolidation_gain", False)
+        )
+        config.provenance_gain_mode = str(
+            kwargs.pop("provenance_gain_mode", "provenance")
+        )
+        config.provenance_gain_min = float(kwargs.pop("provenance_gain_min", 0.02))
+        config.provenance_gain_max = float(kwargs.pop("provenance_gain_max", 2.0))
+        config.provenance_gain_surprise_beta = float(
+            kwargs.pop("provenance_gain_surprise_beta", 0.5)
+        )
+        config.provenance_gain_reopen_max = float(
+            kwargs.pop("provenance_gain_reopen_max", 3.0)
+        )
+        config.provenance_gain_v_ref = float(kwargs.pop("provenance_gain_v_ref", 1e-2))
+        config.provenance_gain_global_scale = float(
+            kwargs.pop("provenance_gain_global_scale", 1.0)
+        )
+        config.cross_module_consolidation_record_trace = bool(
+            kwargs.pop("cross_module_consolidation_record_trace", False)
         )
 
         return config
