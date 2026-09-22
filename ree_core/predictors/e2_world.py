@@ -343,8 +343,76 @@ class E2WorldForward(nn.Module):
         Returns:
             loss: scalar contrastive margin loss (>= 0)
         """
+        # SD-013 COLLAPSE POINT (measured 2026-09-22, chip-20260922-sd013-
+        # margin-loss-collapse-point). This loss is a NEGATIVE INSTRUMENT: a
+        # returned value of exactly `margin` means "maximally violated", and it
+        # reads IDENTICALLY in two states that demand opposite responses --
+        #   (a) violating but fixable  -> gradient flows, training will fix it;
+        #   (b) EXACTLY action-invariant -> z_pred_actual == z_pred_cf, so
+        #       d == 0 and the gradient is ZERO. The head is stuck in precisely
+        #       the state this loss exists to escape, while reporting maximum
+        #       alarm. Use interventional_loss_is_live() to tell them apart.
+        #
+        # WHY NO REFORMULATION HELPS: grad ||d|| = d/||d||, which is 0 at d == 0
+        # -- zero distance is a MINIMUM of ||d||, so EVERY smooth symmetric
+        # function of d is stationary there. Measured and rejected: an epsilon
+        # under the sqrt (still 0 at d == 0, AND it ATTENUATES the gradient by
+        # up to 1e16x in the near-collapse regime -- 10x down at ||d||=1e-7,
+        # 1e4x at 1e-10 -- so it is a pessimisation here, not a fix); a float64
+        # distance (the two predictions are already bit-identical when they
+        # leave transition_net, so casting afterwards changes nothing).
+        # d/||d|| has UNIT norm for any nonzero d -- it does NOT blow up, so the
+        # "derivative blow-up near zero" rationale for an epsilon is false here.
+        #
+        # AND IT IS REACHABLE -- not the measure-zero curiosity a random-init
+        # argument suggests. Adam with weight_decay=0.1 for 600 steps on a
+        # confounded task drives the transition_net action-slice to ~7e-07 while
+        # the z-slice stays O(1); float32 then absorbs the action contribution
+        # entirely inside the first Linear (the true difference is ~1e-15, shown
+        # in float64), so the two predictions come out BIT-IDENTICAL. That is an
+        # open region of parameter space, and it is ABSORBING: 2000 steps of
+        # this loss at full violation recovered ||d|| = 0.000e+00.
+        # The escape must come from OUTSIDE the loss (detect, then re-initialise
+        # the action path, or exclude it from weight decay).
+        #
+        # CURRENT EXPOSURE, stated so this is not read as an active incident:
+        # none of the 26 drivers calling this loss passes weight_decay, and none
+        # zeroes or freezes the action path (audited 2026-09-22). The route is
+        # reachable-in-principle, not presently exercised. It is documented and
+        # DETECTABLE rather than fixed, because it cannot be fixed here -- and
+        # because the next config that adds weight decay would get no warning
+        # at all from the loss value alone.
+        # Contract: tests/contracts/test_sd013_interventional_collapse.py
         z_pred_actual = self._residual_fwd(z_world, a_actual)
         z_pred_cf = self._residual_fwd(z_world, a_cf)
         l2_dist = (z_pred_actual - z_pred_cf).norm(dim=-1)
         margin = self.config.interventional_margin
         return F.relu(margin - l2_dist).mean()
+
+    def interventional_loss_is_live(
+        self,
+        z_world: torch.Tensor,
+        a_actual: torch.Tensor,
+        a_cf: torch.Tensor,
+    ) -> bool:
+        """SD-013 negative-instrument guard for compute_interventional_loss.
+
+        compute_interventional_loss returns `margin` both when the head is
+        merely violating (gradient flows, training fixes it) and when it is
+        EXACTLY action-invariant (gradient is zero, training can never fix it).
+        This method separates those two cases, so a caller consuming the loss
+        as evidence of trainability gets an explicit cannot-determine answer
+        rather than a silent false negative.
+
+        Returns:
+            True  -- the predictions differ, so the loss can still move the head.
+            False -- z_pred_actual == z_pred_cf bit-exactly: the loss reports
+                     full violation but delivers NO gradient. The head is in the
+                     absorbing collapsed state and needs intervention from
+                     outside this loss (re-initialise the action path, or
+                     exclude it from weight decay). See the SD-013 COLLAPSE
+                     POINT note in compute_interventional_loss.
+        """
+        with torch.no_grad():
+            d = self._residual_fwd(z_world, a_actual) - self._residual_fwd(z_world, a_cf)
+            return bool((d != 0).any())
