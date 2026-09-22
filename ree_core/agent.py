@@ -5685,6 +5685,36 @@ class REEAgent(nn.Module):
                 )
             self.e1.context_memory.write(obs_state)
 
+            # SD-CM-LIVETAP (2026-09-22): capture the SAME written state without
+            # .detach(), so a training loop can route a loss back through the
+            # encoder that produced it.
+            #
+            # new_latent is still LIVE at this point -- it is detached into
+            # self._current_latent about twenty lines below -- so this is the one
+            # site on the write path where the graph to latent_stack still
+            # exists. Above, obs_state is detached deliberately and that stays:
+            # write() is torch.no_grad() internally and updates self.memory by
+            # raw .data writes, so nothing about the WRITE wants a graph. What
+            # was missing is a way for the write-ADDRESS objective to see the
+            # encoder at all: V3-EXQ-972a measured 0 of 49 latent_stack
+            # parameters moving, which is why every leg of the frozen portfolio
+            # contextmemory_write_content_discrimination was measuring
+            # addressing over a frozen random projection.
+            #
+            # The same coalition write-gate scaling is applied, so the tapped
+            # state mirrors what was actually written rather than an unscaled
+            # sibling. Guarded on the property, so with the tap off (default)
+            # this builds no tensor at all and the path is bit-identical.
+            if self.e1.context_memory.live_encoder_tap_enabled:
+                _live_state = torch.cat(
+                    [new_latent.z_self, new_latent.z_world], dim=-1
+                )
+                if self.coalition is not None:
+                    _live_state = _live_state * float(
+                        self.coalition.write_gate("hippocampal_write_consolidation")
+                    )
+                self.e1.context_memory.record_live_write_state(_live_state)
+
         # Detach before storing: prevents EMA from linking computational graphs
         # across time steps. Without detach, optimizer.step() modifies weights
         # in-place, invalidating the old graph's version -- causing RuntimeError

@@ -46,7 +46,8 @@ class ContextMemory(nn.Module):
                  write_gumbel_tau_init: float = 1.0,
                  write_gumbel_tau_min: float = 0.1,
                  write_gumbel_anneal_steps: int = 2000,
-                 write_gumbel_tagger_hidden: int = 32):
+                 write_gumbel_tagger_hidden: int = 32,
+                 live_encoder_tap: int = 0):
         super().__init__()
         self.latent_dim = latent_dim
         self.memory_dim = memory_dim
@@ -106,6 +107,39 @@ class ContextMemory(nn.Module):
         self.write_gumbel_anneal_steps = int(write_gumbel_anneal_steps)
         self.write_gumbel_tagger_hidden = int(write_gumbel_tagger_hidden)
         self._write_gumbel_step = 0  # forward-call counter for the annealed schedule
+
+        # SD-CM-LIVETAP (2026-09-22): LIVE-ENCODER WRITE TAP.
+        #
+        # THE DEFECT THIS EXISTS FOR. Every write-side training signal in this
+        # class reaches write_addr_tagger and stops. compute_write_addressing_loss
+        # below takes "a caller-supplied batch of already-detached states"; the
+        # agent-side write hook (agent.py, SD-016 Part B2) builds its obs_state
+        # from new_latent.z_self.detach() / z_world.detach(); and V3-EXQ-971's
+        # H3 task-coupling requires the same ("h3_state MUST already be detached
+        # by the caller"). So the encoder that PRODUCES the written content never
+        # moves: V3-EXQ-972a measured 0 of 49 latent_stack parameters changed,
+        # and hash-identical trained-vs-UNTRAINED_ENCODER lineages on 8 of 8
+        # comparisons. Every leg of the frozen portfolio
+        # contextmemory_write_content_discrimination was therefore measuring
+        # addressing over a FROZEN RANDOM PROJECTION.
+        #
+        # WHAT THIS IS. A bounded ring of the SAME states the write hook writes,
+        # captured WITHOUT detach, so a caller can route a loss back through the
+        # encoder. Deliberately NOT welded to any one loss: take_live_write_states()
+        # hands the live tensor out, so the standalone auxiliary loss (H1/H2) and
+        # the read-path task gradient (H3) can both use it and be compared.
+        #
+        # WHAT THIS IS NOT. It does NOT un-detach the MECH-165 exploration buffer
+        # (agent.py _record_exploration_state) -- that store is detached BY DESIGN
+        # for replay-diversity/telemetry consumers and is unrelated to the write
+        # path, despite being the locus substrate_queue.json records.
+        #
+        # 0 disables: no ring is allocated, the agent-side hook builds no tensor,
+        # and no parameter, buffer or state_dict key is added. Bit-identical.
+        self.live_encoder_tap = max(int(live_encoder_tap), 0)
+        self._live_write_states: Optional[List[torch.Tensor]] = (
+            [] if self.live_encoder_tap > 0 else None
+        )
 
         # Cumulative per-slot write count + last written index. ALWAYS maintained,
         # in EVERY mode including the legacy default, because instrumentation must
@@ -536,6 +570,115 @@ class ContextMemory(nn.Module):
         mask = 1.0 - torch.eye(n, device=sim.device, dtype=sim.dtype)
         return (sim * mask).pow(2).sum() / (n * (n - 1))
 
+    # ---- SD-CM-LIVETAP: live-encoder write tap ------------------------------
+
+    @property
+    def live_encoder_tap_enabled(self) -> bool:
+        """True when the tap is on. The agent-side write hook checks this BEFORE
+        building any tensor, so the disabled path costs one attribute read."""
+        return self._live_write_states is not None
+
+    def record_live_write_state(self, state: torch.Tensor) -> None:
+        """Buffer one NON-detached written state for a later backward pass.
+
+        Call this from the write hook with the SAME state write() received, but
+        without .detach() and with any write-gate scaling already applied -- the
+        tap must mirror what was actually written, or the gradient shapes the
+        encoder toward a state the memory never saw.
+
+        The ring is bounded (oldest dropped) so a caller that never consumes
+        cannot grow memory without bound. It CAN still hold a graph across an
+        optimizer step, which is the hazard compute_write_addressing_loss's
+        docstring describes for a different mechanism: self.memory is updated by
+        raw .data writes that bypass autograd version tracking, so a graph
+        backpropagated after a later step would differentiate through memory
+        values that forward pass never saw, silently. Consume within the same
+        forward/backward window; take_live_write_states() clears the ring so a
+        second consumption in the same window cannot silently re-use stale graph.
+
+        No-op when the tap is disabled.
+        """
+        if self._live_write_states is None:
+            return
+        self._live_write_states.append(state)
+        if len(self._live_write_states) > self.live_encoder_tap:
+            del self._live_write_states[:-self.live_encoder_tap]
+
+    def take_live_write_states(self) -> torch.Tensor:
+        """Consume and clear the ring, returning (n, latent_dim) LIVE states.
+
+        This is the general surface: whatever loss a caller computes from the
+        returned tensor reaches write_addr_tagger AND latent_stack. The
+        standalone auxiliary loss and the read-path task gradient both consume
+        it, which is what makes them comparable rather than alternatives.
+
+        RAISES rather than returning an empty tensor when the tap is disabled or
+        nothing was buffered. A zero or empty return here would be a negative
+        instrument: it is indistinguishable from "the tap fired and found
+        nothing", and a caller adding it to a total loss would train nothing
+        while reporting a finite number -- the exact silent-inertness shape that
+        produced this defect in the first place (CLAUDE.md, Negative instruments).
+        """
+        if self._live_write_states is None:
+            raise RuntimeError(
+                "take_live_write_states requires the live-encoder tap "
+                "(contextmemory_write_live_encoder_tap > 0); it is currently 0, "
+                "so no live state was captured and any loss built from this "
+                "would silently train nothing"
+            )
+        if not self._live_write_states:
+            raise RuntimeError(
+                "live-encoder tap is enabled but empty -- no write occurred "
+                "since the last consumption. Check that sd016_writepath_mode is "
+                "'sense_only' or 'both', that the agent is not in offline mode, "
+                "and that this is called after at least one sense() tick"
+            )
+        states = torch.cat(self._live_write_states, dim=0)
+        self._live_write_states = []
+        return states
+
+    def clear_live_write_states(self) -> None:
+        """Drop buffered live states without consuming them -- for an episode
+        boundary, or any point where the retained graph must not outlive an
+        optimizer step. No-op when the tap is disabled."""
+        if self._live_write_states is not None:
+            self._live_write_states = []
+
+    def compute_write_addressing_loss_live(self) -> torch.Tensor:
+        """compute_write_addressing_loss over the LIVE tap instead of a detached
+        batch -- identical objective, wider graph.
+
+        The only difference from the sibling method is where `states` come from,
+        and that difference is the whole point: gradient reaches write_addr_tagger
+        AND continues into latent_stack, so the encoder co-adapts with the tagger
+        rather than presenting it a frozen random projection.
+
+        Unlike the sibling, n < 2 RAISES instead of returning a zero scalar. The
+        sibling's zero is correct for a caller that chose its own batch; here an
+        under-filled ring means the tap did not capture what the caller assumed,
+        and a silent 0.0 would be added to a total loss and train nothing.
+        """
+        states = self.take_live_write_states()
+        if states.shape[0] < 2:
+            raise RuntimeError(
+                "live-encoder tap holds "
+                f"{states.shape[0]} state(s); the pairwise objective needs >= 2. "
+                "Raise contextmemory_write_live_encoder_tap or consume less often"
+            )
+        if self.write_addr_tagger is None:
+            raise RuntimeError(
+                "compute_write_addressing_loss_live requires "
+                "write_selection='gumbel_learned' (write_addr_tagger is not "
+                f"constructed when write_selection={self.write_selection!r})"
+            )
+        scores = self.write_addr_tagger(states)
+        probs = F.softmax(-scores, dim=-1)
+        probs_norm = F.normalize(probs, dim=-1)
+        sim = probs_norm @ probs_norm.T
+        n = states.shape[0]
+        mask = 1.0 - torch.eye(n, device=sim.device, dtype=sim.dtype)
+        return (sim * mask).pow(2).sum() / (n * (n - 1))
+
 
 class E1DeepPredictor(nn.Module):
     """
@@ -585,6 +728,9 @@ class E1DeepPredictor(nn.Module):
             ),
             write_gumbel_anneal_steps=getattr(
                 self.config, "contextmemory_write_gumbel_anneal_steps", 2000
+            ),
+            live_encoder_tap=getattr(
+                self.config, "contextmemory_write_live_encoder_tap", 0
             ),
             write_gumbel_tagger_hidden=getattr(
                 self.config, "contextmemory_write_gumbel_tagger_hidden", 32
