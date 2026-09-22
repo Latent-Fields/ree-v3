@@ -1,0 +1,3563 @@
+"""V3-EXQ-1043b -- MECH-537: is the oracle's decision content ENCODED BUT NOT EXPOSED?
+
+INSTRUMENT REPAIR of V3-EXQ-1043a (FAIL, `substrate_not_ready_requeue`, run
+`..._20260919T030056Z_v3`), which was itself the instrument repair of V3-EXQ-1043. SAME
+scientific question, same claim, same arms, same estimator. An ALPHABETIC SUFFIX, not a new
+EXQ number, per the CONFIRMED autopsy `failure_autopsy_V3-EXQ-1043a_2026-09-20.json`
+`routing_detail.successor`.
+
+=== THIS RUN IS GOVERNED BY A PRE-REGISTRATION THAT LANDED BEFORE IT WAS WRITTEN ===
+
+    REE_assembly/evidence/planning/v3_exq_1043b_prereg_rank_coprimary_20260922.md
+    origin/master 927cf907e49
+
+READ IT BEFORE CHANGING ANY CONSTANT IN THIS FILE. It fixes, in advance and in writing, the
+declared primary, the rank co-primary and its DIRECTION, the combining rule and its alpha,
+the competence inclusion criterion and the both-ways reporting requirement, and B -- and its
+section 12 lists what would count as violating it. The lineage has been autopsied TWICE, and
+the second autopsy's red-team record shows the failure mode is re-anchoring a threshold after
+seeing the numbers that fail it. The pre-registration is the only thing separating this design
+from that move.
+
+=== THE ONE-LINE DESIGN (user decision OPTION E, 2026-09-22) ===
+
+Keep option A's non-degeneracy GATE; add a pre-registered RANK CO-PRIMARY; retain the original
+absolute-difference CI as the DECLARED PRIMARY, reported whatever it says.
+
+WHY THE RANK STATISTIC IS NOT A POST-HOC RESCUE. Hypothesis H2-no-orientation, registered in
+`hypothesis_space_registry.v1.json` on 2026-09-17 -- three days BEFORE the instrument smoke
+ran -- names this exact reference: "not meaningfully different from A RANDOM SUBSPACE OF THE
+SAME RANK", declared null "the observed C2 sits inside the null". 1043a built a permutation
+null instead, which tests fit-EXISTENCE (it returned p = 1.0 on 6/6 seeds: all 200 shuffled
+refits decoded WORSE than the real subspace) and says nothing about orientation. This run is
+that registered falsifier instrumented correctly for the first time.
+
+EXPECT A SPLIT, NOT A CLEAN YES. The smoke's six percentiles are 0.583 / 0.042 / 0.042 /
+0.500 / <1/B / <1/B -- two seeds typical of random (one of which also fails the competence
+criterion), two moderate, two with D_comm below even the randrank MINIMUM. The design REPORTS
+that split (`split_declared`) rather than averaging it away, because averaging it is how this
+lineage reached two autopsies.
+
+Tests MECH-537 (communication-subspace routing failure) per its registered
+`what_would_answer` and proposal EXP-1403 (minted 2026-09-15, user-approved, hand-off
+`/queue-experiment`). Read-only over a FROZEN encoder: no `ree_core` change, no new
+substrate, no behavioural DV.
+
+  SENDER    X = the full 250-dim `world_state` -- the tensor the encoder ACTUALLY reads.
+  RECEIVER  Y = sense()-time `z_world` (32-dim) -- the tensor the consumer ACTUALLY reads.
+  ESTIMATOR   `experiments/_lib/interface_probe.communication_subspace` (reduced-rank
+              regression, rank chosen by grouped cross-validation on held-out EPISODES).
+
+QUESTION. On a source that passes adequacy, is the oracle's action decodable from the full
+sender X yet POORLY decodable from the estimated communication subspace `P_comm X`, with the
+orthogonal complement carrying the decodability and the consumer insensitive to that
+complement? That is failure class F2 (routing) as opposed to F1 (absent from sender) or F3
+(consumer insensitivity).
+
+EXPERIMENT_PURPOSE = "diagnostic"
+
+SLEEP DRIVER: not applicable -- no sleep flag is set (the x734 all-ON stack at this rung
+enables no sleep loop). Recorded as sleep_driver_pattern="none".
+
+red-team (Step 4.5, cross-model): see the queue entry `note` and the RED-TEAM RECORD at the
+end of this docstring.
+
+=== WHAT 1043a CHANGES, AND WHAT RATIFIED EACH CHANGE ===
+
+Four changes, all from `routing_detail.required_changes` of the CONFIRMED autopsy. Nothing
+else about the design moves: the claim, the sender, the receiver, the estimator, the four
+arms, the decoder protocol and the premise route are all V3-EXQ-1043 verbatim.
+
+(E1) C2 IS JUDGED AGAINST A REFERENCE DISTRIBUTION OVER B RANDOM RANK-r SUBSPACES.
+     1043a autopsy: "replace the single randrank draw AND the permutation clause with a
+     reference distribution over B random rank-r subspaces (decoder fits only, no RRR
+     refits); report the C2 CI as the pre-registered H1 statistic; re-specify the randrank
+     readiness gate so it certifies the comparator can MOVE rather than that one draw clears
+     0.05."
+     THE PERMUTATION NULL IS REPLACED, NOT SUPPLEMENTED. It answered "is the fitted map
+     REAL?" -- decisively, p = 1.0 on 6/6 -- and never constructs a random subspace of the
+     same rank, so it cannot speak to ORIENTATION. Its budget buys the B draws instead.
+     PER SEED:
+         reference[b] = D_randrank(r_pars) from an INDEPENDENT random rank-r_pars subspace
+         p[seed]      = ( #{b : reference[b] <= D_comm} + 1 ) / (B + 1)
+     DIRECTION: LOW p = EFFECT PRESENT. MECH-537's phenotype predicts D_comm is LOW (the
+     communication subspace decodes the action WORSE than a random same-rank one), so few
+     draws fall at or below it. Same sign as C2 = D_randrank - D_comm being positive.
+     D_comm ENTERS THE PERCENTILE AS A SINGLE FIT, matched to the draws' single fits: the
+     null is exchangeability, which holds only between quantities from the same fit protocol.
+     DRAW 0 IS 1043a'S OWN RECORDED DRAW (seed*7919+131), so the comparability form of the
+     declared primary is 1043a's literal statistic rather than a re-drawn approximation.
+     B = 1000, chosen for RANK RESOLUTION and not for de-noising -- the two give different
+     answers, which is why the smoke's B=50 de-noising recommendation does NOT carry over.
+     The self-test asserts this: at B=50 the pre-registered Simes robustness check returns
+     p = 0.059 and does NOT clear alpha, purely from resolution censoring; at B=1000 it
+     returns 0.0030. A percentile at 1/(B+1) is CENSORED and reads "< 1/B", never as zero.
+
+(E2) THE READINESS GATE CERTIFIES RESOLVABILITY, NOT ELEVATION -- AND IS SCOPED PER SEED.
+     1043a asserted the randrank arm clears the previous-action predictor by 0.05 and REFUSED
+     the whole run when 5 of 6 seeds missed -- adjudicating nothing, though all 6 were above
+     the predictor in SIGN. The gate's own shipped purpose text is that a low D_comm must
+     carry information about ORIENTATION, which is a statement about resolvability INSIDE the
+     reference distribution. So the gate now asserts, per seed, that
+     sd_orientation >= 2 * sd_decoder (variance subtraction against K refits of ONE FIXED
+     draw) and sd_total >= 0.005 (~10 classification flips at ~2000 held-out steps, i.e. the
+     granularity of the statistic itself). PER-SEED SCOPING, NOT A WHOLE-RUN AND: a failing
+     seed is scoped out and recorded, and only ZERO passing seeds refuses the run
+     (V3-EXQ-785's rule). The elevation idea survives as (E3).
+
+(E3) THE ELEVATION BAR BECOMES A PER-SEED COMPETENCE INCLUSION CRITERION AT 0.0.
+     A seed whose own rr_mean does not exceed its own strongest trivial predictor has an
+     INCOMPETENT reference distribution and is NON-CONTRIBUTORY -- which is NOT evidence of
+     no effect. It scopes a SEED out, never the run. BOTH SET-ALL and SET-COMPETENT are
+     always reported and NEITHER may stand alone; reporting only SET-COMPETENT is violation 2
+     of the pre-registration. Exactly one seed (45) is expected to fail, named in advance so a
+     deviation is visible.
+
+(E4) THE DECLARED PRIMARY IS RETAINED AND REPORTED WHATEVER IT SAYS.
+     95% t-CI on the cross-seed mean of the de-noised C2; declared null, verbatim from the
+     registry, "the CI excludes 0.05 (H1 falsified, not rescued)". IT IS EXPECTED TO COME
+     BACK UNDECIDED at n = 6 -- the binding variance is the CROSS-SEED sd ~0.038, not the
+     draw noise this run removes, and the upper bound first clears 0.05 near n ~ 75 seeds.
+     That expectation is recorded IN ADVANCE so its occurrence cannot be used as an argument
+     for demoting the statistic. If the two primaries disagree, THE DISAGREEMENT IS THE
+     RESULT (`_primary_grid`, and `interpretation.primary_agreement`).
+
+(R2) C2 IS READ AT THE PARSIMONIOUS RANK, NOT AT rank = dy.
+     Autopsy: "RE-ESTIMATE AND REPORT C2 AS A FUNCTION OF RANK, and read it at the
+     PARSIMONIOUS rank (8-10, where heldout r2 is already within 0.001 of its maximum). The
+     low-rank premise the biology supplies is not testable at rank = dy, where the RRR fit is
+     unconstrained OLS; it is testable there."
+     `_parsimonious_rank` = the SMALLEST rank whose grouped-CV held-out R^2 is within
+     `PARSIMONIOUS_R2_TOL` of the ladder maximum. A within-run, cross-validated rule, not a
+     hand-set rank. Replaying it over V3-EXQ-1043's landed `rrr_heldout_r2_by_rank` gives
+     8 / 10 / 10 on seeds 42/43/44 -- exactly the autopsy's figures.
+     The comm / perp / randrank arms are instantiated at BOTH ranks; `ws250_full` is
+     rank-independent and is fitted once. C2 at the CV-selected rank is still computed and
+     RECORDED, so the 1043 comparison stays direct, but the SCORED C2 is the parsimonious one.
+     WITHDRAWN by the autopsy and NOT done here: "EXTEND THE RRR RANK LADDER -- mathematically
+     impossible (rank <= dy = 32; the ladder is already 1..32)."
+
+(R3) C4b's ABSOLUTE CEILING IS ANCHORED TO A MEASURED, IN-RUN ATTAINABLE FLOOR.
+     Autopsy: "ANCHOR C4b's ABSOLUTE 0.5 CEILING from a measured reference, the way the
+     readiness anchors already are against V3-EXQ-1008."
+     There was no such reference to import. Searched exhaustively before this driver was
+     written: `v3_exq_1002`, `v3_exq_1008` and `v3_exq_1010` contain ZERO occurrences of
+     `sensitivity_ratio` / `dz_world` / `INSENSITIV`; the only other evidence manifests
+     carrying `sensitivity_ratio` (V3-EXQ-1000, V3-EXQ-1006) measure unrelated statistics. No
+     run had ever measured this quantity except V3-EXQ-1043 itself, and NOTHING measured
+     anywhere sat at or below 0.50 on the AIMED probe (lowest observed 0.8318). So the 0.50
+     ceiling had no demonstrated reachability at all.
+     The repair, user-ratified 2026-09-19 (decision chip
+     `chip-20260918-mech537-c4b-ceiling-anchor`, OPTION C): MEASURE the reference in-run.
+     `_jacobian_aligned_basis` builds the rank-r subspace of the STANDARDISED sender that the
+     encoder is most sensitive to -- the top-r eigenvectors of the state-averaged
+     `J_std^T J_std`, `J_std` the finite-difference Jacobian `d z_world / d (standardised
+     sender)` at the canonical post-reset state -- and the IDENTICAL `_decision_sensitivity`
+     machinery is then run on it. The resulting ratio `F` is the best-case routing reference
+     for THIS encoder at THIS rank.
+     HONEST LABEL: `F` is the ratio achieved by the encoder's own most-sensitive rank-r input
+     subspace. That is the natural best-case routing subspace and it is what makes the ceiling
+     reachable-by-measurement, but it is an ATTAINABLE reference, not a certified infimum --
+     the ratio also depends on the un-normalised component weights a, b, which this
+     construction does not separately optimise. Recorded under that name.
+     The run also records `I`, the ISOTROPIC / no-routing reference
+     (`mean_raw_norm_complement_component / mean_raw_norm_comm_component` on the FITTED
+     decomposition) -- retention-MATCHED by construction, and verified to be the autopsy's own
+     statistic: recomputing its C4a retention-geometry prediction from the 1043 manifest's
+     component norms reproduces the autopsy's stated 0.348 / 0.267 / 0.365 exactly as
+     0.3478 / 0.2667 / 0.3647.
+     The floor -> ceiling RULE is `_c4b_ceiling`, a single pre-registered expression fixed
+     BEFORE execution and NOT tunable after seeing data, computed PER SEED from that seed's
+     own F and I. Per-seed is not a new choice: C5 already scores against a MEASURED per-seed
+     chance level for exactly the same reason (an absolute bar means something different at
+     every CV-selected rank).
+     Do NOT promote C4a to the scored conjunct -- autopsy-forbidden, retention-confounded by
+     the driver's own stated design decision. It stays recorded, with its confound stated.
+
+     STATED LIMITATION OF THIS ANCHOR, recorded rather than smoothed, because it is the one
+     thing a later autopsy should check first if C4b comes back UNREACHABLE. Write the three
+     quantities out:
+         measured = (||b_fit|| / ||a_fit||) x (|J(u_out_fit)| / |J(u_in_fit)|)
+         I        = (||b_fit|| / ||a_fit||)
+         F        = (||b_jac|| / ||a_jac||) x (|J(u_out_jac)| / |J(u_in_jac)|)
+     `measured` and `I` share a decomposition, so that pair is clean and retention-matched --
+     which is exactly what makes I a sound no-routing reference and what disqualified C4a's
+     random-subspace null. F does NOT share it: it is computed on the Jacobian-aligned
+     subspace, so it mixes the SENSITIVITY factor (which the alignment minimises -- the
+     intended effect) with a GEOMETRY factor ||b_jac||/||a_jac|| this construction does not
+     control. If geometry dominates, F can exceed I and the interval [F, I] does not exist.
+     The `--dry-run` smoke hit exactly that at its degenerate rank 1 (80 rows, ladder
+     row-capped): measured 4.4625, F 4.4526, I 4.3328 -- all three within 3% of each other,
+     i.e. geometry dominated and the sensitivity factor was ~1.0, and the ceiling came back
+     NaN. Rank 1 settles nothing about ranks 8-10 where this run actually scores, and the
+     mid-scale probe that would have settled it did not complete in the dispatching session
+     (preserved at REE_assembly evidence/planning/
+     v3_exq_1043a_mech537_design_staged_20260918.md section A7).
+     THE FAILURE MODE IS SAFE, WHICH IS WHY THIS RUNS ANYWAY: `_c4b_ceiling` returns NaN
+     when F is not strictly below I, the seed is scored UNREACHABLE and EXCLUDED rather than
+     failed, and a seed majority of unreachable seeds makes C4b unscoreable and routes the
+     run to `undetermined`. So the worst case is a run that declines to adjudicate C4b and
+     REPORTS F and I per seed -- which is itself the measurement the autopsy asked for, and
+     is strictly more than V3-EXQ-1043 knew. It is not a route to a false verdict.
+
+(R4) n IS RAISED TO 6 AND `SEED_MAJORITY` IS RE-SPECIFIED PROPORTIONALLY TO 4.
+     Autopsy: "IF n IS RAISED, RE-SPECIFY SEED_MAJORITY PROPORTIONALLY in the pre-registration
+     (it is a fixed constant 2, inherited from x1002). Otherwise the seed-majority clause
+     becomes trivially satisfiable and the successor's PASS is partly an artefact of the seed
+     count."
+     The inherited rule is 2 of 3 = 2/3, so 6 seeds -> 4. `SEED_MAJORITY` is therefore a LOCAL
+     constant here and NOT `x1002.SEED_MAJORITY`; leaving it at the inherited 2 while raising
+     n would convert a majority clause into "any 2 seeds".
+     Carried verbatim, because it is the honest expectation and not a hedge: "at adequate n
+     the likely outcome is a confidence interval EXCLUDING 0.05 -- i.e. H1 falsified rather
+     than rescued. Raise n to settle the question, not to pass it."
+
+NOT CHANGED, and each was explicitly considered:
+  - `EXPERIMENT_PURPOSE` stays "diagnostic". The autopsy's debt class is "complex
+    (probe-gated) / puzzle (known rules) ... what is missing is a FACT ... That is a spike".
+    Promoting the contract to "evidence" is a scope change it did not authorise.
+  - No lit-pull. `secondary_routing: none`;
+    `targeted_review_mutual_legibility_communication_subspaces` already carries
+    Semedo2019 / Binish2026 / Gonzalez2026 for exactly this question.
+  - No criterion asserts an exact committed ACTION. `torch.multinomial` returns a different
+    category across machine classes from a bit-identical probability tensor at the same seed
+    (CLAUDE.md, "Running the test suite"), so every criterion here stays upstream of the
+    discrete quantizer -- decode AGREEMENT and encoder SENSITIVITY, as in 1043.
+
+STATED LIMITATION, carried forward rather than re-litigated: the encoder under test carries
+the SD-106 limitation and the lineage ran with `p0a_field_weight_on = 0.0`, so the shipped P0
+objective supplies no gradient toward decision-relevant content at the very encoder whose
+communication subspace is being estimated. SD-106 is an OPEN `substrate_queue.json` entry but
+its severity is `degrading`, not `corrupting`, so the skill's Step 2.5c gate does not block.
+It is why `source_adequacy_ws250_full` is a PRECONDITION (1043 measured 0.9335 against a 0.80
+floor) rather than an assumption.
+
+=== WHY THIS SOURCE, AND WHY NOT z_world ===
+
+V3-EXQ-1010 (`..._20260909T195348Z_v3.json`, PASS, `interpretation.label: H-F-confirmed`)
+established that no decoder in a five-rung capacity ladder recovers the oracle above the
+0.80 bar from the frozen 978-OFF `z_world`, on a protocol whose calibration anchor is sound
+and at a capacity that demonstrably memorises the training split. So **z_world is DISQUALIFIED
+as a SENDER** -- EXP-1403 says so explicitly, and using it would confound "no routing" with
+"nothing to route".
+
+The adequate sources measured on this exact protocol are (1008 authoring-time, seed 42):
+
+    ws250_full        0.940      the uncompressed 250-dim world_state
+    rawfield25        0.9735     world_state[225:250], the agent-centred resource field
+    ws250_pca32       0.884      PCA-32 of world_state
+
+This driver uses **the full 250-dim world_state**, for a reason the 25-dim field cannot
+satisfy: MECH-537 is about directions the receiver COULD have read and did not. The encoder's
+input IS `world_state`; `resource_field_view` is a 25-dim SLICE of it
+(`world_state[225:250]`, verified at runtime by this driver's `--self-test`). An orthogonal
+complement computed inside the 25-dim slice would consist of directions that are still inside
+the encoder's input, but it would exclude 90% of that input from the complement -- and a
+routing claim measured on 10% of the sender is not a routing claim about the sender. Taking
+X = world_state makes P_comm and its complement a genuine orthogonal decomposition of
+everything the encoder receives.
+
+That is also what makes the causal leg well-posed: `world_state` is an ARGUMENT to
+`agent.sense(...)`, so a perturbation along a chosen direction can actually be pushed
+through the frozen encoder. A perturbation of `resource_field_view` could not be -- that key
+is never handed to `sense()`.
+
+=== THE FOUR ARMS -- IDENTICAL DECODER, IDENTICAL AMBIENT DIMENSION ===
+
+All four arms feed a `x734.PPOPolicyNet` (literally the class V3-EXQ-978 instantiated as its
+reader, at `x734.PPO_TRUNK_HIDDEN`) with a **250-dim** tensor, trained by the identical
+cross-entropy protocol on the identical rows. The arms differ ONLY in which linear subspace
+of the standardised sender the features are confined to:
+
+    ws250_full        X                       the adequacy anchor / positive control
+    ws250_comm        P_comm X                the estimated communication subspace, rank r
+    ws250_perp        (I - P_comm) X          its orthogonal complement, rank 250 - r
+    ws250_randrank    U U^T X                 a RANDOM orthonormal subspace of THE SAME rank r
+
+The RRR rank ladder is 1..32 = 1..dy, the whole mathematically meaningful range (at rank dy
+the rank constraint is inactive and the fit IS unconstrained OLS). The shared instrument
+defaults to 1..min(16, dx, dy) and the mid-scale smoke showed cross-validation SATURATING at
+that 16 -- the ladder, not the data, choosing the rank, which would have made "the rank
+selected by cross-validation" untrue of this run. `rrr_rank_at_ladder_ceiling` is recorded per
+seed either way.
+
+Because every arm's ambient dimension is 250, `in_dim` is identical and the capacity match
+holds by construction -- there is no in_dim confound (1008 had one: rawfield 25 against
+ws250 250, and had to reason around it).
+
+**ONLY C2 IS RANK-MATCHED, and that is the whole architecture of the criteria set.** C1
+(`D_full - D_comm`) and the complement arm both compare subspaces of DIFFERENT rank, so a
+difference between them is confounded by dimensionality; they are recorded as the PHENOTYPE.
+C2 (`D_randrank - D_comm`, identical rank) is what licenses an ORIENTATION reading, and it is
+the criterion marked `load_bearing`. C3 is stated as RETENTION against the full sender
+(`D_full - D_perp <= tol`, an upper bound) rather than as `D_perp - D_comm`, precisely so that
+it too is free of the rank confound and says what the claim says: deleting the communication
+subspace costs essentially nothing.
+
+**`ws250_randrank` is the load-bearing control and the reason this design can answer
+anything.** A rank-r projection of a 250-dim input loses information WHATEVER its
+orientation, so `D_full > D_comm` on its own is a statement about DIMENSIONALITY, not about
+routing. Only `D_randrank > D_comm` -- the oriented subspace decoding WORSE than a random
+subspace of the same rank -- says the communication subspace is actively oriented AWAY from
+the decision directions. That is MECH-537's actual content, and it is criterion C2,
+`load_bearing: true`.
+
+=== EVERYTHING IS DONE IN THE STANDARDISED SENDER BASIS (a design-critical choice) ===
+
+The train-split z-score (x1002's `_fit_standardiser`, fitted on the TRAIN EPISODES only) is
+applied to X **once, before the RRR**, and every projection then acts in that standardised
+basis. It is NOT re-fitted per arm.
+
+This is not a stylistic choice. Per-arm standardisation would divide each projected arm by
+its own per-dimension std, and a projected tensor has many near-zero-variance dimensions --
+so `ws250_comm` and `ws250_perp` would have numerical noise amplified by up to 1/eps while
+`ws250_full` would not. `D_comm` would then be depressed for a PREPROCESSING reason and the
+run would fake a MECH-537 confirmation. Standardising once, up front, makes all four arms
+exact linear maps of the same tensor.
+
+=== THE CAUSAL LEG: AIMED AT THE FIVE COORDINATES THE ORACLE ACTUALLY READS ===
+
+"The consumer demonstrably insensitive to the complement" is scored on a probe that is AIMED,
+not sampled, and the distinction is the difference between measuring the claim and measuring
+something adjacent to it.
+
+The oracle is `LocalViewGreedyPolicy`: its action is the argmax over the five destination cells
+of the agent-centred field view, which are `world_state` indices {232, 236, 237, 238, 242}
+(x1008's `DECISION_WORLD_STATE_INDICES`, derived from the policy's own move deltas). A
+direction drawn generically from the complement puts only about 5/(live - r) ~ 1.5% of its
+energy on those five coordinates, so a generic complement/comm sensitivity ratio measures
+whether the encoder's Jacobian is ISOTROPIC off the fitted subspace -- not whether the DECISION
+CONTENT reaches the receiver. Those are different questions and only the second is MECH-537's.
+
+So, for each decision coordinate e_j:
+
+  1. express e_j in the STANDARDISED basis (divide by the fitted per-dimension std) -- the SAME
+     basis in which C1/C2/C3 decompose the sender, so C3's complement and C4's complement are
+     the same subspace rather than two subspaces differing by a non-orthogonal diagonal map;
+  2. split it into its communication-subspace component and its complement component;
+  3. map each component back to RAW sender space, normalise to a unit raw direction, and apply
+     it at the same absolute magnitude `eps_abs`, at two magnitudes;
+  4. report `mean ||dz_world|| (complement component) / mean ||dz_world|| (comm component)`.
+
+No random draw is involved at all: the probe directions are named by the oracle's own
+definition. The NULL CONTROL repeats the identical construction on a RANDOM subspace of the
+same rank AND the same live-dimension support, so it differs in exactly one thing -- whether
+the splitting subspace was fitted or drawn at random -- and its ratio is RECORDED. It is deliberately
+NOT scored as a conjunct: the components are taken UN-NORMALISED (their weights in e_j are part
+of the routing statement -- a unit-normalised ratio drops the factor b/a and can read
+"insensitive" while the complement path in fact dominates), and once the weights are in, a
+random subspace is no longer matched on RETENTION, so a null margin would be partly a retention
+difference. C4 is therefore the ABSOLUTE ratio alone: control-free, and reachable by hypothesis
+rather than by assumption -- under a genuine routing failure the encoder Jacobian is supported
+on the communication subspace and the ratio goes to ~0, while under no routing failure it is
+~b/a > 1 (the dry-run smoke measured 6.46 at that end).
+
+The GENERIC whole-subspace probe (directions drawn as differences of two real held-out
+observations, so they stay on the data manifold) is still run and recorded, but as a
+DIAGNOSTIC only -- it is not a criterion.
+
+Measured at the CANONICAL POST-RESET RECURRENT STATE, deliberately. `sense()` advances the
+agent's recurrent state and sense-time z_world is
+`(world_encoder(w) + world_topdown(beta_to_split(z_beta))) * prec`, so a trajectory-state probe
+would mix the encoder's dependence on `w` with recurrent drift, and the baseline and perturbed
+calls could not start from the same state at all. Resetting before every measurement holds the
+top-down term fixed across every condition, which isolates exactly the quantity the claim is
+about: WHICH OBSERVATION DIRECTIONS REACH THE CONSUMER-FACING REPRESENTATION.
+
+STATED LIMITATION, not papered over: this probes the FEEDFORWARD path only. If a complement
+direction influenced z_world solely through the recurrent term, this leg would miss it. That is
+why the trajectory-based variance-routing readouts (`heldout_r2_from_comm` /
+`heldout_r2_from_complement`, closed-form, computed where the recurrent term is live) are
+recorded alongside -- as CORROBORATING diagnostics, never as criteria, because a rank-r RRR's
+complement is expected a priori to predict Y less well and gating on that would be close to
+tautological. Those numbers use PER-COLUMN R^2 normalisation and are NOT comparable to
+`rrr_heldout_r2`, which comes from `interface_probe._r2` and normalises against a single global
+mean; both are recorded and the difference is stated so nobody compares them.
+
+=== THE PREMISE CHECK (this is a FALSIFIER the claim itself registers) ===
+
+MECH-537's registered falsifier includes: "OR the subspace estimate is unstable across frame or
+receiver-state strata, in which case the single-subspace premise fails and the question belongs
+to MECH-547 / MECH-555." That, and only that, is the premise route here:
+
+  - `principal_angles` between the per-seed bases (CROSS-SEED), which always counts -- those
+    are replications of an identical protocol, so a disagreement is about the estimate;
+  - `principal_angles` between the basis fitted on ORACLE-driven visitation and the one fitted
+    on RANDOM-driven visitation (CROSS-STRATUM), which counts ONLY where the two strata's own
+    data spans overlap. A ridge RRR solution lies in the row space of the visited data, so
+    strata that visit different regions yield different bases for an IDENTICAL encoder; reading
+    that as receiver-state dependence would be a mis-attribution. The span overlap is measured
+    with the same principal-angle statistic on the strata's own top-r principal directions and
+    recorded per seed.
+
+Either routes to MECH-547 / MECH-555 with `evidence_direction: non_contributory` -- never
+`mixed`, which would connote a measured-but-equivocal effect on a run where nothing about
+MECH-537 was measured.
+
+WITHDRAWN, and recorded because the withdrawal is part of the design: an earlier draft also let
+a high complement-sensitivity ratio trigger this premise route. That was a second,
+driver-invented operationalisation of a falsifier the claim states in terms of STRATA, and it
+could have fired while the bases were demonstrably stable and the RRR explained the receiver
+input at R^2 ~ 0.999 -- a `non_contributory` verdict nobody could attribute. A high ratio now
+simply fails C4 and lands `undetermined`, with every continuous margin recorded.
+
+=== TWO REACHABLE FALSIFICATIONS, NOT ONE ===
+
+Given V3-EXQ-1010's H-F result, the claim's own registered falsifier -- the target as decodable
+inside the subspace as in the full sender -- is unlikely to be reached on this source, so a grid
+resting on it alone could confirm but not falsify. The reachable falsification is `C1 AND NOT
+C2`: the phenotype IS present (the target drops inside the communication subspace) but a RANDOM
+subspace of the SAME RANK drops it as far, so the drop is DIMENSIONALITY rather than a subspace
+oriented away from the decision directions -- which falsifies MECH-537's distinctive content
+and routes to F1 / MECH-532 instead. It is scored `weakens` only when the C2 contrast actually
+discriminated; a structurally-zero contrast is `undetermined`, never a falsification.
+
+=== SUBSTRATE-PATH OVERLAP GATE (skill Step 2.5c) -- the call, recorded ===
+
+Four open `substrate_queue.json` entries carry `severity: corrupting`:
+`MECH-320` (ree_core/policy/tonic_vigor.py, status substrate_landed_pending_behavioural_validation),
+`contextmemory-write-path-addressing-degeneracy` (ree_core/predictors/e1_deep.py::ContextMemory.write,
+implemented_pending_validation), `sd_blocked_agency_mismatch_floor_calibration`
+(ree_core/affect/blocked_agency.py, implemented_pending_validation), and
+`sd105_frozen_shared_entropy_floor_multiplier` (ree_core/regulators/selection_entropy_floor.py,
+status proposed_REGISTRATION_ONLY_not_a_build_authorisation).
+
+NOT BLOCKED, and the reasoning is recorded here so a later autopsy can disagree with it
+rather than guess:
+
+  (a) All four are POLICY / AFFECT / E1-MEMORY modules. They are exercised in the WARMUP,
+      which produces the frozen encoder; NONE of them is read by the MEASUREMENT, which is a
+      supervised decode from stored observations to ORACLE labels plus frozen forward passes
+      through `sense()`. The agent's own policy never appears in any readout.
+  (b) This run's object of study is the 978-OFF frozen encoder AS IT ACTUALLY IS -- the same
+      object V3-EXQ-1002 / 1008 / 1010 studied, and the same object whose H-F verdict is the
+      load-bearing input to EXP-1403's own design. A defect that changes WHICH encoder the
+      warmup produces does not change the question, which is asked of whatever encoder is
+      produced and is gated in-run by this run's own adequacy precondition.
+  (c) Three of the four are already `implemented*` awaiting validation -- the defect is
+      fixed-pending-confirmation, not live. The fourth (`sd105`) is by its own title a
+      design constraint on "a difference-of-arms design whose DV is the entropy it
+      regulates"; this run's DV is decode agreement and encoder sensitivity, and it arms no
+      entropy set-point, so it is inapplicable by its own terms.
+
+The `degrading` entries that DO touch this run's measurement path are recorded as known
+limitations, per the gate's degrading rule: **SD-018** and **SD-106**
+(`ree_core/latent/stack.py`, `ree_core/latent/zworld_p0.py`,
+`agent.py::compute_resource_proximity_loss` -- the observation->z_world bottleneck, i.e.
+precisely the mechanism under test), **SD-MECH303-THRESHOLD-SOURCING** and
+**mech357-freeze-incompatible-pressure-mechanism** (`ree_core/environment/causal_grid_world.py`).
+
+=== DV-SYMMETRY INVARIANCE, DECLARED PER ARM (skill Step 3) ===
+
+Every arm's DV is held-out top-1 agreement between a trained decoder's argmax over 5 action
+logits and the oracle's action. The symmetry group of that DV is: a uniform additive constant
+across the 5 logits, any monotone rescaling of them, and a permutation of interchangeable
+candidates.
+
+  ws250_full / ws250_comm / ws250_perp / ws250_randrank -- the manipulation is a change of
+  the LINEAR SUBSPACE the decoder's INPUT is confined to. It is not invariant under any of
+  those three: a projection changes the information content of the input state-by-state, so
+  the induced change in the logits is state-dependent, not a broadcast constant, not a
+  monotone map of the logits, and not a relabelling of candidates. Two of the four arms
+  additionally differ in the RANK of their input subspace and all four differ in retained
+  norm on the five oracle decision coordinates -- both measured and recorded.
+
+The causal leg's DV is `||dz_world||`, a norm, whose symmetry group is rotations of z_world
+and permutations of the perturbation draws; the manipulation is the SUBSPACE the perturbation
+direction is drawn from, which is not a rotation of z_world nor a reordering of draws.
+
+=== PRE-REGISTERED, BEFORE EXECUTION ===
+
+Every threshold below is a module constant, inherited where an inherited value exists
+(AGREEMENT_BAR / AGREEMENT_ELEVATION_MIN / SEED_MAJORITY / HELDOUT_MIN_STEPS come from
+x1002 unchanged, calibrated on this exact task, oracle and trivial-predictor family). None is
+derived from this run's own statistics.
+
+=== RED-TEAM RECORD ===
+
+red-team (fable): see the V3-EXQ-1043 queue entry `note` for the verdict and dispositions.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime
+import sys
+import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+import numpy as np  # noqa: E402
+import torch  # noqa: E402
+
+from experiment_protocol import emit_outcome  # noqa: E402
+from experiments.pack_writer import write_flat_manifest  # noqa: E402
+from experiments._metrics import (  # noqa: E402
+    P0NotReady,
+    check_degeneracy,
+    p0_readiness_gate,
+)
+from experiments._lib.arm_fingerprint import arm_cell  # noqa: E402
+from experiments._lib.interface_probe import (  # noqa: E402
+    communication_subspace,
+    principal_angles,
+)
+from experiments._lib.readiness_anchor import assert_anchor_reachable  # noqa: E402
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
+from experiments._lib.zworld_encoder_guard import (  # noqa: E402
+    latent_stack_snapshot,
+    latent_stack_weight_delta,
+)
+import experiments.v3_exq_1002_zworld_actor_adequacy_oracle_adapter as x1002  # noqa: E402
+import experiments.v3_exq_1008_zworld_adequacy_portfolio_ws250_rebasis as x1008  # noqa: E402
+import experiments.v3_exq_734_env_difficulty_competence_recovery_sweep as x734  # noqa: E402
+import experiments.v3_exq_737_ree_latent_policy_head_competence_probe as x737  # noqa: E402
+
+EXPERIMENT_TYPE = "v3_exq_1043b_mech537_communication_subspace_randrank"
+QUEUE_ID = "V3-EXQ-1043b"
+SUPERSEDES = "V3-EXQ-1043a"
+EXPERIMENT_PURPOSE = "diagnostic"
+ARCHITECTURE_EPOCH = "ree_hybrid_guardrails_v1"
+
+# MECH-537 is the single claim this run's implementation actually tests. The other claims in
+# its depends_on edge set (MECH-517 / MECH-532 / MECH-518 / ARC-139 / INV-105 / INV-088) are
+# DISTINGUISHED-FROM relations, not mechanisms exercised here, and tagging them would
+# increment their evidence counts on a run that never touches a decoder collapse or a missing
+# decompression stage. Single claim, so no `evidence_direction_per_claim` is required.
+CLAIM_IDS: List[str] = ["MECH-537"]
+BEARS_ON: List[str] = ["MECH-547", "MECH-555", "SD-080", "SD-106"]
+
+DEVICE = torch.device("cpu")
+
+# ---- inherited apparatus (NEVER re-defined -- see the docstring) --------------------------
+RUNG = x1002.RUNG
+RUNG_ID = x1002.RUNG_ID
+LEVEL_ID = x1002.LEVEL_ID
+WORLD_STATE_DIM = 250
+RESOURCE_FIELD_OFFSET = x1008.RESOURCE_FIELD_OFFSET          # 225
+DECISION_INDICES = list(x1008.DECISION_WORLD_STATE_INDICES)  # [232, 236, 237, 238, 242]
+
+ZWORLD_P0_EPISODES = x1002.ZWORLD_P0_EPISODES        # 60
+P0_EPISODES = x1002.P0_WARMUP_EPISODES               # 200
+P1_EPISODES = x1002.P1_REINFORCE_EPISODES            # 90
+STEPS_PER_EPISODE = x1002.STEPS_PER_EPISODE          # 200
+
+BC_EPISODES = x1002.BC_EPISODES                    # 40 oracle-driven
+BC_RANDOM_EPISODES = x1002.BC_RANDOM_EPISODES      # 20 random-driven
+BC_TRAIN_FRAC = x1002.BC_TRAIN_FRAC                # 0.7, split BY EPISODE
+ADAPTER_PASSES = x1002.ADAPTER_PASSES              # 60
+STANDARDISER_EPS = x1002.STANDARDISER_EPS
+
+ZWORLD_DELTA_FLOOR = x1002.ZWORLD_DELTA_FLOOR              # 1e-6
+PARTICIPATION_RATIO_FLOOR = x1002.PARTICIPATION_RATIO_FLOOR  # 2.0
+
+# ---- PRE-REGISTERED THRESHOLDS -----------------------------------------------------------
+# Inherited, calibrated on this exact task/oracle/trivial-predictor family in V3-EXQ-1002 and
+# carried unchanged through 1008 and 1010. Not re-derived here.
+AGREEMENT_BAR = x1002.AGREEMENT_BAR                    # 0.80
+AGREEMENT_ELEVATION_MIN = x1002.AGREEMENT_ELEVATION_MIN  # 0.20
+# LOCAL, NOT x1002.SEED_MAJORITY -- see (R4) in the docstring. The inherited rule is 2 of
+# 3 = 2/3; at n = 6 the proportional re-specification is 4. Leaving the inherited 2 in
+# place while raising n would turn "a majority of seeds" into "any 2 seeds" and make a
+# PASS partly an artefact of the seed count -- which the autopsy names as the failure mode.
+SEED_MAJORITY = 4                                      # 4 of 6 (2/3, as inherited)
+SEED_MAJORITY_INHERITED_RULE = "2 of 3 (x1002) -> 4 of 6, proportional"
+HELDOUT_MIN_STEPS = x1002.HELDOUT_MIN_STEPS            # 500
+
+# New to this run, and each one is justified where it is used in `_adjudicate`.
+RRR_R2_FLOOR = 0.50            # the RRR must explain the receiver input, else "the estimated
+                               # communication subspace" is not a subspace of anything
+# NO LONGER A GATE (1043b/E2). 1043a scored this as `randrank_control_supra_trivial` and
+# REFUSED the run at readiness on it (5/6 seeds under the floor). It is retained as a
+# RECORDED reference line so 1043a's gate is recomputable from this manifest; the scored
+# readiness gate is now NONDEGENERACY_*, and the elevation idea survives per-seed as
+# COMPETENCE_MARGIN. See the pre-registration, sections 5 and 7.
+RANDRANK_CONTROL_MARGIN_RECORDED_ONLY = 0.05
+ROUTING_DROP_MIN = 0.05        # absolute floor on a paired positive contrast (assay spec 1.6)
+DELTA_SD_MULTIPLE = 2.0        # ... and mean(delta) >= 2 * SD(delta) across seeds (spec 1.6)
+# NO LONGER SCORED (R1). Retained as a RECORDED reference line only, so 1043a's C2 numbers
+# stay directly comparable to V3-EXQ-1043's and the old predicate is recomputable from the
+# manifest. The scored C2 reference is the within-run permutation null below.
+ORIENTATION_MARGIN_RECORDED_ONLY = 0.05   # C2 reference line from V3-EXQ-1043, unscored here
+COMPLEMENT_RETENTION_TOL = 0.05  # C3: D_full - D_perp, an UPPER bound. Removing the
+                               # communication subspace must cost essentially NOTHING -- that
+                               # is the claim's own "no information having been destroyed".
+                               # Deliberately NOT the earlier `D_perp - D_comm`: the
+                               # complement has rank (live - r) against the subspace's r, so
+                               # that difference is confounded by DIMENSIONALITY in exactly
+                               # the way C1 is, and only C2 is rank-matched. Retention against
+                               # the FULL sender is the rank-confound-free statement, and it
+                               # is what the claim actually asserts.
+EQUIVALENCE_BAND = 0.05        # TOST band for "no routing failure" (spec 1.6; same magnitude
+                               # as the positivity floor, so the two cannot both be satisfied)
+# C4 is scored against its OWN NULL CONTROL, not only against an absolute bar. The mid-scale
+# smoke measured the null (a RANDOM rank-r subspace and its complement, identical machinery)
+# at 0.905 -- near the 1.0 chance value the construction predicts, which validates the probe --
+# and an absolute-only gate at 0.25 would then have been close to unmeetable by construction
+# for a nonlinear MLP encoder, exactly the anchor-reachability failure mode. The load-bearing
+# half is therefore the MARGIN BELOW THE NULL, which is measured on the same encoder with the
+# same machinery and so cannot be unreachable by construction; the absolute ceiling is retained
+# as a conjunct at a value the phrase "insensitive" can honestly carry.
+INSENSITIVITY_NULL_MARGIN = 0.15   # C4a: null_ratio - measured_ratio, paired per seed.
+                                   # RECORDED, NEVER SCORED (autopsy-forbidden: retention-
+                                   # confounded). Kept only so C4a stays on the record.
+# C4b: the ABSOLUTE ceiling is no longer a hand-set constant. It is computed PER SEED by
+# `_c4b_ceiling` from two quantities this run MEASURES on that seed's own encoder (R3):
+#   F = `jacobian_aligned_floor_ratio`  -- the attainable best-case routing reference
+#   I = `isotropic_reference_ratio`     -- the no-routing reference from retention geometry
+# The RULE is fixed here, before execution, and is not tunable after seeing data.
+# RATIFIED BY THE USER 2026-09-19T02:31:55Z (decision chip
+# `chip-20260919-mech537-c4b-floor-to-ceiling-rule`, RULE 1 of three put to them):
+#     ceiling(seed) = (F + I) / 2
+# The two earlier-recorded alternatives, both declined, so a later reader does not have to
+# reconstruct what was on the table: RULE 2 the geometric midpoint sqrt(F*I) (parameter-free
+# too, and stricter, on the argument that a ratio's natural scale is logarithmic); RULE 3
+# keep V3-EXQ-1043's hand-set 0.50 and use F only as a reachability gate.
+C4B_CEILING_RULE = "arithmetic_midpoint_of_measured_floor_and_isotropic"
+C4B_CEILING_RULE_RATIFIED_UTC = "2026-09-19T02:31:55Z"
+C4B_CEILING_RULE_AUTHORITY = "chip-20260919-mech537-c4b-floor-to-ceiling-rule (RULE 1)"
+INSENSITIVITY_RATIO_MAX_LEGACY_1043 = 0.50   # recorded for comparability; NOT scored
+# ---- 1043b (E1): the RANDOM RANK-r REFERENCE DISTRIBUTION --------------------------------
+# EVERY constant in this block is fixed by the PRE-REGISTRATION
+# REE_assembly/evidence/planning/v3_exq_1043b_prereg_rank_coprimary_20260922.md
+# (origin/master 927cf907e49), written and LANDED before this driver existed. None of them
+# may be changed after any cell has run -- that is violation 3 in its section 12.
+#
+# B = 1000. RESOLUTION IS CAPPED AT 1/B: with the +1 correction the smallest attainable
+# per-seed p is 1/(B+1). B is chosen for RANK RESOLUTION, not for de-noising, and the two
+# give different answers -- which is why the 2026-09-20 smoke's B=50 recommendation (derived
+# for the de-noising use, SE of the draw mean 0.0035) does NOT carry over. Projecting the
+# smoke's observed fractions to larger B, the pre-registered SIMES robustness check returns
+# p = 0.12 at B=24, p = 0.059 at B=50 (NOT significant, purely from resolution censoring),
+# p = 0.0149 at B=200, and p = 0.0030 at B=1000. Prereg section 6 carries the full table.
+# Cost: ~1.66 s per replicate (one decoder fit; an RRR refit is ~0.06 s and is NOT in this
+# loop), so ~28 min/seed, ~2.8 h over six seeds.
+N_RANDRANK_DRAWS = 1000
+# K refits, matching the smoke's K_FIXED = 8 so the decoder-noise estimate is directly
+# comparable to the landed probe. Used for (a) the non-degeneracy gate's decoder-variance
+# term, (b) mean_K(D_comm) in the DECLARED PRIMARY, and (c) percentile_refit_spread.
+N_DECODER_REFITS = 8
+# One-sided alpha for the RANK CO-PRIMARY (Fisher, and the Simes robustness check). LOW
+# percentile = effect present. This is the conventional combined-test alpha, NOT a domain
+# effect-size constant -- in particular it is NOT ORIENTATION_MARGIN, which is also 0.05.
+# The collision is coincidental and is called out so no reader conflates them.
+RANK_ALPHA = 0.05
+# ---- 1043b (E2): the NON-DEGENERACY readiness gate (option A's gate) ---------------------
+# Replaces 1043a's `randrank_control_supra_trivial` elevation gate, which refused the whole
+# run at readiness and adjudicated nothing. This gate certifies what the gate's own shipped
+# purpose text says -- that a low D_comm carries information about ORIENTATION, i.e. that
+# D_comm is RESOLVABLE inside the reference distribution -- rather than elevation over an
+# unrelated baseline. Justified mechanistically, NOT calibrated to pass:
+#   * below 2x, the reference distribution's spread is not dominated by subspace orientation,
+#     so a percentile measures decoder refit jitter rather than orientation. Smoke clears it
+#     6/6 with ratios 3.69/3.05/3.40/8.33/3.62/5.82, minimum 3.05 -- disclosed in the prereg.
+NONDEGENERACY_ORIENTATION_RATIO = 2.0
+#   * held-out steps are ~2000, so ONE classification flip moves the agreement statistic by
+#     ~1/2000 = 0.0005. A floor of 0.005 = ~10 flips asserts the distribution's spread exceeds
+#     the granularity of the statistic itself. Smoke minimum sd_total 0.0191, ~3.8x above.
+NONDEGENERACY_SD_FLOOR = 0.005
+# ---- 1043b (E3): the per-seed COMPETENCE INCLUSION criterion -----------------------------
+# 1043a's elevation bar, re-scoped from a GLOBAL GATE at 0.05 to a PER-SEED INCLUSION
+# criterion at 0.0. Two differences matter: it asks "competent at all", not "competent by a
+# margin"; and it scopes a SEED out, never the whole run. A seed whose own rr_mean does not
+# exceed its own strongest trivial predictor has an INCOMPETENT reference distribution and is
+# NON-CONTRIBUTORY -- which is NOT evidence of no effect.
+COMPETENCE_MARGIN = 0.0
+# ---- 1043b (E4): the mechanical SPLIT declaration ----------------------------------------
+# The design must report a split as the finding rather than average it away (prereg 7).
+SPLIT_LOW = 0.05
+SPLIT_HIGH = 0.25
+# ---- 1043b (E5): the DECLARED PRIMARY's own constants ------------------------------------
+# H1-small-but-real's declared null, verbatim from hypothesis_space_registry.v1.json qid
+# mech537_communication_subspace_orientation: "the CI excludes 0.05 (H1 falsified, not
+# rescued)". Reported whatever it says; EXPECTED to be undecided at n=6 (prereg section 2).
+H1_DECLARED_FLOOR = 0.05
+PRIMARY_CI_LEVEL = 0.95
+# ---- R2: the parsimonious rank ----------------------------------------------------------
+# The SMALLEST rank whose grouped-CV held-out R^2 is within this tolerance of the ladder
+# maximum. The autopsy's own wording ("within 0.001 of its maximum"); replaying it over
+# V3-EXQ-1043's landed rrr_heldout_r2_by_rank reproduces its stated 8 / 10 / 10.
+PARSIMONIOUS_R2_TOL = 1.0e-3
+# ---- R3: the attainable-floor probe -----------------------------------------------------
+# States used for the finite-difference Jacobian. The Jacobian is RANK-INDEPENDENT, so it is
+# built once per seed and the top-r eigenvectors are taken per rank.
+N_JACOBIAN_STATES = 32
+# Finite-difference step for the Jacobian, as a fraction of the mean held-out centred sender
+# norm -- the SAME scale the sensitivity probe uses, so the floor is measured in the same
+# regime as the quantity it anchors.
+JACOBIAN_EPS_FRAC = 0.05
+STABILITY_MARGIN_OVER_CHANCE = 0.15  # the cross-stratum basis overlap must clear the MEASURED
+                               # chance level (two independent rank-r subspaces in this
+                               # sender's live dims) by this margin. Self-calibrating: chance
+                               # overlap scales with rank/dim, so an absolute bar would mean
+                               # something different at every CV-selected rank.
+SPAN_OVERLAP_MIN = 0.50        # a cross-stratum basis disagreement counts against the premise
+                               # only when the two strata's own data spans overlap at least
+                               # this much -- otherwise the bases differ because the visitation
+                               # differs, not because the receiver state does (F7)
+SUBSPACE_STABILITY_MIN = 0.50  # min mean_squared_cosine_overlap (cross-seed and cross-stratum)
+
+# FROZEN POSITIVE-CONTROL REFERENCES for the readiness anchors, copied verbatim from
+# `evidence/experiments/v3_exq_1008_zworld_adequacy_portfolio_ws250_rebasis_20260907T233826Z_v3.json`
+# `arm_results[]` -- the SAME arms, protocol, oracle and trivial-predictor family this driver
+# reuses. They are what makes each gate demonstrably REACHABLE rather than a hand-written
+# predicate narrower than the state it anchors to (validate_experiments' anchor-reachability
+# warning; failure_autopsy_SD-068-rem-fanout-cluster_2026-07-18 sec 2).
+REF_1008_WS250_FULL_AGREEMENT = [0.9399441480636597, 0.933527410030365, 0.9424936175346375]
+REF_1008_WS250_FULL_ELEVATION = [0.3738361597061157, 0.35322660207748413, 0.3704834580421448]
+REF_1008_WS250_RANDPROJ_ELEVATION = [0.2202048897743225, 0.20621061325073242,
+                                     0.17251908779144287]
+REF_1008_SOURCE = ("v3_exq_1008_zworld_adequacy_portfolio_ws250_rebasis_"
+                   "20260907T233826Z_v3.json arm_results[] seeds 42/43/44")
+
+# 1..32. The shared instrument DEFAULTS to 1..min(16, dx, dy), and the mid-scale smoke showed
+# cross-validation SATURATING at that 16 -- i.e. the ladder, not the data, was choosing the
+# rank, which would make "the RRR rank selected by cross-validation" (MECH-537's own
+# operationalisation) untrue of this run. 32 = dy, the largest meaningful RRR rank: at rank dy
+# the rank constraint is inactive and the fit IS unconstrained OLS, so there is nothing beyond
+# it to select and a selection AT 32 is a genuine cross-validated verdict rather than a ladder
+# artefact. `rrr_rank_at_ladder_ceiling` is recorded per seed either way.
+RRR_RANKS = list(range(1, 33))
+RRR_FOLDS = 5
+# RELATIVE ridge, scaled in-run to mean(diag(Xc^T Xc)). An ABSOLUTE 1e-6 is what the shared
+# instrument defaults to and it is NOT usable on this sender: `world_state` is largely a 5x5x7
+# one-hot local view, so many of its 250 dimensions are exactly constant on a split, land
+# exactly at zero after the train-split z-score, and make Xc^T Xc EXACTLY SINGULAR -- a ridge
+# eight orders of magnitude below the other diagonal entries does not rescue the LU. Caught by
+# this driver's own --dry-run smoke (`torch.linalg.solve: the input matrix is singular`), which
+# is why the smoke runs before anything is queued. Scaling the ridge to the design makes the
+# solve well-conditioned at any sample size.
+RRR_RIDGE_REL = 1.0e-4
+# Dimensions whose TRAIN-SPLIT raw std sits at or below the standardiser's eps floor are
+# exactly constant: they are identically zero after standardisation, carry no information for
+# any decoder, and are pure padding in the RRR design. They are dropped from the RRR FIT ONLY
+# and the fitted basis is embedded back into the full 250-dim ambient space with zero rows, so
+# every arm still presents the decoder with 250 dims (the capacity match is untouched) and the
+# dropped dims land, correctly and harmlessly, in the orthogonal complement.
+SENDER_DIM_STD_FLOOR = STANDARDISER_EPS
+
+N_SENSITIVITY_STATES = 64
+N_SENSITIVITY_DIRECTIONS = 16
+SENSITIVITY_EPS_FRACS = (0.05, 0.10)   # of the mean held-out centred sender norm
+
+# n RAISED from 3 to 6 (R4). 42/43/44 are the 1002 / 1008 / 1010 / 1043 lineage seeds and are
+# kept so the 1043 comparison is direct; 45/46/47 extend it. Not a reef config at this rung,
+# so the seed-44 reef-instability rule does not apply (x1002 line ~557).
+SEEDS = [42, 43, 44, 45, 46, 47]
+
+DRY_RUN_SEEDS = [42]
+DRY_RUN_ZWORLD_P0 = x1002.DRY_RUN_ZWORLD_P0
+DRY_RUN_P0 = x1002.DRY_RUN_P0
+DRY_RUN_P1 = x1002.DRY_RUN_P1
+DRY_RUN_STEPS = x1002.DRY_RUN_STEPS
+DRY_RUN_BC_EPISODES = x1002.DRY_RUN_BC_EPISODES
+DRY_RUN_BC_RANDOM_EPISODES = x1002.DRY_RUN_BC_RANDOM_EPISODES
+DRY_RUN_ADAPTER_PASSES = x1002.DRY_RUN_ADAPTER_PASSES
+DRY_RUN_SENS_STATES = 4
+DRY_RUN_SENS_DIRECTIONS = 3
+DRY_RUN_RANDRANK_DRAWS = 4
+DRY_RUN_DECODER_REFITS = 2
+DRY_RUN_JACOBIAN_STATES = 2
+
+# ---- arms --------------------------------------------------------------------------------
+ARM_FULL = "ws250_full"
+ARM_COMM = "ws250_comm"
+ARM_PERP = "ws250_perp"
+ARM_RAND = "ws250_randrank"
+# R2: the SAME three subspace arms re-instantiated at the PARSIMONIOUS rank. `ws250_full` is
+# rank-independent and is fitted once, so there is no `_p` twin for it.
+ARM_COMM_P = "ws250_comm_parsrank"
+ARM_PERP_P = "ws250_perp_parsrank"
+ARM_RAND_P = "ws250_randrank_parsrank"
+# 1043b: the reference-distribution arm -- one random rank-r draw, refit through the
+# IDENTICAL decoder protocol. B of these per seed form the reference distribution.
+ARM_RAND_DRAW = "ws250_randrank_parsrank_draw"
+ARM_IDS = [ARM_FULL, ARM_COMM, ARM_PERP, ARM_RAND]
+ARM_IDS_PARS = [ARM_COMM_P, ARM_PERP_P, ARM_RAND_P]
+
+_ZG = ZGoalStreamAccumulator()
+
+
+# ==========================================================================================
+# helpers
+# ==========================================================================================
+def _mean(vals: Sequence[float]) -> float:
+    vals = [float(v) for v in vals if v is not None and np.isfinite(float(v))]
+    return float(np.mean(vals)) if vals else float("nan")
+
+
+def _sd(vals: Sequence[float]) -> float:
+    vals = [float(v) for v in vals if v is not None and np.isfinite(float(v))]
+    return float(np.std(vals, ddof=0)) if len(vals) > 1 else 0.0
+
+
+def _worst(vals: Sequence[float], cells: Sequence[str]) -> Tuple[float, str]:
+    """The WORST (minimum) value and the cell id that carries it.
+
+    Reported instead of a mean wherever a precondition's `met` is a worst-case claim, so the
+    indexer's recompute reads the same statistic the claim makes (skill Step 3).
+    """
+    pairs = [(float(v), str(c)) for v, c in zip(vals, cells)
+             if v is not None and np.isfinite(float(v))]
+    if not pairs:
+        return (float("nan"), "")
+    return min(pairs, key=lambda p: p[0])
+
+
+def _contrast_discriminated(per_seed: Sequence[float], eps: float = 1e-9) -> bool:
+    """Did this contrast's two arms actually produce different agreements anywhere?
+
+    An all-zero delta vector is a VACUOUS pass, not a null result: it means the projection
+    changed nothing the decoder could see. Reported as `criteria_non_degenerate[...] = false`
+    so the indexer flags it rather than scoring it.
+    """
+    vals = [float(v) for v in per_seed if v is not None and np.isfinite(float(v))]
+    return bool(vals) and float(max(abs(v) for v in vals)) > float(eps)
+
+
+def _random_orthonormal(in_dim: int, k: int, seed: int) -> torch.Tensor:
+    """[in_dim, k] with orthonormal columns, deterministic in `seed`.
+
+    Reimplemented locally (identically in substance to `interface_probe._random_orthonormal`
+    and `x1008._random_orthonormal`) rather than reaching into another module's private name.
+    A dedicated generator, so this draw never perturbs the cell's own RNG stream.
+    """
+    g = torch.Generator().manual_seed(int(seed))
+    q, _r = torch.linalg.qr(torch.randn(int(in_dim), int(k), generator=g, dtype=torch.float64))
+    return q.contiguous().float()
+
+
+def _live_sender_dims(st: Dict[str, Any], d: int) -> torch.Tensor:
+    """Indices of the sender dimensions that actually VARY on the train split.
+
+    See SENDER_DIM_STD_FLOOR. Falls back to every dimension if no standardiser was fitted.
+    """
+    if not st.get("fitted"):
+        return torch.arange(int(d))
+    sd = st["std"].reshape(-1)
+    keep = (sd > float(SENDER_DIM_STD_FLOOR)).nonzero(as_tuple=False).reshape(-1)
+    return keep if int(keep.numel()) > 0 else torch.arange(int(d))
+
+
+def _rrr_ridge_abs(x: torch.Tensor) -> float:
+    """RRR_RIDGE_REL scaled to the design's mean diagonal energy (see RRR_RIDGE_REL)."""
+    if int(x.shape[0]) < 2:
+        return float(RRR_RIDGE_REL)
+    xc = (x - x.mean(dim=0, keepdim=True)).to(torch.float64)
+    diag_mean = float((xc * xc).sum(dim=0).mean())
+    return float(RRR_RIDGE_REL) * max(diag_mean, 1.0)
+
+
+def _embed_basis(basis_sub: torch.Tensor, keep: torch.Tensor, d: int) -> torch.Tensor:
+    """Lift a [len(keep), k] basis back into the full [d, k] ambient sender space.
+
+    Orthonormality is preserved exactly: the added rows are zeros, so the Gram matrix is
+    unchanged. Asserted in --self-test.
+    """
+    out = torch.zeros(int(d), int(basis_sub.shape[1]), dtype=basis_sub.dtype)
+    out[keep] = basis_sub
+    return out
+
+
+def _project(x: torch.Tensor, basis: torch.Tensor) -> torch.Tensor:
+    """Orthogonal projection of rows of `x` [N, d] onto the column space of `basis` [d, k].
+
+    Returns a [N, d] AMBIENT tensor, not [N, k]: every arm must present the decoder with the
+    same `in_dim`, so the capacity match holds by construction (docstring, THE FOUR ARMS).
+    """
+    if int(basis.shape[1]) == 0:
+        return torch.zeros_like(x)
+    return (x @ basis) @ basis.T
+
+
+def _heldout_r2_linear(x_tr: torch.Tensor, y_tr: torch.Tensor,
+                       x_te: torch.Tensor, y_te: torch.Tensor,
+                       ridge: float = 1.0e-6) -> float:
+    """Held-out R^2 of a ridge linear map x -> y, fitted on train, scored on test.
+
+    CORROBORATING DIAGNOSTIC ONLY -- never a criterion. See the docstring's STATED LIMITATION.
+    """
+    if int(x_tr.shape[0]) < 2 or int(x_te.shape[0]) < 2:
+        return float("nan")
+    xt = x_tr.to(torch.float64)
+    yt = y_tr.to(torch.float64)
+    xm = xt.mean(dim=0, keepdim=True)
+    ym = yt.mean(dim=0, keepdim=True)
+    xc = xt - xm
+    b = torch.linalg.solve(xc.T @ xc + ridge * torch.eye(xc.shape[1], dtype=torch.float64),
+                           xc.T @ (yt - ym))
+    pred = (x_te.to(torch.float64) - xm) @ b + ym
+    yv = y_te.to(torch.float64)
+    ss_res = float(((yv - pred) ** 2).sum())
+    ss_tot = float(((yv - yv.mean(dim=0, keepdim=True)) ** 2).sum())
+    if ss_tot <= 0.0:
+        return float("nan")
+    return float(1.0 - ss_res / ss_tot)
+
+
+def _ws250_features(episodes: List[Dict[str, Any]]
+                    ) -> Tuple[torch.Tensor, torch.Tensor, List[int]]:
+    """(X [N, 250], y [N], episode_id [N]) in the SAME row order every extractor here walks.
+
+    `x1002._zworld_features` walks episodes in order and steps in order; so does this, so the
+    two are aligned row-for-row by construction and the episode ids double as the RRR's
+    grouped-CV keys (never a per-row split: adjacent grid-world steps are strongly correlated).
+    """
+    xs: List[torch.Tensor] = []
+    ys: List[int] = []
+    gids: List[int] = []
+    for ep_i, ep in enumerate(episodes):
+        for obs, lab in zip(ep["obs"], ep["labels"]):
+            w = obs.get("world_state")
+            if w is None:
+                raise KeyError("obs_dict has no 'world_state' -- this driver cannot run "
+                               "without the encoder's own input tensor.")
+            t = w if isinstance(w, torch.Tensor) else torch.as_tensor(w)
+            xs.append(t.reshape(-1).float().to(DEVICE))
+            ys.append(int(lab))
+            gids.append(int(ep_i))
+    if not xs:
+        return (torch.zeros(0, WORLD_STATE_DIM), torch.zeros(0, dtype=torch.long), [])
+    return (torch.stack(xs), torch.tensor(ys, dtype=torch.long), gids)
+
+
+def _episode_ids(episodes: List[Dict[str, Any]]) -> List[int]:
+    out: List[int] = []
+    for ep_i, ep in enumerate(episodes):
+        out.extend([int(ep_i)] * len(ep["labels"]))
+    return out
+
+
+def _trivial_agreement(episodes_tr: List[Dict[str, Any]],
+                       episodes_te: List[Dict[str, Any]],
+                       y_tr: torch.Tensor, y_te: torch.Tensor,
+                       action_dim: int) -> Dict[str, Any]:
+    """The STRONGEST TRIVIAL predictor on this task, and the majority-class one.
+
+    x1002 measured previous-executed-action at 0.568-0.582 held-out -- far above the majority
+    class -- so elevation is reported over the stronger of the two, exactly as 1002 does.
+    """
+    maj_te, maj_share = x1002._state_blind_agreement(y_tr, y_te, action_dim)
+    prev_te = x1002._prev_action_vector(episodes_te)
+    prev_agree = None
+    if int(prev_te.shape[0]) == int(y_te.shape[0]) and int(y_te.shape[0]) > 0:
+        prev_agree = float((prev_te == y_te).float().mean().item())
+    cands = [v for v in (maj_te, prev_agree) if v is not None]
+    strongest = max(cands) if cands else None
+    return {"majority_class_agreement": maj_te,
+            "majority_class_train_share": float(maj_share),
+            "prev_action_agreement": prev_agree,
+            "strongest_trivial_agreement": strongest}
+
+
+# ==========================================================================================
+# the sensitivity probe (the causal leg)
+# ==========================================================================================
+def _sensitivity(agent, obs_rows: List[Dict[str, Any]], basis_raw: torch.Tensor,
+                 eps_abs: float, n_dirs: int, seed: int,
+                 direction_pool: Optional[torch.Tensor] = None) -> Dict[str, float]:
+    """Mean ||dz_world|| for unit perturbations drawn INSIDE and OUTSIDE `basis_raw`.
+
+    Both conditions perturb by the SAME absolute raw-space magnitude `eps_abs` along a UNIT
+    raw-space direction, so the comparison is norm-matched at the encoder's input. Every
+    measurement is taken from the canonical post-reset recurrent state (docstring, THE CAUSAL
+    LEG) -- the baseline is recomputed under the same reset immediately before each perturbed
+    call, so the two never share a mutated state.
+
+    ON-MANIFOLD DIRECTIONS (`direction_pool`, [M, d] of real held-out sender rows). The raw
+    direction is drawn as a DIFFERENCE OF TWO REAL OBSERVATIONS, not as an isotropic Gaussian.
+    This matters and the mid-scale smoke is what showed it: the RRR explained 99.9% of
+    `z_world` variance on the trajectory while an isotropic-Gaussian complement perturbation
+    still moved z_world 76% as much as a communication-subspace one. There is no contradiction
+    -- R^2 is measured ON the data manifold and an isotropic direction leaves it -- but it
+    means an isotropic probe scores the encoder's response in a regime it never operates in,
+    which is not what "the consumer is insensitive to the complement" asserts. A difference of
+    two observed states is on-manifold by construction and needs no PCA or threshold. The
+    Gaussian fallback is kept only for a degenerate/empty pool.
+    """
+    d = int(basis_raw.shape[0])
+    k = int(basis_raw.shape[1])
+    g = torch.Generator().manual_seed(int(seed))
+    pool_n = int(direction_pool.shape[0]) if direction_pool is not None else 0
+    inside: List[float] = []
+    outside: List[float] = []
+    for obs in obs_rows:
+        w = torch.as_tensor(obs["world_state"]).reshape(-1).float()
+        # The baseline is a pure function of (reset state, obs), so it is IDENTICAL for every
+        # direction at this state -- computed once. `agent.reset()` immediately before each
+        # sense() is what makes that true and is what keeps the baseline and the perturbed
+        # call from ever sharing a mutated recurrent state.
+        agent.reset()
+        z0 = x737._agent_zworld(agent, obs)
+        for _j in range(int(n_dirs)):
+            if pool_n >= 2:
+                i0 = int(torch.randint(pool_n, (1,), generator=g).item())
+                i1 = int(torch.randint(pool_n, (1,), generator=g).item())
+                gv = (direction_pool[i0] - direction_pool[i1]).reshape(-1).float()
+                if float(gv.norm()) <= 1e-12:
+                    gv = torch.randn(d, generator=g)
+            else:
+                gv = torch.randn(d, generator=g)
+            proj = basis_raw @ (basis_raw.T @ gv) if k > 0 else torch.zeros(d)
+            din = proj
+            dout = gv - proj
+            for vec, sink in ((din, inside), (dout, outside)):
+                nrm = float(vec.norm())
+                if nrm <= 1e-12:
+                    continue
+                obs_p = dict(obs)
+                obs_p["world_state"] = (w + float(eps_abs) * (vec / nrm))
+                agent.reset()
+                z1 = x737._agent_zworld(agent, obs_p)
+                sink.append(float((z1 - z0).norm()))
+    m_in = _mean(inside)
+    m_out = _mean(outside)
+    ratio = float(m_out / m_in) if (np.isfinite(m_in) and m_in > 1e-12) else float("nan")
+    return {"mean_dz_inside": m_in, "mean_dz_outside": m_out,
+            "sensitivity_ratio": ratio,
+            "direction_source": ("observed_state_differences" if pool_n >= 2
+                                 else "isotropic_gaussian_fallback"),
+            "n_direction_pool": int(pool_n),
+            "n_inside": len(inside), "n_outside": len(outside)}
+
+
+def _decision_sensitivity(agent, obs_rows: List[Dict[str, Any]], basis_std: torch.Tensor,
+                          std_vec: torch.Tensor, eps_abs: float) -> Dict[str, float]:
+    """||dz_world|| for perturbations along the COMM and COMPLEMENT components of each of the
+    FIVE coordinates the oracle actually reads. This is what C4 scores (see the F1 note).
+
+    The split is taken in the STANDARDISED basis -- the same decomposition C1/C2/C3 use -- and
+    each component is then mapped to raw sender space and normalised, so the two conditions are
+    unit raw directions at matched magnitude AND refer to the same subspace the decode arms do.
+    Deterministic: no random draw is involved at all, because the probe directions are named by
+    the oracle's own definition rather than sampled.
+    """
+    d = int(basis_std.shape[0])
+    k = int(basis_std.shape[1])
+    inside: List[float] = []
+    outside: List[float] = []
+    per_index: Dict[str, Dict[str, float]] = {}
+    for j in DECISION_INDICES:
+        e_raw = torch.zeros(d)
+        e_raw[int(j)] = 1.0
+        e_std = e_raw / std_vec                       # raw -> standardised coordinates
+        comp_in_std = basis_std @ (basis_std.T @ e_std) if k > 0 else torch.zeros(d)
+        comp_out_std = e_std - comp_in_std
+        # UN-NORMALISED components, deliberately. In raw space e_j = raw_in + raw_out exactly
+        # (the split is orthogonal in the standardised basis, so a^2 + b^2 need not equal 1
+        # here -- the decomposition, not the Pythagorean identity, is what is exact). The
+        # consumer's response to a change in the decision coordinate is a*J(u_in) + b*J(u_out),
+        # so a ratio taken between UNIT directions silently drops the weights a and b -- and
+        # they are exactly what carries the routing statement: where the comm retention `a` is
+        # LOW (which is the regime in which C1/C2 pass) a unit-normalised ratio is deflated by
+        # b/a and C4 can read "insensitive" while the complement path in fact dominates what
+        # the consumer sees. Perturbing by the components themselves keeps the weights inside
+        # the measurement. The unit-normalised per-unit-direction ratio is still recorded, as a
+        # diagnostic, so both readings are on the record.
+        vals: Dict[str, float] = {}
+        norms: Dict[str, float] = {}
+        for name, comp_std, sink in (("in", comp_in_std, inside),
+                                     ("out", comp_out_std, outside)):
+            raw_dir = comp_std * std_vec              # standardised -> raw coordinates
+            nrm = float(raw_dir.norm())
+            norms[name] = nrm
+            if nrm <= 1e-12:
+                vals[name] = float("nan")
+                vals[name + "_per_unit"] = float("nan")
+                continue
+            tot = 0.0
+            n = 0
+            for obs in obs_rows:
+                w = torch.as_tensor(obs["world_state"]).reshape(-1).float()
+                agent.reset()
+                z0 = x737._agent_zworld(agent, obs)
+                obs_p = dict(obs)
+                obs_p["world_state"] = (w + float(eps_abs) * raw_dir)
+                agent.reset()
+                z1 = x737._agent_zworld(agent, obs_p)
+                tot += float((z1 - z0).norm())
+                n += 1
+            m = float(tot / n) if n else float("nan")
+            vals[name] = m
+            vals[name + "_per_unit"] = (float(m / nrm) if nrm > 1e-12 else float("nan"))
+            if np.isfinite(m):
+                sink.append(m)
+        per_index[str(j)] = {
+            "mean_dz_comm_component": vals.get("in", float("nan")),
+            "mean_dz_complement_component": vals.get("out", float("nan")),
+            "mean_dz_comm_per_unit": vals.get("in_per_unit", float("nan")),
+            "mean_dz_complement_per_unit": vals.get("out_per_unit", float("nan")),
+            "raw_norm_comm_component": norms.get("in", float("nan")),
+            "raw_norm_complement_component": norms.get("out", float("nan")),
+        }
+    m_in = _mean(inside)
+    m_out = _mean(outside)
+    ratio = float(m_out / m_in) if (np.isfinite(m_in) and m_in > 1e-12) else float("nan")
+    pu_in = _mean([v["mean_dz_comm_per_unit"] for v in per_index.values()])
+    pu_out = _mean([v["mean_dz_complement_per_unit"] for v in per_index.values()])
+    return {"mean_dz_inside": m_in, "mean_dz_outside": m_out, "sensitivity_ratio": ratio,
+            "per_unit_sensitivity_ratio_diagnostic": (float(pu_out / pu_in)
+                                                      if (np.isfinite(pu_in) and pu_in > 1e-12)
+                                                      else float("nan")),
+            "mean_raw_norm_comm_component":
+                _mean([v["raw_norm_comm_component"] for v in per_index.values()]),
+            "mean_raw_norm_complement_component":
+                _mean([v["raw_norm_complement_component"] for v in per_index.values()]),
+            "per_decision_index": per_index, "n_decision_indices": len(DECISION_INDICES)}
+
+
+# ==========================================================================================
+# per-seed work
+# ==========================================================================================
+def _run_seed(seed: int, action_dim: int, env_kwargs: Dict[str, Any],
+              cfg_slice: Dict[str, Any], zworld_p0: int, p0: int, p1: int, steps: int,
+              bc_eps: int, bc_rand: int, passes: int, n_sens_states: int,
+              n_sens_dirs: int, n_draws: int, n_refits: int, n_jac_states: int,
+              dry_run: bool) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+    """One seed: collect, warm up ONCE, freeze, estimate P_comm, run every arm + leg.
+
+    1043a adds, after V3-EXQ-1043's four arms: the parsimonious-rank re-read (R2), the
+    within-episode permutation null for C2 (R1), and the Jacobian-aligned attainable-floor
+    probe that anchors C4b (R3).
+    """
+    print("Seed %d Condition %s:comm_subspace_routing" % (seed, RUNG_ID), flush=True)
+
+    # ---- dataset (shared by every arm, step-for-step) -------------------------------------
+    ep_oracle = x1002._collect_episodes(seed, env_kwargs, "oracle", bc_eps, steps)
+    ep_random = x1002._collect_episodes(seed, env_kwargs, "random", bc_rand, steps)
+    tr_eps, te_eps = x1002._split_episodes(ep_oracle)
+
+    # ---- warm up ONCE, then FREEZE --------------------------------------------------------
+    print("Seed %d Condition %s:warmup" % (seed, RUNG_ID), flush=True)
+    warm_env = x734._make_env(seed, env_kwargs)
+    agent = x1002._make_agent(warm_env)
+    before = latent_stack_snapshot(agent)
+    x734._train_all_on_agent(
+        agent, warm_env, seed=seed, p0_episodes=p0, p1_episodes=p1,
+        steps_per_episode=steps, rung_id=RUNG_ID, total_denominator=(p0 + p1),
+        zworld_p0_episodes=zworld_p0,
+        zworld_p0_env=(x734._make_env(seed, env_kwargs) if zworld_p0 > 0 else None),
+        zworld_p0_dry_run=dry_run,
+        zworld_p0_resource_field_weight=0.0,   # 978's OFF arm, exactly as 1002/1008/1010
+    )
+    guard = latent_stack_weight_delta(agent, before)
+    _ZG.observe(agent)
+    # ENCODER FROZEN from here: every read below is under torch.no_grad (via _agent_zworld)
+    # and no optimiser ever touches the agent again.
+
+    # ---- sender / receiver tensors, aligned row-for-row ------------------------------------
+    x_tr, y_tr, g_tr = _ws250_features(tr_eps)
+    x_te, y_te, _g_te = _ws250_features(te_eps)
+    x_rd, y_rd, g_rd = _ws250_features(ep_random)
+    z_tr, _yz = x1002._zworld_features(agent, tr_eps)
+    z_te, _yz2 = x1002._zworld_features(agent, te_eps)
+    z_rd, _yz3 = x1002._zworld_features(agent, ep_random)
+    assert int(x_tr.shape[0]) == int(z_tr.shape[0]), "sender/receiver row misalignment (train)"
+    assert int(x_te.shape[0]) == int(z_te.shape[0]), "sender/receiver row misalignment (test)"
+
+    # ---- ONE standardiser, fitted on the TRAIN split, applied everywhere -------------------
+    st = x1002._fit_standardiser(x_tr)
+    xs_tr = x1002._apply_standardiser(x_tr, st)
+    xs_te = x1002._apply_standardiser(x_te, st)
+    xs_rd = x1002._apply_standardiser(x_rd, st)
+
+    # ---- the communication subspace, fitted on TRAIN episodes only -------------------------
+    keep = _live_sender_dims(st, WORLD_STATE_DIM)
+    ridge_tr = _rrr_ridge_abs(xs_tr[:, keep])
+    css = communication_subspace(xs_tr[:, keep], z_tr, RRR_RANKS, groups=g_tr,
+                                 n_folds=RRR_FOLDS, ridge=ridge_tr, seed=seed)
+    rank = int(css.selected_rank)
+    b_std = _embed_basis(css.basis.float(), keep, WORLD_STATE_DIM)   # [250, rank], orthonormal
+    # F6 FIX: the random control is drawn INSIDE THE LIVE DIMENSIONS and embedded, so it has
+    # exactly the same support as the fitted basis (whose rows on the ~114 train-constant dims
+    # are exactly zero by `_embed_basis`). Drawn over all 250 it would squander ~46% of its
+    # rank on dimensions that are identically zero after standardisation -- which handicaps
+    # ARM_RAND against ARM_COMM and biases C2, the load-bearing criterion.
+    b_rand = _embed_basis(_random_orthonormal(int(keep.numel()), rank, seed=seed * 7919 + 13),
+                          keep, WORLD_STATE_DIM)
+    print("  [rrr] seed=%d selected_rank=%d heldout_r2=%.4f folds=%d rows=%d"
+          % (seed, rank, css.selected_heldout_r2, css.n_folds_used, css.n_rows), flush=True)
+
+    # cross-stratum stability: the SAME estimator on the random-driven visitation
+    css_rd = communication_subspace(xs_rd[:, keep], z_rd, RRR_RANKS, groups=g_rd,
+                                    n_folds=RRR_FOLDS, ridge=_rrr_ridge_abs(xs_rd[:, keep]),
+                                    seed=seed)
+    stratum = principal_angles(b_std, _embed_basis(css_rd.basis.float(), keep,
+                                                   WORLD_STATE_DIM))
+    # F7 FIX: a ridge RRR solution lies in the ROW SPACE OF THE VISITED DATA, so two strata
+    # that visit different parts of the observation space yield different bases for the SAME
+    # encoder. A low cross-stratum overlap is therefore only evidence about receiver-state
+    # dependence when the two strata's data spans themselves overlap. Measured, not assumed:
+    # the same principal-angle statistic between the strata's own top-r principal directions.
+    def _top_pcs(x: torch.Tensor, k: int) -> torch.Tensor:
+        xc = (x - x.mean(dim=0, keepdim=True)).to(torch.float64)
+        _u, _s, vt = torch.linalg.svd(xc, full_matrices=False)
+        return vt[:max(1, min(int(k), int(vt.shape[0]))), :].T.float()
+    span_overlap = principal_angles(_top_pcs(xs_tr[:, keep], rank),
+                                    _top_pcs(xs_rd[:, keep], rank))
+    # CHANCE LEVEL for the overlap statistic at THIS rank in THIS sender's live dimensions,
+    # measured rather than assumed: two independently drawn rank-r orthonormal bases. It is
+    # what makes every overlap number above interpretable (they are not near 0 for large r --
+    # two random rank-32 subspaces of a 136-dim space already overlap at ~0.24).
+    _chance = _mean([
+        float(principal_angles(
+            _random_orthonormal(int(keep.numel()), rank, seed=seed * 13 + 1000 * t),
+            _random_orthonormal(int(keep.numel()), rank, seed=seed * 13 + 1000 * t + 7)
+        )["mean_squared_cosine_overlap"]) for t in range(3)])
+
+    # ---- geometry: retained norm on the FIVE oracle decision coordinates -------------------
+    # 1008 measured PCA-32 retaining 0.23-0.29 of each decision direction and a random
+    # orthonormal projection 0.29-0.39, so these numbers are directly comparable to a
+    # published reference rather than free-floating.
+    def _retained(basis: torch.Tensor) -> Dict[str, Any]:
+        vals = []
+        for j in DECISION_INDICES:
+            e = torch.zeros(int(basis.shape[0]))
+            e[int(j)] = 1.0
+            vals.append(float((basis.T @ e).norm()))
+        return {"per_decision_index": {str(j): v for j, v in zip(DECISION_INDICES, vals)},
+                "max": float(max(vals)) if vals else float("nan"),
+                "mean": _mean(vals)}
+
+    geom = {"comm_subspace": _retained(b_std), "randrank_control": _retained(b_rand)}
+
+    # ---- the four arms ---------------------------------------------------------------------
+    trivial = _trivial_agreement(tr_eps, te_eps, y_tr, y_te, action_dim)
+    feats = {
+        ARM_FULL: (xs_tr, xs_te),
+        ARM_COMM: (_project(xs_tr, b_std), _project(xs_te, b_std)),
+        ARM_PERP: (xs_tr - _project(xs_tr, b_std), xs_te - _project(xs_te, b_std)),
+        ARM_RAND: (_project(xs_tr, b_rand), _project(xs_te, b_rand)),
+    }
+    arm_rows: List[Dict[str, Any]] = []
+    agreements: Dict[str, float] = {}
+
+    def _fit_arm(arm_id: str, f_tr: torch.Tensor, f_te: torch.Tensor,
+                 arm_rank: Optional[int], record: bool = True) -> float:
+        """Train ONE arm's decoder and return its held-out oracle agreement.
+
+        Extracted from V3-EXQ-1043's inline loop without changing it, so the parsimonious-rank
+        arms (R2) and the permutation-null refits (R1) go through the IDENTICAL protocol --
+        same trainer, same passes, same seed, same rows. A null built by a second, subtly
+        different training path would not be a null of this instrument.
+
+        `record=False` is used ONLY for the reference-distribution replicates: there are
+        N_RANDRANK_DRAWS of them per seed (plus N_DECODER_REFITS refits) and stamping an
+        arm_fingerprint cell for each would add a thousand rows per seed that no reader will
+        ever open. Their agreements are recorded in aggregate, as the reference distribution,
+        which is the object of interest.
+        """
+        if record:
+            with arm_cell(seed, config_slice=dict(cfg_slice, arm_id=arm_id,
+                                                  arm_selected_rank=arm_rank),
+                          script_path=Path(__file__), config_slice_declared=True,
+                          include_driver_script_in_hash=False,
+                          extra_ineligible_reasons=[
+                              "frozen_agent_and_fitted_subspace_shared_across_arms_within_seed"]
+                          ) as cell:
+                net, train_stats = x1002._train_adapter(f_tr, y_tr, action_dim, passes, seed,
+                                                        arm_id)
+                agree_te = x1002._agreement(net, f_te, y_te)
+                agree_tr = x1002._agreement(net, f_tr, y_tr)
+                strongest = trivial["strongest_trivial_agreement"]
+                row = {
+                    "cell_id": "%s|seed%d" % (arm_id, seed),
+                    "arm_id": arm_id,
+                    "seed": int(seed),
+                    "feature_dim": int(f_tr.shape[1]),
+                    "subspace_rank": arm_rank,
+                    "oracle_action_agreement": agree_te,
+                    "train_agreement_capacity_witness": agree_tr,
+                    "agreement_elevation": (None if (agree_te is None or strongest is None)
+                                            else float(agree_te - strongest)),
+                    "adapter_training": train_stats,
+                    "capacity_match": x1002._capacity_report(net, int(f_tr.shape[1]), action_dim),
+                    "heldout_steps": int(f_te.shape[0]),
+                }
+                cell.stamp(row)
+            arm_rows.append(row)
+            print("  [arm] seed=%d %s heldout_agreement=%.4f (train %.4f)"
+                  % (seed, arm_id, (agree_te if agree_te is not None else float("nan")),
+                     (agree_tr or float("nan"))), flush=True)
+        else:
+            net, _ts = x1002._train_adapter(f_tr, y_tr, action_dim, passes, seed, arm_id)
+            agree_te = x1002._agreement(net, f_te, y_te)
+        return float(agree_te) if agree_te is not None else float("nan")
+
+    for arm_id in ARM_IDS:
+        f_tr, f_te = feats[arm_id]
+        agreements[arm_id] = _fit_arm(
+            arm_id, f_tr, f_te,
+            (rank if arm_id in (ARM_COMM, ARM_PERP, ARM_RAND) else None))
+
+    # ---- corroborating variance routing (diagnostic, never a criterion) --------------------
+    r2 = {
+        "heldout_r2_from_full": _heldout_r2_linear(xs_tr, z_tr, xs_te, z_te),
+        "heldout_r2_from_comm": _heldout_r2_linear(_project(xs_tr, b_std), z_tr,
+                                                   _project(xs_te, b_std), z_te),
+        "heldout_r2_from_complement": _heldout_r2_linear(xs_tr - _project(xs_tr, b_std), z_tr,
+                                                         xs_te - _project(xs_te, b_std), z_te),
+    }
+
+    # ---- the causal leg --------------------------------------------------------------------
+    # Map the standardised-basis subspace back to RAW sender space and re-orthonormalise, so
+    # the two perturbation conditions really are orthogonal complements OF world_state and a
+    # unit direction in either is a unit direction at the encoder's input.
+    std_vec = (st["std"].reshape(-1) if st.get("fitted") else torch.ones(WORLD_STATE_DIM))
+    # F5 NOTE: `diag(std)` is NOT orthogonal, so the RAW-orthogonal complement of `b_raw` is
+    # not the image of the STANDARDISED-orthogonal complement the decode arms use. The
+    # decision-targeted probe C4 actually scores avoids the mismatch entirely by splitting in
+    # the standardised basis and only THEN mapping to raw; `b_raw` drives the generic probe,
+    # which is a secondary diagnostic. The rotation is measured rather than assumed.
+    b_raw, _r = torch.linalg.qr(torch.diag(std_vec) @ b_std)
+    b_raw = b_raw.contiguous()
+    std_basis_rotation = principal_angles(b_std, b_raw)
+    b_rand_live = _embed_basis(
+        _random_orthonormal(int(keep.numel()), rank, seed=seed * 104729 + 7),
+        keep, WORLD_STATE_DIM)
+    b_raw_null, _rn = torch.linalg.qr(torch.diag(std_vec) @ b_rand_live)
+    b_raw_null = b_raw_null.contiguous()
+
+    probe_obs: List[Dict[str, Any]] = []
+    for ep in te_eps:
+        probe_obs.extend(ep["obs"])
+    stride = max(1, len(probe_obs) // max(1, int(n_sens_states)))
+    probe_obs = probe_obs[::stride][:int(n_sens_states)]
+    centred = (x_te - x_te.mean(dim=0, keepdim=True)) if int(x_te.shape[0]) else x_te
+    base_norm = float(centred.norm(dim=1).mean()) if int(centred.shape[0]) else 1.0
+
+    # ---- F1 FIX: the DECISION-TARGETED probe, which is the one C4 scores ----------------
+    # A direction drawn generically from the complement puts ~1.5% of its energy on the five
+    # coordinates the oracle actually reads (5 of ~136 live dims), so a generic ratio measures
+    # "is the encoder's Jacobian isotropic off the RRR subspace", NOT "does the decision
+    # content reach the receiver through the communication subspace". The claim is about the
+    # latter, and this substrate hands us the five coordinates EXACTLY (x1008's
+    # DECISION_WORLD_STATE_INDICES, derived from LocalViewGreedyPolicy's own move deltas), so
+    # the probe can be aimed instead of sampled. For each decision coordinate e_j we split it
+    # into its communication-subspace and complement components IN THE STANDARDISED BASIS (the
+    # SAME decomposition C1/C2/C3 use -- see the F5 note at `b_raw`), map each component back
+    # to raw sender space, normalise to a unit raw direction, and perturb at matched eps.
+    dec_sens: Dict[str, Any] = {"by_eps": {}}
+    sens: Dict[str, Any] = {"base_sender_norm": base_norm, "by_eps": {}}
+    for frac in SENSITIVITY_EPS_FRACS:
+        eps_abs = float(frac) * base_norm
+        # The null control consumes the SAME direction pool and the same eps, so it differs
+        # from the measured condition in exactly one thing: whether the subspace the direction
+        # is split by was FITTED or drawn at random.
+        meas = _sensitivity(agent, probe_obs, b_raw, eps_abs, n_sens_dirs, seed=seed,
+                            direction_pool=x_te)
+        null = _sensitivity(agent, probe_obs, b_raw_null, eps_abs, n_sens_dirs,
+                            seed=seed + 50021, direction_pool=x_te)
+        sens["by_eps"][("%.3f" % frac)] = {
+            "eps_frac": float(frac), "eps_abs": eps_abs,
+            "measured": meas, "null_control": null,
+        }
+        dec_sens["by_eps"][("%.3f" % frac)] = {
+            "eps_frac": float(frac), "eps_abs": eps_abs,
+            "measured": _decision_sensitivity(agent, probe_obs, b_std, std_vec, eps_abs),
+            "null_control": _decision_sensitivity(agent, probe_obs, b_rand_live, std_vec,
+                                                  eps_abs),
+        }
+    primary_key = "%.3f" % SENSITIVITY_EPS_FRACS[-1]
+    sens["sensitivity_ratio"] = sens["by_eps"][primary_key]["measured"]["sensitivity_ratio"]
+    sens["null_sensitivity_ratio"] = \
+        sens["by_eps"][primary_key]["null_control"]["sensitivity_ratio"]
+    dec_sens["sensitivity_ratio"] = \
+        dec_sens["by_eps"][primary_key]["measured"]["sensitivity_ratio"]
+    dec_sens["null_sensitivity_ratio"] = \
+        dec_sens["by_eps"][primary_key]["null_control"]["sensitivity_ratio"]
+    print("  [sens] seed=%d DECISION ratio=%.4f null=%.4f | generic ratio=%.4f null=%.4f"
+          % (seed, dec_sens["sensitivity_ratio"], dec_sens["null_sensitivity_ratio"],
+             sens["sensitivity_ratio"], sens["null_sensitivity_ratio"]), flush=True)
+
+    # ======================================================================================
+    # 1043a (R2): THE PARSIMONIOUS-RANK RE-READ -- and the SCORED configuration
+    # ======================================================================================
+    # WHICH RANK THE CRITERIA READ, and why the whole scored set moves rather than C2 alone.
+    # The autopsy names C2 ("read it at the PARSIMONIOUS rank"). C4b, however, splits each
+    # oracle decision coordinate BY THE SAME SUBSPACE, and C5 asks whether THAT subspace is
+    # stable -- so scoring C2 at one rank and C4b/C5 at another would make the confirming
+    # conjunction a statement about two different subspaces, which is not a coherent
+    # alternative but a defect. The SCORED configuration is therefore the parsimonious rank
+    # throughout; the CV-selected-rank configuration (V3-EXQ-1043's exact one) is computed and
+    # RECORDED in full alongside it, so the comparison to 1043 stays direct and a later
+    # autopsy can contest this call against the numbers rather than against an absence.
+    # ROAD NOT TAKEN, recorded: score C2 at the parsimonious rank and leave C1/C3/C4/C5 at the
+    # CV-selected rank, i.e. 1043's configuration for everything the autopsy did not name.
+    r_pars = _parsimonious_rank(css.heldout_r2_by_rank)
+    css_p = communication_subspace(xs_tr[:, keep], z_tr, [r_pars], groups=g_tr,
+                                   n_folds=RRR_FOLDS, ridge=ridge_tr, seed=seed)
+    b_std_p = _embed_basis(css_p.basis.float(), keep, WORLD_STATE_DIM)
+    # Same live-dimension support as the fitted basis, for the same F6 reason as at the
+    # CV-selected rank; a distinct seed offset so this is an independent draw, not a nested
+    # sub-basis of the rank-`rank` control.
+    b_rand_p = _embed_basis(_random_orthonormal(int(keep.numel()), r_pars, seed=seed * 7919 + 131),
+                            keep, WORLD_STATE_DIM)
+    print("  [rrr] seed=%d parsimonious_rank=%d (tol=%.0e) heldout_r2=%.6f vs ladder_max=%.6f"
+          % (seed, r_pars, PARSIMONIOUS_R2_TOL, css_p.selected_heldout_r2,
+             max(css.heldout_r2_by_rank.values())), flush=True)
+
+    feats_p = {
+        ARM_COMM_P: (_project(xs_tr, b_std_p), _project(xs_te, b_std_p)),
+        ARM_PERP_P: (xs_tr - _project(xs_tr, b_std_p), xs_te - _project(xs_te, b_std_p)),
+        ARM_RAND_P: (_project(xs_tr, b_rand_p), _project(xs_te, b_rand_p)),
+    }
+    for arm_id in ARM_IDS_PARS:
+        f_tr, f_te = feats_p[arm_id]
+        agreements[arm_id] = _fit_arm(arm_id, f_tr, f_te, r_pars)
+
+    # cross-stratum stability AT THE SCORED RANK (C5's input)
+    css_rd_p = communication_subspace(xs_rd[:, keep], z_rd, [r_pars], groups=g_rd,
+                                      n_folds=RRR_FOLDS, ridge=_rrr_ridge_abs(xs_rd[:, keep]),
+                                      seed=seed)
+    stratum_p = principal_angles(b_std_p, _embed_basis(css_rd_p.basis.float(), keep,
+                                                       WORLD_STATE_DIM))
+    span_overlap_p = principal_angles(_top_pcs(xs_tr[:, keep], r_pars),
+                                      _top_pcs(xs_rd[:, keep], r_pars))
+    _chance_p = _mean([
+        float(principal_angles(
+            _random_orthonormal(int(keep.numel()), r_pars, seed=seed * 13 + 1000 * t + 500),
+            _random_orthonormal(int(keep.numel()), r_pars, seed=seed * 13 + 1000 * t + 507)
+        )["mean_squared_cosine_overlap"]) for t in range(3)])
+
+    geom_p = {"comm_subspace": _retained(b_std_p), "randrank_control": _retained(b_rand_p)}
+
+    # ======================================================================================
+    # 1043b (E1): THE RANDOM RANK-r REFERENCE DISTRIBUTION FOR C2
+    # ======================================================================================
+    # WHAT CHANGED FROM 1043a, AND WHY THE PERMUTATION NULL IS GONE RATHER THAN SUPPLEMENTED.
+    # 1043a refit the RRR on within-episode-shuffled sender/receiver pairing. That null
+    # answers "is the fitted map REAL?" -- and it answered it decisively: p = 1.0 on 6/6
+    # seeds, i.e. all 200 shuffled refits decoded WORSE than the real subspace. It does NOT
+    # answer "is its ORIENTATION special?", because it never constructs a random subspace of
+    # the same rank. The CONFIRMED autopsy failure_autopsy_V3-EXQ-1043a_2026-09-20.json says
+    # this in those words, and hypothesis H2-no-orientation in the registry names the correct
+    # reference explicitly: "not meaningfully different from A RANDOM SUBSPACE OF THE SAME
+    # RANK". So the permutation loop is REPLACED, not supplemented: its budget buys B draws.
+    #
+    #   reference[b] = D_randrank(r_pars) from an INDEPENDENT random rank-r_pars subspace
+    #   p[seed]      = ( #{b : reference[b] <= D_comm} + 1 ) / (B + 1)
+    #
+    # DIRECTION -- LOW p = EFFECT PRESENT. MECH-537's routing phenotype predicts D_comm is
+    # LOW (the communication subspace decodes the oracle's action WORSE than a random
+    # same-rank subspace), so few draws fall at or below it, so p is SMALL. Same sign as
+    # C2 = D_randrank - D_comm being positive. Pre-registration section 3.
+    #
+    # D_comm ENTERS AS A SINGLE FIT (refit 0), MATCHED TO THE DRAWS' SINGLE FITS. This is a
+    # correctness requirement, not an economy. The null tested is "D_comm is exchangeable
+    # with a random rank-r subspace", and exchangeability holds only between quantities
+    # produced by the SAME fit protocol. Averaging D_comm over K refits while comparing it to
+    # single-fit draws would shrink the numerator's noise but not the reference's, and would
+    # inflate apparent extremity. Under the null, p is exactly uniform on
+    # {1/(B+1), ..., (B+1)/(B+1)}.
+    #
+    # DRAW 0 IS 1043a'S OWN RECORDED DRAW. `b_rand_p` above is seeded `seed * 7919 + 131`,
+    # and draw 0 below reuses exactly that seed -- so the comparability form of the declared
+    # primary (prereg section 2) is 1043a's literal single-draw statistic, not a re-drawn
+    # approximation of it.
+    draw_agreements: List[float] = []
+    draw_seeds: List[int] = []
+    for b in range(int(n_draws)):
+        ds = int(seed) * 7919 + 131 + 1000 * b
+        basis_b = (b_rand_p if b == 0
+                   else _embed_basis(_random_orthonormal(int(keep.numel()), r_pars, seed=ds),
+                                     keep, WORLD_STATE_DIM))
+        a_b = (float(agreements[ARM_RAND_P]) if b == 0
+               else _fit_arm(ARM_RAND_DRAW, _project(xs_tr, basis_b),
+                             _project(xs_te, basis_b), r_pars, record=False))
+        draw_agreements.append(float(a_b))
+        draw_seeds.append(ds)
+        if (b + 1) % 100 == 0 or (b + 1) == int(n_draws):
+            print("  [draw] seed=%d replicate %d of %d D_randrank=%.4f"
+                  % (seed, b + 1, int(n_draws), float(a_b)), flush=True)
+
+    # ---- K refits of ONE FIXED draw: the DECODER-variance term alone ---------------------
+    # x1002._train_adapter NEVER SEEDS ANYTHING -- its `seed` / `arm_id` arguments are print
+    # labels; _make_adapter and torch.randperm both draw from the AMBIENT global RNG. So
+    # repeated fits of the SAME subspace differ, and the B-draw spread mixes SUBSPACE-
+    # ORIENTATION variance with DECODER-TRAINING variance. These K refits isolate the second
+    # so the non-degeneracy gate can assert the first DOMINATES. (Smoke: ~94% orientation.)
+    fixed_refits = [_fit_arm(ARM_RAND_DRAW, _project(xs_tr, b_rand_p),
+                             _project(xs_te, b_rand_p), r_pars, record=False)
+                    for _ in range(int(n_refits))]
+    # ---- K refits of the COMM subspace: mean_K(D_comm) + percentile_refit_spread ---------
+    comm_refits = [float(agreements[ARM_COMM_P])]
+    comm_refits += [_fit_arm(ARM_COMM_P + "_refit", _project(xs_tr, b_std_p),
+                             _project(xs_te, b_std_p), r_pars, record=False)
+                    for _ in range(max(0, int(n_refits) - 1))]
+
+    _draws = np.asarray([v for v in draw_agreements if np.isfinite(v)], dtype=float)
+    _fixed = np.asarray([v for v in fixed_refits if np.isfinite(v)], dtype=float)
+    sd_total = float(_draws.std(ddof=1)) if _draws.size > 1 else float("nan")
+    sd_decoder = float(_fixed.std(ddof=1)) if _fixed.size > 1 else float("nan")
+    # Orientation component by variance subtraction, CLAMPED AT 0: a negative estimate means
+    # the two are indistinguishable at this K, not that a variance is negative.
+    sd_orientation = (float(np.sqrt(max(sd_total ** 2 - sd_decoder ** 2, 0.0)))
+                      if (np.isfinite(sd_total) and np.isfinite(sd_decoder)) else float("nan"))
+
+    d_comm_single = float(comm_refits[0])
+    d_comm_mean_k = float(np.mean([v for v in comm_refits if np.isfinite(v)])) \
+        if any(np.isfinite(v) for v in comm_refits) else float("nan")
+    rr_mean = float(_draws.mean()) if _draws.size else float("nan")
+
+    rank_percentile = _reference_percentile(d_comm_single, draw_agreements)
+    # RECORDED, NOT SCORED (prereg section 3): the percentile recomputed from each of the K
+    # D_comm refits, so a reader can see how much of the rank verdict is decoder jitter.
+    percentile_refit_spread = [_reference_percentile(v, draw_agreements) for v in comm_refits]
+
+    # ---- the per-seed NON-DEGENERACY readiness gate (E2) ---------------------------------
+    nondegen_ratio = (sd_orientation / sd_decoder
+                      if (np.isfinite(sd_orientation) and np.isfinite(sd_decoder)
+                          and sd_decoder > 0.0) else float("nan"))
+    nondegenerate = bool(np.isfinite(nondegen_ratio)
+                         and nondegen_ratio >= float(NONDEGENERACY_ORIENTATION_RATIO)
+                         and np.isfinite(sd_total)
+                         and sd_total >= float(NONDEGENERACY_SD_FLOOR))
+    # ---- the per-seed COMPETENCE inclusion criterion (E3) --------------------------------
+    _strongest = trivial["strongest_trivial_agreement"]
+    competence_margin = (float(rr_mean - _strongest)
+                         if (np.isfinite(rr_mean) and _strongest is not None)
+                         else float("nan"))
+    competent = bool(np.isfinite(competence_margin)
+                     and competence_margin > float(COMPETENCE_MARGIN))
+
+    c2_obs_p = float(agreements[ARM_RAND_P] - agreements[ARM_COMM_P])   # 1043a's exact form
+    c2_denoised_p = float(rr_mean - d_comm_mean_k)                       # the DECLARED PRIMARY
+    print("  [rank] seed=%d D_comm=%.4f rr_mean=%.4f rr_min=%.4f percentile=%.4f "
+          "sd_tot=%.4f sd_dec=%.4f sd_or=%.4f ratio=%.2f nondegen=%s competent=%s(%+.4f)"
+          % (seed, d_comm_single, rr_mean,
+             (float(_draws.min()) if _draws.size else float("nan")), rank_percentile,
+             sd_total, sd_decoder, sd_orientation, nondegen_ratio,
+             nondegenerate, competent, competence_margin), flush=True)
+    print("  [rank] seed=%d C2_single=%.4f C2_denoised=%.4f (B=%d K=%d)"
+          % (seed, c2_obs_p, c2_denoised_p, len(draw_agreements), len(comm_refits)), flush=True)
+
+    # ======================================================================================
+    # 1043a (R3): THE ATTAINABLE-FLOOR PROBE THAT ANCHORS C4b
+    # ======================================================================================
+    jac_obs = probe_obs[:max(1, int(n_jac_states))]
+    jac_eps = float(JACOBIAN_EPS_FRAC) * base_norm
+    jac_gram = _jacobian_std_gram(agent, jac_obs, std_vec, keep, jac_eps)
+    b_jac_p = _jacobian_aligned_basis(jac_gram, keep, WORLD_STATE_DIM, r_pars)
+    b_jac = _jacobian_aligned_basis(jac_gram, keep, WORLD_STATE_DIM, rank)
+
+    # The DECISION-TARGETED probe at the scored rank, plus its two references. Identical
+    # machinery for all three -- only the splitting subspace differs.
+    dec_sens_p: Dict[str, Any] = {"by_eps": {}}
+    for frac in SENSITIVITY_EPS_FRACS:
+        eps_abs = float(frac) * base_norm
+        dec_sens_p["by_eps"][("%.3f" % frac)] = {
+            "eps_frac": float(frac), "eps_abs": eps_abs,
+            "measured": _decision_sensitivity(agent, probe_obs, b_std_p, std_vec, eps_abs),
+            "null_control": _decision_sensitivity(agent, probe_obs, b_rand_p, std_vec, eps_abs),
+            "jacobian_aligned_floor": _decision_sensitivity(agent, probe_obs, b_jac_p,
+                                                            std_vec, eps_abs),
+        }
+    pk = "%.3f" % SENSITIVITY_EPS_FRACS[-1]
+    dec_sens_p["sensitivity_ratio"] = \
+        dec_sens_p["by_eps"][pk]["measured"]["sensitivity_ratio"]
+    dec_sens_p["null_sensitivity_ratio"] = \
+        dec_sens_p["by_eps"][pk]["null_control"]["sensitivity_ratio"]
+    dec_sens_p["jacobian_aligned_floor_ratio"] = \
+        dec_sens_p["by_eps"][pk]["jacobian_aligned_floor"]["sensitivity_ratio"]
+    # I -- the ISOTROPIC / no-routing reference, from the FITTED decomposition's OWN component
+    # norms. Retention-MATCHED by construction: it uses this subspace's own a / b weights, not
+    # a random subspace's, which is precisely the confound that disqualified C4a.
+    _m = dec_sens_p["by_eps"][pk]["measured"]
+    _a = float(_m.get("mean_raw_norm_comm_component", float("nan")))
+    _b = float(_m.get("mean_raw_norm_complement_component", float("nan")))
+    dec_sens_p["isotropic_reference_ratio"] = (float(_b / _a) if (np.isfinite(_a)
+                                                                  and abs(_a) > 1e-12)
+                                               else float("nan"))
+    dec_sens_p["c4b_ceiling"] = _c4b_ceiling(dec_sens_p["jacobian_aligned_floor_ratio"],
+                                             dec_sens_p["isotropic_reference_ratio"])
+    dec_sens_p["c4b_ceiling_rule"] = C4B_CEILING_RULE
+    # The same anchor at the CV-selected rank, recorded so the 1043 configuration also carries
+    # its measured ceiling rather than only the withdrawn 0.50.
+    dec_sens["jacobian_aligned_floor_ratio"] = _decision_sensitivity(
+        agent, probe_obs, b_jac, std_vec, float(SENSITIVITY_EPS_FRACS[-1]) * base_norm
+    )["sensitivity_ratio"]
+    _ms = dec_sens["by_eps"][pk]["measured"]
+    _as = float(_ms.get("mean_raw_norm_comm_component", float("nan")))
+    _bs = float(_ms.get("mean_raw_norm_complement_component", float("nan")))
+    dec_sens["isotropic_reference_ratio"] = (float(_bs / _as) if (np.isfinite(_as)
+                                                                  and abs(_as) > 1e-12)
+                                             else float("nan"))
+    dec_sens["c4b_ceiling"] = _c4b_ceiling(dec_sens["jacobian_aligned_floor_ratio"],
+                                           dec_sens["isotropic_reference_ratio"])
+    print("  [c4b] seed=%d SCORED rank=%d ratio=%.4f floor(F)=%.4f isotropic(I)=%.4f "
+          "ceiling=%.4f" % (seed, r_pars, dec_sens_p["sensitivity_ratio"],
+                            dec_sens_p["jacobian_aligned_floor_ratio"],
+                            dec_sens_p["isotropic_reference_ratio"],
+                            dec_sens_p["c4b_ceiling"]), flush=True)
+
+    seed_row = {
+        "seed": int(seed),
+        "selected_rank": rank,
+        "rrr_heldout_r2": float(css.selected_heldout_r2),
+        "rrr_heldout_r2_by_rank": {str(k): float(v) for k, v in css.heldout_r2_by_rank.items()},
+        "rrr_n_folds_used": int(css.n_folds_used),
+        "rrr_n_rows": int(css.n_rows),
+        "rrr_ridge_abs": float(ridge_tr),
+        "n_sender_dims_live": int(keep.numel()),
+        "n_sender_dims_dropped_constant": int(WORLD_STATE_DIM - int(keep.numel())),
+        "cross_stratum_selected_rank": int(css_rd.selected_rank),
+        "rrr_rank_at_ladder_ceiling": bool(rank >= max(RRR_RANKS)),
+        "agreements": agreements,
+        "trivial_predictors": trivial,
+        "heldout_steps": int(x_te.shape[0]),
+        "zworld_weight_delta": guard,
+        "zworld_participation_ratio": x1002._participation_ratio(z_tr),
+        "feature_standardisation": x1002._standardiser_report(st),
+        "decision_coordinate_retention": geom,
+        "variance_routing": r2,
+        "sensitivity_decision_targeted": dec_sens,
+        "sensitivity_generic_diagnostic": sens,
+        "std_to_raw_basis_rotation": std_basis_rotation,
+        "cross_stratum_subspace": stratum,
+        "cross_stratum_data_span_overlap": float(span_overlap["mean_squared_cosine_overlap"]),
+        "subspace_overlap_chance_level": float(_chance),
+        "delta_full_minus_comm": float(agreements[ARM_FULL] - agreements[ARM_COMM]),
+        "delta_randrank_minus_comm": float(agreements[ARM_RAND] - agreements[ARM_COMM]),
+        "delta_perp_minus_comm": float(agreements[ARM_PERP] - agreements[ARM_COMM]),
+        "delta_full_minus_perp": float(agreements[ARM_FULL] - agreements[ARM_PERP]),
+        # ---- 1043a additions -------------------------------------------------------
+        "parsimonious_rank": int(r_pars),
+        "parsimonious_r2_tol": float(PARSIMONIOUS_R2_TOL),
+        "parsimonious_rank_heldout_r2": float(css_p.selected_heldout_r2),
+        "ladder_max_heldout_r2": float(max(css.heldout_r2_by_rank.values())),
+        "scored_rank": int(r_pars),
+        "decision_coordinate_retention_parsrank": geom_p,
+        "sensitivity_decision_targeted_parsrank": dec_sens_p,
+        "cross_stratum_subspace_parsrank": stratum_p,
+        "cross_stratum_data_span_overlap_parsrank":
+            float(span_overlap_p["mean_squared_cosine_overlap"]),
+        "subspace_overlap_chance_level_parsrank": float(_chance_p),
+        "cross_stratum_selected_rank_parsrank": int(css_rd_p.selected_rank),
+        "delta_full_minus_comm_parsrank":
+            float(agreements[ARM_FULL] - agreements[ARM_COMM_P]),
+        "delta_randrank_minus_comm_parsrank": c2_obs_p,
+        "delta_full_minus_perp_parsrank":
+            float(agreements[ARM_FULL] - agreements[ARM_PERP_P]),
+        "delta_perp_minus_comm_parsrank":
+            float(agreements[ARM_PERP_P] - agreements[ARM_COMM_P]),
+        "delta_randrank_minus_comm_parsrank_denoised": c2_denoised_p,
+        "randrank_reference": {
+            "n_draws": int(len(draw_agreements)),
+            "n_decoder_refits": int(len(fixed_refits)),
+            "draw_seeds": [int(v) for v in draw_seeds],
+            "draw_seed_0_is_1043a_recorded_draw": True,
+            "d_randrank_draws": [float(v) for v in draw_agreements],
+            "d_randrank_mean": rr_mean,
+            "d_randrank_min": (float(np.min(_draws)) if _draws.size else float("nan")),
+            "d_randrank_max": (float(np.max(_draws)) if _draws.size else float("nan")),
+            "sd_total": sd_total,
+            "sd_decoder_only": sd_decoder,
+            "sd_orientation_component": sd_orientation,
+            "fixed_draw_refits": [float(v) for v in fixed_refits],
+            # ---- the RANK CO-PRIMARY's per-seed statistic --------------------------------
+            "d_comm_single_fit": d_comm_single,
+            "d_comm_refits": [float(v) for v in comm_refits],
+            "d_comm_mean_over_refits": d_comm_mean_k,
+            "rank_percentile": rank_percentile,
+            "rank_percentile_direction": "LOW percentile = EFFECT PRESENT (D_comm below the "
+                                         "random same-rank draws). See _reference_percentile.",
+            "min_attainable_percentile": (1.0 / (1.0 + len(draw_agreements))
+                                          if draw_agreements else float("nan")),
+            "resolution_capped": bool(draw_agreements
+                                      and np.isfinite(rank_percentile)
+                                      and abs(rank_percentile
+                                              - 1.0 / (1.0 + len(draw_agreements))) < 1e-12),
+            "resolution_note": "A percentile equal to min_attainable_percentile is CENSORED "
+                               "at 1/(B+1) and must be read as '< 1/B', NEVER as a measured "
+                               "zero (pre-registration section 12, violation 4).",
+            "percentile_refit_spread": [float(v) for v in percentile_refit_spread],
+            "percentile_refit_spread_note": "RECORDED, NOT SCORED. The percentile recomputed "
+                                            "from each of the K D_comm refits, so a reader "
+                                            "can see how much of the rank verdict is decoder "
+                                            "jitter. The declared statistic is refit 0.",
+            # ---- the per-seed NON-DEGENERACY gate (E2) -----------------------------------
+            "nondegeneracy_orientation_ratio": nondegen_ratio,
+            "nondegeneracy_ratio_threshold": float(NONDEGENERACY_ORIENTATION_RATIO),
+            "nondegeneracy_sd_floor": float(NONDEGENERACY_SD_FLOOR),
+            "nondegenerate": bool(nondegenerate),
+            # ---- the per-seed COMPETENCE inclusion criterion (E3) ------------------------
+            "competence_margin": competence_margin,
+            "competence_threshold": float(COMPETENCE_MARGIN),
+            "competent": bool(competent),
+            "competence_note": "rr_mean - strongest_trivial_agreement. A seed at or below 0 "
+                               "has an INCOMPETENT reference distribution and is "
+                               "NON-CONTRIBUTORY -- which is NOT evidence of no effect. It "
+                               "scopes the SEED out of SET-COMPETENT only; the run always "
+                               "also reports SET-ALL (pre-registration section 5).",
+            # ---- 1043a's withdrawn gate, recomputable from this manifest -----------------
+            "legacy_1043a_randrank_supra_trivial_margin": competence_margin,
+            "legacy_1043a_gate_threshold": float(RANDRANK_CONTROL_MARGIN_RECORDED_ONLY),
+            "legacy_1043a_gate_would_pass": bool(np.isfinite(competence_margin)
+                                                 and competence_margin
+                                                 >= float(RANDRANK_CONTROL_MARGIN_RECORDED_ONLY)),
+        },
+        "basis_std": b_std,   # stripped before the manifest write; used for cross-seed angles
+        "basis_std_parsrank": b_std_p,   # stripped likewise
+    }
+    verdict = bool(np.isfinite(agreements[ARM_FULL]) and agreements[ARM_FULL] >= AGREEMENT_BAR)
+    print("verdict: %s" % ("PASS" if verdict else "FAIL"), flush=True)
+    return seed_row, arm_rows
+
+
+# ==========================================================================================
+# 1043a INSTRUMENT ADDITIONS (R1 / R2 / R3) -- every one of these is a PURE function of its
+# arguments except the two that need the frozen agent, and all of them are exercised by
+# --self-test without a multi-hour run.
+# ==========================================================================================
+def _parsimonious_rank(heldout_r2_by_rank: Dict[Any, float],
+                       tol: float = PARSIMONIOUS_R2_TOL) -> int:
+    """R2: the SMALLEST rank whose grouped-CV held-out R^2 is within `tol` of the maximum.
+
+    Not a hand-set rank: a within-run, cross-validated rule over the ladder this run already
+    computes. Replaying it over V3-EXQ-1043's landed `rrr_heldout_r2_by_rank` returns
+    8 / 10 / 10 on seeds 42/43/44, which is exactly what the autopsy states.
+
+    Why it matters: at rank = dy the RRR rank constraint is INACTIVE and the fit is
+    unconstrained OLS, so "the low-rank channel content must pass through" -- the premise the
+    biology supplies -- is not instantiated there and C2 measured there cannot test it. The
+    1043 run selected rank 32 = dy on 3/3 seeds off a flat asymptote (r2 gains 31 -> 32 of
+    ~5e-7), so this is not a hypothetical.
+    """
+    items = [(int(k), float(v)) for k, v in heldout_r2_by_rank.items()
+             if v is not None and np.isfinite(float(v))]
+    if not items:
+        return 1
+    best = max(v for _k, v in items)
+    ok = [k for k, v in items if (best - v) <= float(tol)]
+    return int(min(ok)) if ok else int(min(k for k, _v in items))
+
+
+def _reference_percentile(observed: float, reference: Sequence[float]) -> float:
+    """Where `observed` sits inside `reference`, with the standard +1 correction.
+
+        p = ( #{b : reference[b] <= observed} + 1 ) / (B + 1)
+
+    DIRECTION -- LOW p MEANS EFFECT PRESENT, and the sign is NOT obvious from the field
+    names, so read it through once. MECH-537's routing phenotype is decision content
+    ENCODED in the sender but NOT EXPOSED through the communication subspace, so the
+    phenotype predicts D_comm is LOW -- the communication subspace decodes the oracle's
+    action WORSE than a random same-rank subspace does. A low D_comm sits near the BOTTOM of
+    the reference distribution, so FEW draws fall at or below it, so p is SMALL. That is the
+    same sign as C2 = D_randrank - D_comm being positive.
+
+    THE +1 IS NOT COSMETIC. It makes p a valid one-sided p-value: under the exchangeability
+    null (D_comm is just another rank-r subspace) p is exactly uniform on
+    {1/(B+1), ..., (B+1)/(B+1)}, and it cannot return 0, which is what makes the
+    resolution cap reportable as `< 1/B` rather than mis-readable as a measured zero.
+
+    Pre-registered in v3_exq_1043b_prereg_rank_coprimary_20260922.md section 3.
+    """
+    vals = [float(v) for v in reference if v is not None and np.isfinite(float(v))]
+    if not vals or not np.isfinite(float(observed)):
+        return float("nan")
+    n_at_or_below = sum(1 for v in vals if v <= float(observed))
+    return float((n_at_or_below + 1) / (len(vals) + 1))
+
+
+def _chi2_sf(x: float, k: int) -> float:
+    """Upper tail of a chi-square with k df, via the regularized incomplete gamma Q(k/2, x/2).
+
+    Implemented here rather than imported: scipy is NOT a declared dependency of this repo's
+    experiment drivers, and a combined p-value that silently degrades to a coarse
+    approximation on a worker where an optional import is missing is exactly the
+    negative-instrument failure CLAUDE.md warns about. Series below the crossover, continued
+    fraction above -- the standard Numerical Recipes split, accurate to ~1e-15 throughout.
+    """
+    import math
+    if not np.isfinite(x) or x < 0.0 or k <= 0:
+        return float("nan")
+    a, xx = k / 2.0, float(x) / 2.0
+    if xx == 0.0:
+        return 1.0
+    if xx < a + 1.0:
+        term = 1.0 / a
+        total = term
+        n = 0
+        while n < 100000:
+            n += 1
+            term *= xx / (a + n)
+            total += term
+            if abs(term) < abs(total) * 1e-16:
+                break
+        lower = total * math.exp(-xx + a * math.log(xx) - math.lgamma(a))
+        return float(min(max(1.0 - lower, 0.0), 1.0))
+    tiny = 1e-300
+    b = xx + 1.0 - a
+    c = 1.0 / tiny
+    d = 1.0 / b
+    h = d
+    for i in range(1, 100000):
+        an = -i * (i - a)
+        b += 2.0
+        d = an * d + b
+        d = tiny if abs(d) < tiny else d
+        c = b + an / c
+        c = tiny if abs(c) < tiny else c
+        d = 1.0 / d
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < 1e-16:
+            break
+    upper = math.exp(-xx + a * math.log(xx) - math.lgamma(a)) * h
+    return float(min(max(upper, 0.0), 1.0))
+
+
+def _fisher_combined(p_values: Sequence[float]) -> Dict[str, Any]:
+    """PRIMARY combining rule for the rank co-primary. Fisher: X2 = -2 sum ln p ~ chi2_2n.
+
+    Valid because the per-seed p-values are INDEPENDENT: each seed trains its own encoder on
+    its own data, so under the null they are independent uniforms. Discreteness at B = 1000
+    is 1e-3-grained, so the chi-square approximation is effectively exact and, where it errs,
+    errs conservative.
+
+    WHY FISHER AND NOT A CROSS-SEED AVERAGE. Fisher aggregates EVIDENCE; it does not average
+    EFFECT SIZES. Averaging is what the declared primary's t-CI does, and averaging a split
+    is how this lineage reached two autopsies. Fisher plus the mechanical SPLIT declaration
+    reports the heterogeneity instead of dissolving it.
+
+    Pre-registered in the prereg, section 4. ALPHA = RANK_ALPHA, one-sided.
+    """
+    import math
+    vals = [float(v) for v in p_values
+            if v is not None and np.isfinite(float(v)) and 0.0 < float(v) <= 1.0]
+    if not vals:
+        return {"n": 0, "chi2": float("nan"), "df": 0, "p": float("nan"),
+                "significant": None, "note": "no finite per-seed p-values -- CANNOT DETERMINE"}
+    chi2 = float(-2.0 * sum(math.log(v) for v in vals))
+    df = int(2 * len(vals))
+    pc = _chi2_sf(chi2, df)
+    return {"n": len(vals), "chi2": chi2, "df": df, "p": float(pc),
+            "alpha": float(RANK_ALPHA),
+            "significant": bool(np.isfinite(pc) and pc <= float(RANK_ALPHA)),
+            "per_seed_p": vals}
+
+
+def _simes(p_values: Sequence[float]) -> Dict[str, Any]:
+    """FWER-controlling combining rule, reported alongside Fisher (prereg section 4).
+
+    Reject if min_k ( n * p_(k) / k ) <= alpha over the order statistics.
+
+    CORRECTED 2026-09-22 AFTER THE STEP 4.5 RED-TEAM (finding 1, CONFIRMED by execution).
+    The pre-registration originally described Simes as "far less driven by a single extreme
+    seed than Fisher", and used a Fisher-fires-Simes-does-not disagreement as the test for
+    "the result rests on one or two seeds". THAT IS BACKWARDS AT THIS B, and the reversal is
+    caused by the very resolution floor B=1000 was chosen to lower. Simes's k=1 order term is
+    the BONFERRONI term, n * p_min: at B = 1000 the floor is 1/1001, so a SINGLE seed at the
+    floor gives 6/1001 = 0.006 <= alpha and Simes fires ALONE. Measured against this module:
+        [0.001, 1.0 x5] -> Fisher 0.313 NOT significant, Simes 0.006 SIGNIFICANT.
+    So at B = 1000 Simes is MORE single-seed-driven than Fisher, not less, and the original
+    `rests_on_few_seeds` predicate could never fire on the case it was written for.
+    Simes is RETAINED -- it is a valid FWER-controlling test and it is what the landed
+    pre-registration names, so it is still computed and reported -- but its ROLE is corrected:
+    it is a per-seed-strength readout, NOT a robustness-against-one-seed check. That job now
+    belongs to `_leave_one_out_fisher` below, which tests the property directly.
+    """
+    vals = sorted(float(v) for v in p_values
+                  if v is not None and np.isfinite(float(v)) and 0.0 < float(v) <= 1.0)
+    if not vals:
+        return {"n": 0, "p": float("nan"), "significant": None,
+                "note": "no finite per-seed p-values -- CANNOT DETERMINE"}
+    n = len(vals)
+    ps = float(min(n * vals[i] / (i + 1) for i in range(n)))
+    return {"n": n, "p": ps, "alpha": float(RANK_ALPHA),
+            "significant": bool(np.isfinite(ps) and ps <= float(RANK_ALPHA))}
+
+
+def _leave_one_out_fisher(p_values: Sequence[float]) -> Dict[str, Any]:
+    """Does the combined result SURVIVE dropping the single most influential seed?
+
+    This is the test the pre-registration meant by "the combined result rests on one or two
+    seeds", and it tests that property DIRECTLY instead of inferring it from a disagreement
+    between two combining rules (which the red-team showed is invalid at B = 1000 -- see
+    `_simes`). Drop the smallest p (the most influential seed under Fisher), re-run Fisher on
+    the remaining n-1, and report whether it still clears alpha.
+
+    RECORDED, NOT SCORED. It does not gate the verdict; it qualifies how the verdict reads.
+    A SIGNIFICANT full-set Fisher whose leave-one-out is NOT significant is reported as
+    resting on a single seed, in those words -- never as a clean positive.
+    """
+    vals = sorted(float(v) for v in p_values
+                  if v is not None and np.isfinite(float(v)) and 0.0 < float(v) <= 1.0)
+    if len(vals) < 3:
+        return {"n": len(vals), "p": float("nan"), "significant": None,
+                "note": "fewer than 3 usable seeds -- CANNOT DETERMINE whether the result "
+                        "survives dropping one"}
+    dropped = vals[0]
+    loo = _fisher_combined(vals[1:])
+    return {"n": len(vals) - 1, "dropped_p": float(dropped), "p": loo.get("p"),
+            "alpha": float(RANK_ALPHA), "significant": loo.get("significant"),
+            "note": "Fisher re-run with the single most influential (smallest-p) seed removed."}
+
+
+# Two-sided Student-t critical values at the 95% level, df 1..29, then the normal limit.
+# Tabulated rather than imported for the same reason _chi2_sf is implemented inline.
+_T_CRIT_95 = {
+    1: 12.706205, 2: 4.302653, 3: 3.182446, 4: 2.776445, 5: 2.570582, 6: 2.446912,
+    7: 2.364624, 8: 2.306004, 9: 2.262157, 10: 2.228139, 11: 2.200985, 12: 2.178813,
+    13: 2.160369, 14: 2.144787, 15: 2.131450, 16: 2.119905, 17: 2.109816, 18: 2.100922,
+    19: 2.093024, 20: 2.085963, 21: 2.079614, 22: 2.073873, 23: 2.068658, 24: 2.063899,
+    25: 2.059539, 26: 2.055529, 27: 2.051831, 28: 2.048407, 29: 2.045230,
+}
+
+
+def _t_ci_95(values: Sequence[float]) -> Dict[str, Any]:
+    """95% two-sided t-CI on the mean. THE DECLARED PRIMARY's test (prereg section 2).
+
+    Uses the SAMPLE sd (ddof=1) and hence a genuine standard error, so the interval responds
+    to n -- which is the whole point of H1-small-but-real's re-specification away from
+    V3-EXQ-1043's population-sd consistency clause.
+    """
+    vals = [float(v) for v in values if v is not None and np.isfinite(float(v))]
+    n = len(vals)
+    if n < 2:
+        return {"n": n, "mean": (vals[0] if n == 1 else float("nan")), "sd": float("nan"),
+                "sem": float("nan"), "lo": float("nan"), "hi": float("nan"),
+                "note": "n < 2 -- CANNOT DETERMINE a confidence interval"}
+    mean = float(np.mean(vals))
+    sd = float(np.std(vals, ddof=1))
+    sem = float(sd / np.sqrt(n))
+    tcrit = float(_T_CRIT_95.get(n - 1, 1.959964))
+    return {"n": n, "mean": mean, "sd": sd, "sem": sem, "t_crit": tcrit,
+            "lo": float(mean - tcrit * sem), "hi": float(mean + tcrit * sem),
+            "level": float(PRIMARY_CI_LEVEL)}
+
+
+def _jacobian_std_gram(agent, obs_rows: List[Dict[str, Any]], std_vec: torch.Tensor,
+                       keep: torch.Tensor, eps_abs: float) -> torch.Tensor:
+    """R3: the state-averaged Gram matrix of the encoder's Jacobian, in the STANDARDISED basis.
+
+    Returns [len(keep), len(keep)] = mean over states of `J_std^T J_std`, where
+    `J_std = d z_world / d (standardised sender)`.
+
+    FINITE DIFFERENCES, NOT AUTOGRAD, and deliberately. `x737._agent_zworld` reads the frozen
+    encoder entirely under `torch.no_grad()`, and the quantity this Gram is used to anchor --
+    the C4b sensitivity ratio -- is ITSELF a finite-difference measurement at the same eps. An
+    autograd Jacobian and a finite-difference ratio would disagree wherever the encoder is
+    nonlinear, and the anchor would then be measuring a different object from the thing it
+    anchors. Same modality, same eps, same canonical post-reset state: the anchor and the
+    anchored quantity are commensurable by construction.
+
+    Every measurement is taken from the canonical post-reset recurrent state, exactly as
+    `_sensitivity` and `_decision_sensitivity` do -- `agent.reset()` immediately before each
+    `sense()`, so the baseline and the perturbed call never share a mutated state.
+
+    The perturbation is a unit RAW coordinate direction at `eps_abs` (the same construction
+    the probes use); the column is then scaled by that dimension's standardiser std to express
+    the Jacobian in standardised coordinates, which is the basis `_decision_sensitivity`
+    splits `e_j` in.
+    """
+    d = int(std_vec.reshape(-1).shape[0])
+    live = [int(i) for i in keep.reshape(-1).tolist()]
+    k = len(live)
+    gram = torch.zeros(k, k, dtype=torch.float64)
+    n_states = 0
+    for obs in obs_rows:
+        w = torch.as_tensor(obs["world_state"]).reshape(-1).float()
+        agent.reset()
+        z0 = x737._agent_zworld(agent, obs).reshape(-1)
+        cols = torch.zeros(int(z0.shape[0]), k, dtype=torch.float64)
+        for c, i in enumerate(live):
+            e = torch.zeros(d)
+            e[i] = 1.0
+            obs_p = dict(obs)
+            obs_p["world_state"] = (w + float(eps_abs) * e)
+            agent.reset()
+            z1 = x737._agent_zworld(agent, obs_p).reshape(-1)
+            # raw column, then -> standardised coordinates (chain rule through w = std * ws)
+            cols[:, c] = ((z1 - z0).double() / float(eps_abs)) * float(std_vec.reshape(-1)[i])
+        gram += cols.T @ cols
+        n_states += 1
+    return gram / max(1, n_states)
+
+
+def _jacobian_aligned_basis(gram: torch.Tensor, keep: torch.Tensor, d: int,
+                            r: int) -> torch.Tensor:
+    """R3: the rank-r STANDARDISED-basis subspace the encoder is most sensitive to.
+
+    Top-r eigenvectors of the state-averaged `J_std^T J_std`, embedded back into the full
+    ambient sender exactly as the fitted basis is (`_embed_basis`, zero rows on the
+    train-constant dims), so it is a drop-in substitute for `b_std` in
+    `_decision_sensitivity` and the two are compared on identical footing.
+
+    WHAT THIS IS, STATED PRECISELY so a later autopsy does not over-read it: the ratio
+    measured through this subspace is the best-case ROUTING reference for this encoder at this
+    rank -- if any rank-r subspace could carry the consumer's response to the decision
+    coordinates, this is the one that does. It is an ATTAINABLE reference, not a certified
+    infimum of the ratio over all rank-r subspaces: the ratio also depends on the
+    un-normalised component weights a and b of each `e_j`, which this construction does not
+    separately optimise. Recorded under the name `jacobian_aligned_floor_ratio` for that
+    reason, never as "the minimum".
+    """
+    g = gram.to(torch.float64)
+    g = 0.5 * (g + g.T)   # symmetrise against finite-difference asymmetry
+    evals, evecs = torch.linalg.eigh(g)
+    order = torch.argsort(evals, descending=True)
+    r = max(1, min(int(r), int(evecs.shape[1])))
+    basis_sub = evecs[:, order[:r]].contiguous().float()
+    return _embed_basis(basis_sub, keep, int(d))
+
+
+def _c4b_ceiling(floor_ratio: float, isotropic_ratio: float) -> float:
+    """R3: THE PRE-REGISTERED FLOOR -> CEILING RULE. Fixed here, before execution.
+
+    `C4B_CEILING_RULE = "arithmetic_midpoint_of_measured_floor_and_isotropic"`:
+
+        ceiling(seed) = (F + I) / 2
+
+    where, on that seed's own encoder and at the scored rank,
+        F = `jacobian_aligned_floor_ratio`  -- the attainable best-case ROUTING reference
+        I = `isotropic_reference_ratio`     -- the NO-ROUTING reference, taken from the
+            FITTED decomposition's own component norms
+            (`mean_raw_norm_complement_component / mean_raw_norm_comm_component`), and so
+            retention-MATCHED by construction rather than retention-confounded the way the
+            random-subspace null that C4a uses is.
+
+    WHY THIS RULE AND NOT A CONSTANT. It introduces no new number at all: both endpoints are
+    MEASURED in-run, by the same machinery, on the same encoder. The reading is direct -- the
+    consumer counts as insensitive to the complement iff the fitted subspace lands on the
+    ROUTING half of the range between the best routing this encoder can support and no routing
+    at all. And it cannot be unmeetable by construction, which is exactly what the hand-set
+    0.50 of V3-EXQ-1043 turned out to be: nothing measured anywhere in the corpus sat at or
+    below 0.50 on this probe (lowest observed 0.8318).
+
+    PER SEED, not pooled. The RULE is fixed; the realised value moves because the ENCODER
+    moves. This is not a new liberty -- C5 already scores against a MEASURED per-seed chance
+    level, for the same reason (an absolute bar means something different at every rank).
+
+    REACHABILITY GUARD, which survives under any candidate rule: if F is not strictly below I
+    the encoder shows no measurable headroom between best-case routing and no routing at this
+    rank, so no ceiling drawn between them means anything. Returns NaN, and the caller scores
+    that seed as UNREACHABLE rather than as a FAIL -- an un-anchorable criterion must not
+    print a verdict.
+    """
+    f, i = float(floor_ratio), float(isotropic_ratio)
+    if not (np.isfinite(f) and np.isfinite(i)):
+        return float("nan")
+    if not (0.0 <= f < i):
+        return float("nan")
+    return float((f + i) / 2.0)
+
+
+# ==========================================================================================
+# THE VERDICT GRID -- a PURE function of named booleans, exercised by --self-test without a
+# multi-hour run. A grid that can only be reached by the full run is a grid nobody checks.
+# ==========================================================================================
+def _paired_positive(deltas: Sequence[float], floor: float) -> Dict[str, Any]:
+    """The assay spec's 1.6 positivity rule, as ONE testable function.
+
+    Positive iff mean(delta) >= `floor` AND mean(delta) >= DELTA_SD_MULTIPLE * SD(delta)
+    across seeds AND at least SEED_MAJORITY seeds individually clear `floor`.
+    """
+    vals = [float(d) for d in deltas if d is not None and np.isfinite(float(d))]
+    m, s = _mean(vals), _sd(vals)
+    n_clear = sum(1 for v in vals if v >= floor)
+    ok = bool(vals) and (m >= floor) and (m >= DELTA_SD_MULTIPLE * s) and (n_clear >= SEED_MAJORITY)
+    return {"mean": m, "sd": s, "n_seeds_clearing": int(n_clear),
+            "floor": float(floor), "sd_multiple": float(DELTA_SD_MULTIPLE),
+            "seeds_required": int(SEED_MAJORITY), "passed": bool(ok),
+            "per_seed": vals}
+
+
+def _c2_falsified(per_seed: Sequence[float]) -> bool:
+    """Is the rank-matched orientation contrast NON-POSITIVE -- the random subspace doing at
+    least as badly as the fitted one?
+
+    `not c2` is NOT this. `c2` is `_paired_positive`, a conjunction of an absolute floor, a
+    2*SD consistency clause and a seed-majority clause, so it fails on data whose contrast is
+    positive on EVERY seed but noisy across them (e.g. [0.10, 0.30, 0.02]: mean 0.14, 2*SD
+    0.236 -> not positive). Routing that to "a RANDOM subspace of the same rank drops it as far
+    or further" would print a falsification whose text asserts the opposite of the measured
+    sign. The falsification therefore carries its own predicate: the mean contrast is at or
+    below zero AND a seed majority is individually at or below zero. Everything in between --
+    positive but not consistently so -- is `undetermined`, which is what it is.
+    """
+    vals = [float(v) for v in per_seed if v is not None and np.isfinite(float(v))]
+    if not vals:
+        return False
+    n_nonpos = sum(1 for v in vals if v <= 0.0)
+    return bool(_mean(vals) <= 0.0 and n_nonpos >= SEED_MAJORITY)
+
+
+def _primary_grid(ci_positive: bool, ci_excludes_floor: bool,
+                  ci_entirely_above_floor: bool, rank_significant: bool) -> str:
+    """The PRE-REGISTERED two-primary interpretation grid (prereg section 8).
+
+    BINDING, and the reason it exists: if the DECLARED PRIMARY and the RANK CO-PRIMARY
+    disagree, THAT DISAGREEMENT IS THE RESULT and is reported as such. The run's criteria must
+    not quietly become "whatever the rank statistic says" -- that is violation 6 of the
+    pre-registration's section 12. This function is deliberately a pure function of four
+    booleans so a later reader can check every branch against the prereg table by eye.
+
+    `_adjudicate` below is a DIFFERENT and older question -- whether MECH-537's whole
+    confirming signature (C1..C4) is present. This grid speaks only to the orientation
+    contrast's two primaries, and its label is carried alongside, never instead.
+    """
+    if not ci_positive:
+        # RED-TEAM FINDING 2, CONFIRMED AND FIXED -- and this was the important one.
+        # This branch used to return `orientation_contrast_not_positive` UNCONDITIONALLY,
+        # which made it a silent VETO: a non-positive CI erased a significant rank
+        # co-primary from the label entirely. Two things made that serious rather than
+        # theoretical. (1) It CONTRADICTS the pre-registration's own governing principle --
+        # "if the two primaries disagree, THAT DISAGREEMENT IS THE RESULT" -- by collapsing
+        # exactly that disagreement into one primary's answer. (2) On the smoke's own
+        # numbers the gate is a COIN FLIP decided by the seed the design itself calls
+        # NON-CONTRIBUTORY: the CI is [+0.00172, +0.08061], and `ci_positive` is computed
+        # over non-degenerate seeds with NO competence scoping, so seed 45 -- which fails
+        # the competence criterion -- enters unconditionally. Shifting seed 45's C2 by
+        # -0.005 moves the lower bound to -0.00028 and flips the label from the
+        # pre-registered expected outcome to "contrast not positive", silencing a Fisher p
+        # of ~2e-5. The competence exclusion is fully defused for the RANK statistic
+        # (SET-ALL is the scored basis) and was NOT defused here, so the incompetent seed
+        # could reach the headline by the one door the both-ways clause does not cover.
+        # The fix does NOT re-scope the CI -- that would be re-anchoring a pre-registered
+        # statistic -- it removes the VETO, so a disagreement is reported as a disagreement.
+        return ("orientation_contrast_not_positive_rank_significant_DISAGREEMENT"
+                if rank_significant else "orientation_contrast_not_positive")
+    if ci_entirely_above_floor and rank_significant:
+        return "orientation_effect_confirmed_both_primaries"
+    if not ci_excludes_floor:
+        return ("orientation_effect_rank_only_magnitude_undecided" if rank_significant
+                else "orientation_effect_not_established")
+    # CI excludes the floor from BELOW, i.e. lies entirely under it: a real but sub-floor
+    # effect. H1-small-but-real's declared null IS met here -- the CI excludes 0.05 -- so H1
+    # is FALSIFIED, and whether the effect exists at all is then the rank co-primary's word.
+    return ("orientation_effect_present_but_below_floor" if rank_significant
+            else "orientation_effect_sub_floor_rank_null")
+
+
+def _adjudicate(premise_ok: bool, c1: bool, c2: bool, c3: bool, c4: bool,
+                equivalent: bool, c2_falsified: bool
+                ) -> Tuple[str, str, str, str]:
+    """(outcome, label, evidence_direction, hypothesis_verdict).
+
+    ORDER IS PRE-REGISTERED. The PREMISE is adjudicated first, because a claim about *which*
+    subspace carries the content is unanswerable if there is no stable single subspace to talk
+    about. The premise route is SUBSPACE STABILITY ONLY -- exactly the falsifier MECH-537
+    registers ("the subspace estimate is unstable across frame or receiver-state strata") --
+    and it routes to MECH-547 / MECH-555 as `non_contributory`, never `mixed`, since nothing
+    about MECH-537 was measured in that case.
+
+    An earlier draft also let a high complement-sensitivity ratio trigger the premise route.
+    That was withdrawn: it is a second, driver-invented operationalisation of a falsifier the
+    claim states in terms of strata, and it could fire while the bases were demonstrably stable
+    and the RRR explained the receiver input at R^2 ~ 0.999 -- a verdict nobody could attribute.
+    A high ratio now simply fails C4 and lands `undetermined`, with every continuous margin
+    recorded.
+
+    TWO REACHABLE FALSIFICATIONS, not one. The claim's own registered falsifier (the target is
+    as decodable inside the subspace as in the full sender) is, given V3-EXQ-1010's H-F result,
+    unlikely to be reached on this source -- so relying on it alone would leave a grid that can
+    confirm but not falsify. The reachable falsification is `c1 and c2_falsified`: the
+    phenotype IS present (the target drops inside the communication subspace) but a RANDOM
+    subspace of the SAME RANK drops it as far or further, so the drop is DIMENSIONALITY, not
+    orientation -- precisely the distinctive content of MECH-537, and not merely a null.
+
+    `c2_falsified` is a POSITIVE predicate of its own (`_c2_falsified`), never `not c2`. See
+    that function: the negation of a conjunctive positivity test is satisfied by data whose
+    contrast is positive on every seed, and routing that to a falsification would print a
+    verdict contradicting its own numbers.
+    """
+    if not premise_ok:
+        return ("PASS",
+                "single_subspace_premise_fails_route_mech547_mech555",
+                "non_contributory",
+                "MECH-537 not adjudicated: the communication-subspace estimate is not stable "
+                "across seeds and/or across receiver-state strata whose data spans do overlap, "
+                "so the single-subspace premise this claim is operationalised on does not "
+                "hold. Routes to MECH-547 / MECH-555.")
+    if equivalent:
+        return ("PASS",
+                "no_routing_failure_target_survives_the_subspace",
+                "weakens",
+                "MECH-537 FALSIFIED on this source: the target is as decodable inside the "
+                "estimated communication subspace as in the full sender, within the "
+                "pre-registered equivalence band. No routing failure here -- route to F3 "
+                "(consumer insensitivity) or F1 (target absent from sender).")
+    if c1 and c2 and c3 and c4:
+        return ("PASS",
+                "communication_subspace_routing_failure_confirmed",
+                "supports",
+                "MECH-537 CONFIRMED on this source: the oracle target is decodable from the "
+                "full sender and poorly decodable from the estimated communication subspace, "
+                "worse than from a RANDOM subspace of the SAME RANK (so the drop is "
+                "orientation, not dimensionality), deleting the subspace from the sender costs "
+                "essentially no decodability, and the receiver is insensitive to the "
+                "complement components of the five coordinates the oracle actually reads.")
+    if c1 and (not c2) and c2_falsified:
+        return ("PASS",
+                "routing_drop_explained_by_rank_not_orientation",
+                "weakens",
+                "MECH-537 FALSIFIED in its distinctive content: the phenotype is present -- the "
+                "target does drop inside the estimated communication subspace -- but a RANDOM "
+                "subspace of the SAME RANK drops it as far or further, so the drop is "
+                "DIMENSIONALITY, not a subspace oriented away from the decision directions. "
+                "That is a reduction in what reaches the receiver, not a routing failure in "
+                "MECH-537's sense; route to F1 / MECH-532 (compression without a trained "
+                "decompression stage) rather than to a re-exposure repair.")
+    return ("FAIL",
+            "routing_signature_incomplete_undetermined",
+            "mixed",
+            "MECH-537 UNDETERMINED: the measured contrasts are neither the full confirming "
+            "signature, nor equivalent to the full sender within the band, nor a "
+            "discriminated rank-explains-it falsification. The continuous per-seed margins "
+            "are recorded; no verdict is claimed.")
+
+
+# ==========================================================================================
+def _config(dry_run: bool, zworld_p0: int, p0: int, p1: int, steps: int, bc_eps: int,
+            bc_rand: int, passes: int, n_sens_states: int, n_sens_dirs: int) -> Dict[str, Any]:
+    return {
+        "env_kwargs": x734._env_kwargs_for_rung(RUNG),
+        "rung_id": RUNG_ID,
+        "level_id": LEVEL_ID,
+        "sender": "world_state_250",
+        "receiver_input": "sense_time_z_world",
+        "zworld_p0_episodes": int(zworld_p0),
+        "p0_warmup_episodes": int(p0),
+        "p1_reinforce_episodes": int(p1),
+        "steps_per_episode": int(steps),
+        "p0a_field_weight_on": 0.0,
+        "use_resource_field_head": True,
+        "resource_field_dim": int(x1002.RESOURCE_FIELD_DIM),
+        "bc_episodes": int(bc_eps),
+        "bc_random_episodes": int(bc_rand),
+        "bc_train_frac": float(BC_TRAIN_FRAC),
+        "adapter_passes": int(passes),
+        "adapter_batch": int(x1002.ADAPTER_BATCH),
+        "adapter_lr": float(x1002.ADAPTER_LR),
+        "adapter_trunk_hidden": int(x734.PPO_TRUNK_HIDDEN),
+        "feature_standardisation": "train_split_zscore_once_before_projection",
+        "standardiser_eps": float(STANDARDISER_EPS),
+        "rrr_ranks": list(RRR_RANKS),
+        "rrr_folds": int(RRR_FOLDS),
+        "rrr_ridge_relative": float(RRR_RIDGE_REL),
+        "sender_dim_std_floor": float(SENDER_DIM_STD_FLOOR),
+        "rrr_group_key": "episode",
+        "n_sensitivity_states": int(n_sens_states),
+        "n_sensitivity_directions": int(n_sens_dirs),
+        "sensitivity_eps_fracs": list(SENSITIVITY_EPS_FRACS),
+        "dry_run": bool(dry_run),
+    }
+
+
+def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
+    t0 = time.perf_counter()
+    zworld_p0 = DRY_RUN_ZWORLD_P0 if dry_run else ZWORLD_P0_EPISODES
+    p0 = DRY_RUN_P0 if dry_run else P0_EPISODES
+    p1 = DRY_RUN_P1 if dry_run else P1_EPISODES
+    steps = DRY_RUN_STEPS if dry_run else STEPS_PER_EPISODE
+    bc_eps = DRY_RUN_BC_EPISODES if dry_run else BC_EPISODES
+    bc_rand = DRY_RUN_BC_RANDOM_EPISODES if dry_run else BC_RANDOM_EPISODES
+    passes = DRY_RUN_ADAPTER_PASSES if dry_run else ADAPTER_PASSES
+    n_sens_states = DRY_RUN_SENS_STATES if dry_run else N_SENSITIVITY_STATES
+    n_sens_dirs = DRY_RUN_SENS_DIRECTIONS if dry_run else N_SENSITIVITY_DIRECTIONS
+    n_draws = DRY_RUN_RANDRANK_DRAWS if dry_run else N_RANDRANK_DRAWS
+    n_refits = DRY_RUN_DECODER_REFITS if dry_run else N_DECODER_REFITS
+    n_jac_states = DRY_RUN_JACOBIAN_STATES if dry_run else N_JACOBIAN_STATES
+
+    # ---- ANCHOR REACHABILITY, asserted BEFORE any compute is spent -----------------------
+    # Each shipped predicate is scored against the frozen 1008 positive control. A gate the
+    # known-good control cannot clear is a guaranteed false negative -- it would report
+    # met=false on every run forever and mislabel an instrument-specification gap as a
+    # substrate verdict. Raising here costs seconds; discovering it after the warmup costs
+    # the whole run.
+    anchor_reachability = [
+        assert_anchor_reachable(
+            anchor_name="source_adequacy_ws250_full",
+            reference_cells=REF_1008_WS250_FULL_AGREEMENT,
+            score_fn=(lambda v: float(v) >= float(AGREEMENT_BAR)),
+            threshold=1.0, reference_source=REF_1008_SOURCE),
+        assert_anchor_reachable(
+            anchor_name="source_elevation_over_strongest_trivial",
+            reference_cells=REF_1008_WS250_FULL_ELEVATION,
+            score_fn=(lambda v: float(v) >= float(AGREEMENT_ELEVATION_MIN)),
+            threshold=1.0, reference_source=REF_1008_SOURCE),
+        assert_anchor_reachable(
+            # 1043b: this anchor now covers the RECORDED-ONLY legacy elevation readout, NOT
+            # a scored gate. The 1043a autopsy's own finding was that this anchor was
+            # evaluated at rank 32 for a gate read at rank 8-11 -- "a reachability guard must
+            # be evaluated at the operating point of the gate it covers". The scored readiness
+            # gate is now NONDEGENERACY_*, whose reachability is established DIRECTLY and at
+            # the correct operating point by the 2026-09-20 instrument smoke: it measured the
+            # B-draw reference distribution at the real sample size, at each seed's own
+            # parsimonious rank, and cleared the ratio bar 6/6 (minimum 3.05) and the sd floor
+            # 6/6 (minimum 0.0191). That is a measured positive control at the gate's own
+            # operating point, which is what this anchor could not supply.
+            anchor_name="randrank_control_supra_trivial_RECORDED_ONLY",
+            reference_cells=REF_1008_WS250_RANDPROJ_ELEVATION,
+            score_fn=(lambda v: float(v) >= float(RANDRANK_CONTROL_MARGIN_RECORDED_ONLY)),
+            threshold=1.0, reference_source=REF_1008_SOURCE),
+    ]
+
+    env_kwargs = x734._env_kwargs_for_rung(RUNG)
+    probe_env = x734._make_env(seeds[0], env_kwargs)
+    action_dim = int(probe_env.action_dim)
+    cfg = _config(dry_run, zworld_p0, p0, p1, steps, bc_eps, bc_rand, passes,
+                  n_sens_states, n_sens_dirs)
+    _ts = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+
+    seed_rows: List[Dict[str, Any]] = []
+    arm_results: List[Dict[str, Any]] = []
+    for seed in seeds:
+        srow, arows = _run_seed(seed, action_dim, env_kwargs, cfg, zworld_p0, p0, p1, steps,
+                                bc_eps, bc_rand, passes, n_sens_states, n_sens_dirs,
+                                n_draws, n_refits, n_jac_states, dry_run)
+        seed_rows.append(srow)
+        arm_results.extend(arows)
+
+    cells = ["seed%d" % r["seed"] for r in seed_rows]
+
+    # ---- cross-seed subspace stability -----------------------------------------------------
+    cross_seed: List[Dict[str, Any]] = []
+    for i in range(len(seed_rows)):
+        for j in range(i + 1, len(seed_rows)):
+            # AT THE SCORED RANK -- the cross-seed diagnostic must describe the subspace the
+            # criteria actually read, not the CV-argmax one 1043 used.
+            pa = principal_angles(seed_rows[i]["basis_std_parsrank"],
+                                  seed_rows[j]["basis_std_parsrank"])
+            cross_seed.append({"pair": "seed%d|seed%d" % (seed_rows[i]["seed"],
+                                                          seed_rows[j]["seed"]),
+                               "mean_squared_cosine_overlap":
+                                   float(pa["mean_squared_cosine_overlap"]),
+                               "k1": pa["k1"], "k2": pa["k2"]})
+    cross_seed_overlaps = [c["mean_squared_cosine_overlap"] for c in cross_seed]
+    cross_stratum_overlaps = [float(r["cross_stratum_subspace"]["mean_squared_cosine_overlap"])
+                              for r in seed_rows]
+    for r in seed_rows:
+        r.pop("basis_std", None)   # tensors never reach the manifest
+        r.pop("basis_std_parsrank", None)
+
+    # ---- PRE-REGISTERED PRECONDITIONS ------------------------------------------------------
+    full_ag = [r["agreements"][ARM_FULL] for r in seed_rows]
+    elevations = [float(r["agreements"][ARM_FULL]
+                        - (r["trivial_predictors"]["strongest_trivial_agreement"] or 0.0))
+                  for r in seed_rows]
+    # ---- 1043b (E2): the NON-DEGENERACY readiness gate, scored PER SEED ------------------
+    # 1043a asserted ELEVATION of the randrank arm over the trivial predictor by 0.05 and
+    # REFUSED the whole run when 5 of 6 seeds came in under it -- adjudicating nothing. The
+    # gate's own shipped purpose text is that a low D_comm must carry information about
+    # ORIENTATION, which is a statement about RESOLVABILITY INSIDE the reference distribution,
+    # not about elevation over an unrelated baseline. This gate asserts that directly, on the
+    # thing C2 actually reads, and the elevation idea survives per-seed as COMPETENCE.
+    #
+    # PER-SEED SCOPING, NOT A WHOLE-RUN AND. A seed failing this gate is scoped out and
+    # recorded; the run proceeds on the rest. This is the V3-EXQ-785 rule (one arm's
+    # structurally impossible precondition must NOT vacate another arm's valid, well-powered
+    # result). Only if ZERO seeds pass does the run self-route substrate_not_ready_requeue.
+    nondegen_flags = [bool(r["randrank_reference"]["nondegenerate"]) for r in seed_rows]
+    nondegen_ratios = [float(r["randrank_reference"]["nondegeneracy_orientation_ratio"])
+                       for r in seed_rows]
+    nondegen_sds = [float(r["randrank_reference"]["sd_total"]) for r in seed_rows]
+    contributing = [i for i, ok in enumerate(nondegen_flags) if ok]
+    n_nondegenerate = len(contributing)
+    # RECORDED ONLY -- 1043a's withdrawn gate, so it stays recomputable from this manifest.
+    rand_over_trivial = [float(r["randrank_reference"]["competence_margin"])
+                         for r in seed_rows]
+    rrr_r2 = [r["rrr_heldout_r2"] for r in seed_rows]
+    # The RRR r2 precondition stays on the LADDER MAXIMUM (self-anchoring, see its control
+    # text); the scored-rank r2 is recorded separately and is within PARSIMONIOUS_R2_TOL of
+    # it by construction, so no separate floor is needed.
+    rrr_r2_scored = [r["parsimonious_rank_heldout_r2"] for r in seed_rows]
+    held = [float(r["heldout_steps"]) for r in seed_rows]
+    # KEY NAME VERIFIED against zworld_encoder_guard.latent_stack_weight_delta's own return
+    # dict: it emits `world_encoder_max_abs_delta`. A wrong key here would read 0.0 and fail
+    # the precondition on every run for a typo rather than a finding.
+    zdelta = [float((r["zworld_weight_delta"] or {}).get("world_encoder_max_abs_delta", 0.0)
+                    or 0.0) for r in seed_rows]
+    prat = [float(r["zworld_participation_ratio"]) for r in seed_rows]
+
+    w_full, c_full = _worst(full_ag, cells)
+    w_elev, c_elev = _worst(elevations, cells)
+    w_rand, c_rand = _worst(rand_over_trivial, cells)
+    # WORST CELL, not the mean: `met` below is an ANY-seed quantifier, so the reported
+    # `measured` must be the extremum the quantifier reads (CLAUDE.md / queue-experiment
+    # Step 3, the V3-EXQ-779b mean-vs-quantifier rule). Here the quantifier is "at least one
+    # seed is non-degenerate", so the BEST seed is the one that decides it.
+    b_ratio, c_ratio = ((max(nondegen_ratios), cells[int(np.argmax(nondegen_ratios))])
+                        if nondegen_ratios else (float("nan"), "n/a"))
+    b_sd, c_sd = ((max(nondegen_sds), cells[int(np.argmax(nondegen_sds))])
+                  if nondegen_sds else (float("nan"), "n/a"))
+    w_r2, c_r2 = _worst(rrr_r2, cells)
+    w_held, c_held = _worst(held, cells)
+    w_zd, c_zd = _worst(zdelta, cells)
+    w_pr, c_pr = _worst(prat, cells)
+
+    checks = [
+        {"name": "source_adequacy_ws250_full", "measured": w_full,
+         "threshold": float(AGREEMENT_BAR), "direction": "lower", "offending_cell": c_full,
+         "control": "POSITIVE CONTROL and the source-adequacy gate EXP-1403 requires: the "
+                    "capacity-matched decoder must reproduce the oracle from the FULL 250-dim "
+                    "world_state, the tensor the encoder itself reads. Below this floor the "
+                    "target is not in the sender and no routing question is askable "
+                    "(V3-EXQ-1008 measured 0.940 here). Worst seed."},
+        {"name": "source_elevation_over_strongest_trivial", "measured": w_elev,
+         "threshold": float(AGREEMENT_ELEVATION_MIN), "direction": "lower",
+         "offending_cell": c_elev,
+         "control": "The full-sender decode must beat the strongest TRIVIAL predictor "
+                    "(previous executed action, 0.568-0.582 in this lineage) by the margin "
+                    "1002 pre-registered, else the adequacy above is a trivial-predictor "
+                    "artefact. Worst seed."},
+        {"name": "rrr_heldout_r2_supra_floor", "measured": w_r2,
+         "threshold": float(RRR_R2_FLOOR), "direction": "lower", "offending_cell": c_r2,
+         "control": "The RRR must actually predict the receiver input on held-out episodes. "
+                    "Below this floor 'the estimated communication subspace' is not a subspace "
+                    "of anything and every arm built from it is noise. Worst seed. SELF-"
+                    "ANCHORING and so not subject to the reachability failure mode: the "
+                    "measured value is the instrument's own BEST cross-validated score over "
+                    "the whole rank ladder (`max heldout_r2_by_rank`), not a hand-written "
+                    "predicate that could be narrower than the state it anchors to. NOTE: this "
+                    "is NOT comparable to `variance_routing.heldout_r2_from_*`, which this "
+                    "driver computes with PER-COLUMN means while interface_probe._r2 "
+                    "normalises against a single GLOBAL mean -- the two differ by z_world's "
+                    "between-column variance and must never be compared to each other."},
+        # RED-TEAM FINDING 3, CONFIRMED AND FIXED. The two checks below report the BEST
+        # seed on each of the two clauses SEPARATELY, so a seed passing only the ratio and a
+        # different seed passing only the sd floor would turn both green while NO SINGLE SEED
+        # is non-degenerate -- `contributing` would be empty and `_contrib` would silently
+        # fall back to all seeds, producing a verdict over seeds none of which passed the
+        # gate. THIS check is the one that actually implements the pre-registered rule ("only
+        # if ZERO of six seeds pass does the run refuse"): it counts seeds meeting BOTH
+        # clauses CONJUNCTIVELY, on the same seed. The two per-clause checks below are
+        # retained because they name WHICH clause failed, which a bare count cannot.
+        {"name": "randrank_reference_nondegenerate_seed_count", "measured": float(n_nondegenerate),
+         "threshold": 1.0, "direction": "lower",
+         "offending_cell": ("none -- %d of %d seeds non-degenerate" % (n_nondegenerate,
+                                                                      len(nondegen_flags))),
+         "control": "THE OPERATIVE READINESS GATE. Counts seeds satisfying BOTH non-degeneracy "
+                    "clauses (sd_orientation >= 2 * sd_decoder AND sd_total >= 0.005) on the "
+                    "SAME seed. Zero such seeds means no seed produced a reference "
+                    "distribution whose spread is dominated by subspace orientation, so no "
+                    "percentile on this run means what it is read as, and the run refuses. "
+                    "Positive control: the 2026-09-20 instrument smoke satisfied both clauses "
+                    "conjunctively on 6 of 6 seeds at the real sample size."},
+        {"name": "randrank_reference_nondegenerate_any_seed", "measured": b_ratio,
+         "threshold": float(NONDEGENERACY_ORIENTATION_RATIO), "direction": "lower",
+         "offending_cell": c_ratio,
+         "control": "READINESS ASSERT FOR THE LOAD-BEARING CRITERION, measured on the SAME "
+                    "object the rank co-primary reads: the B-draw random rank-r reference "
+                    "distribution. sd_orientation / sd_decoder, where sd_orientation is by "
+                    "variance subtraction against K refits of ONE FIXED draw. Below 2x, the "
+                    "reference distribution's spread is not dominated by subspace "
+                    "ORIENTATION, so a percentile would measure decoder refit jitter instead "
+                    "-- the statistic would not mean what it is read as. BEST seed, because "
+                    "the gate is scoped PER SEED and the run proceeds on any seed that "
+                    "passes (V3-EXQ-785: one seed's failure must not vacate another's); the "
+                    "per-seed vector is in per_seed_results[].randrank_reference. Positive "
+                    "control: the 2026-09-20 smoke measured this on all six seeds at B=24 "
+                    "and cleared it 6/6, minimum ratio 3.05."},
+        {"name": "randrank_reference_spread_supra_granularity_any_seed", "measured": b_sd,
+         "threshold": float(NONDEGENERACY_SD_FLOOR), "direction": "lower",
+         "offending_cell": c_sd,
+         "control": "Held-out steps are ~2000, so ONE classification flip moves the agreement "
+                    "statistic by ~1/2000 = 0.0005. This floor (~10 flips) asserts the "
+                    "reference distribution's spread exceeds the GRANULARITY of the statistic "
+                    "itself, without which a percentile is quantisation noise. BEST seed, "
+                    "same per-seed scoping as above. Smoke minimum sd_total 0.0191, ~3.8x "
+                    "above this floor."},
+        {"name": "heldout_steps_sufficient", "measured": w_held,
+         "threshold": float(HELDOUT_MIN_STEPS), "direction": "lower", "offending_cell": c_held,
+         "control": "1002's own held-out sample floor. Worst seed."},
+        {"name": "zworld_encoder_trained_in_p0", "measured": w_zd,
+         "threshold": float(ZWORLD_DELTA_FLOOR), "direction": "lower", "offending_cell": c_zd,
+         "control": "The receiver side must be a TRAINED encoder. At zero weight delta "
+                    "z_world is a frozen random projection and the communication subspace "
+                    "describes an untrained map. Worst seed."},
+        {"name": "zworld_not_collapsed", "measured": w_pr,
+         "threshold": float(PARTICIPATION_RATIO_FLOOR), "direction": "lower",
+         "offending_cell": c_pr,
+         "control": "x808's participation-ratio floor: a collapsed z_world makes any RRR onto "
+                    "it degenerate. Worst seed."},
+    ]
+
+    manifest: Dict[str, Any] = {
+        "experiment_type": EXPERIMENT_TYPE,
+        "queue_id": QUEUE_ID,
+        # V3-EXQ-1043a defined SUPERSEDES and never emitted it (verified against its landed
+        # manifest, which carries supersedes: null). CLAUDE.md's EXQ supersession policy
+        # requires it on the manifest AND the queue entry, so it is emitted here. NOTE that
+        # `supersedes` alone hands nothing to governance -- nothing reads it looking for owed
+        # follow-on -- so the predecessor's evidence_direction is routed by a separate
+        # governance_flag `evidence_discrepancy` entry, per that same policy.
+        "supersedes": SUPERSEDES,
+        "run_id": "%s_%s_v3" % (EXPERIMENT_TYPE, _ts),
+        "architecture_epoch": ARCHITECTURE_EPOCH,
+        "timestamp_utc": _ts,
+        "config": cfg,
+        "experiment_purpose": EXPERIMENT_PURPOSE,
+        "claim_ids": list(CLAIM_IDS),
+        "bears_on": list(BEARS_ON),
+        "sleep_driver_pattern": "none",
+        "rung_id": RUNG_ID,
+        "level_id": LEVEL_ID,
+        "dry_run": bool(dry_run),
+        "per_seed_results": seed_rows,
+        "arm_results": arm_results,
+        "subspace_stability": {
+            "premise_note": "The premise is the WITHIN-ENCODER cross-STRATUM test only, and "
+                            "counts only where the two strata's own data spans overlap "
+                            "(>= SPAN_OVERLAP_MIN): a ridge RRR basis lies in the row space of "
+                            "the visited data, so strata visiting different regions yield "
+                            "different bases for an identical encoder. CROSS-SEED overlap is a "
+                            "DIAGNOSTIC and is not a premise input: each seed trains its own "
+                            "encoder, so a cross-seed disagreement is encoder "
+                            "non-identifiability across training replicates, which is not the "
+                            "falsifier MECH-537 registers. Both are reported against the "
+                            "measured chance level for this rank and live dimension count.",
+            "chance_level_per_seed": [
+                {"seed": r["seed"], "chance_overlap": float(r["subspace_overlap_chance_level"]),
+                 "selected_rank": int(r["selected_rank"])} for r in seed_rows],
+            "cross_seed": cross_seed,
+            "cross_seed_min_overlap": (min(cross_seed_overlaps) if cross_seed_overlaps
+                                       else float("nan")),
+            "cross_stratum_per_seed": [
+                {"seed": r["seed"],
+                 "mean_squared_cosine_overlap":
+                     float(r["cross_stratum_subspace"]["mean_squared_cosine_overlap"])}
+                for r in seed_rows],
+            "cross_stratum_min_overlap": (min(cross_stratum_overlaps)
+                                          if cross_stratum_overlaps else float("nan")),
+            "stratum_definition": "oracle-driven visitation vs random-driven visitation, the "
+                                  "two episode families x1002._collect_episodes already "
+                                  "produces; the RRR is re-fitted independently on each.",
+        },
+    }
+
+    try:
+        preconditions = p0_readiness_gate(checks)
+        gate_green = True
+        gate_payload = preconditions
+    except P0NotReady as e:
+        gate_green = False
+        gate_payload = e.preconditions
+
+    # ---- CONTRASTS + CRITERIA ---------------------------------------------------------------
+    # EVERY SCORED CONTRAST IS AT THE PARSIMONIOUS RANK (R2). The CV-selected-rank twins are
+    # computed identically and recorded under the un-suffixed names, so V3-EXQ-1043's exact
+    # configuration is reproducible from this manifest.
+    d_full_comm = _paired_positive([r["delta_full_minus_comm_parsrank"] for r in seed_rows],
+                                   ROUTING_DROP_MIN)
+    perp_losses = [float(r["delta_full_minus_perp_parsrank"]) for r in seed_rows]
+    n_perp_retains = sum(1 for v in perp_losses
+                         if np.isfinite(v) and v <= COMPLEMENT_RETENTION_TOL)
+
+    # ---- C2 (1043b/E): TWO PRIMARIES -- the declared CI, and the rank co-primary -----------
+    # Pre-registered in full, BEFORE this driver existed, at
+    # REE_assembly/evidence/planning/v3_exq_1043b_prereg_rank_coprimary_20260922.md
+    # (origin/master 927cf907e49). NOTHING in this block may be changed after a cell has run.
+    #
+    # THERE IS NO DISJUNCTIVE SUCCESS RULE, and therefore no multiplicity correction between
+    # the two. We do NOT declare success if EITHER primary fires. Each is reported on its own
+    # terms against its own declared null, and A DISAGREEMENT BETWEEN THEM IS THE RESULT --
+    # see `_adjudicate`'s grid. The run's criteria must not quietly become "whatever the rank
+    # statistic says"; that is violation 6 in the pre-registration's section 12.
+    c2_obs_per_seed = [float(r["delta_randrank_minus_comm_parsrank"]) for r in seed_rows]
+    c2_denoised_per_seed = [float(r["delta_randrank_minus_comm_parsrank_denoised"])
+                            for r in seed_rows]
+    competent_flags = [bool(r["randrank_reference"]["competent"]) for r in seed_rows]
+    rank_p_all = [float(r["randrank_reference"]["rank_percentile"]) for r in seed_rows]
+    capped_flags = [bool(r["randrank_reference"]["resolution_capped"]) for r in seed_rows]
+
+    # ---- (i) THE DECLARED PRIMARY -- reported whatever it says ---------------------------
+    # 95% two-sided t-CI on the cross-seed mean of the DE-NOISED C2, restricted to seeds that
+    # passed the non-degeneracy gate. Declared null, verbatim from the hypothesis registry
+    # (H1-small-but-real): "the CI excludes 0.05 (H1 falsified, not rescued)".
+    #
+    # PRE-REGISTERED EXPECTATION, written down in the prereg BEFORE the run so that its
+    # occurrence cannot later be used as an argument for switching statistics: substituting
+    # the B=24 draw-mean comparator into this exact statistic gave [+0.0013, +0.0804], and
+    # 1043a's landed value was [+0.0051, +0.0948]. Both exclude 0 and INCLUDE 0.05. We
+    # therefore EXPECT this to come back UNDECIDED at n = 6 -- the binding variance is the
+    # CROSS-SEED sd (~0.038), not the draw noise this run removes, and the upper bound first
+    # clears 0.05 near n ~ 75. That expectation does NOT license demoting or omitting it.
+    _contrib = contributing if contributing else list(range(len(seed_rows)))
+    primary_ci = _t_ci_95([c2_denoised_per_seed[i] for i in _contrib])
+    # The COMPARABILITY form: 1043a's exact single-draw, single-fit protocol (draw 0 IS
+    # 1043a's recorded draw seed), so the lineage number is directly comparable to its
+    # landed [0.0051, 0.0948] without re-deriving anything.
+    primary_ci_single = _t_ci_95([c2_obs_per_seed[i] for i in _contrib])
+    _lo, _hi = primary_ci.get("lo"), primary_ci.get("hi")
+    _ci_ok = bool(_lo is not None and _hi is not None
+                  and np.isfinite(_lo) and np.isfinite(_hi))
+    ci_excludes_floor = bool(_ci_ok and (_lo > float(H1_DECLARED_FLOOR)
+                                         or _hi < float(H1_DECLARED_FLOOR)))
+    ci_excludes_zero = bool(_ci_ok and (_lo > 0.0 or _hi < 0.0))
+    ci_entirely_above_floor = bool(_ci_ok and _lo > float(H1_DECLARED_FLOOR))
+    ci_positive = bool(_ci_ok and _lo > 0.0)
+
+    # ---- (ii)+(iii)+(iv) THE RANK CO-PRIMARY ---------------------------------------------
+    # BOTH analysis sets are declared, BOTH are always reported, NEITHER may stand alone.
+    # Reporting only SET-COMPETENT is the failure mode the pre-registration exists to
+    # prevent (its section 5, and violation 2 in section 12).
+    set_all_idx = list(_contrib)
+    set_comp_idx = [i for i in _contrib if competent_flags[i]]
+    rank_all = {"set": "SET-ALL", "seed_indices": set_all_idx,
+                "fisher": _fisher_combined([rank_p_all[i] for i in set_all_idx]),
+                "simes": _simes([rank_p_all[i] for i in set_all_idx])}
+    rank_comp = {"set": "SET-COMPETENT", "seed_indices": set_comp_idx,
+                 "n_excluded_incompetent": len(set_all_idx) - len(set_comp_idx),
+                 "underpowered": bool(len(set_comp_idx) < 3),
+                 "fisher": _fisher_combined([rank_p_all[i] for i in set_comp_idx]),
+                 "simes": _simes([rank_p_all[i] for i in set_comp_idx])}
+    sig_all = rank_all["fisher"].get("significant")
+    sig_comp = rank_comp["fisher"].get("significant")
+    # SET-ALL is the SCORED basis, in both the underpowered and the well-powered case, and
+    # that is a pre-registered choice rather than a convenience. Two reasons. (a) It is the
+    # CONSERVATIVE one: an incompetent seed's percentile is uninformative, so including it
+    # dilutes toward the null -- SET-ALL can only ever be harder to fire than SET-COMPETENT.
+    # (b) It is the direct structural defence against the design's own stated weak point:
+    # the competence criterion excludes a seed that was ALREADY SEEN to fail it in the smoke,
+    # so letting the exclusion drive the scored verdict is exactly the move that would turn
+    # option E into option C. The competence analysis is reported in full alongside, and a
+    # disagreement between the two sets is surfaced as `sets_disagree` and carried into the
+    # label as `_conditional_on_competence` -- never silently resolved in either direction.
+    rank_significant = bool(sig_all)
+    sets_disagree = bool(sig_all is not None and sig_comp is not None
+                         and not rank_comp["underpowered"] and bool(sig_all) != bool(sig_comp))
+    # RED-TEAM FINDING 1, CONFIRMED AND FIXED. The landed pre-registration derived
+    # "rests on few seeds" from a Fisher-fires-Simes-does-not disagreement. That predicate is
+    # INVALID at B = 1000: Simes's k=1 term is Bonferroni, n * p_min, and the resolution floor
+    # 1/1001 makes 6/1001 = 0.006 <= alpha, so ONE floored seed fires Simes alone (measured:
+    # [0.001, 1.0 x5] -> Fisher 0.313 not significant, Simes 0.006 significant). The predicate
+    # could therefore never flag the case it existed for. It is replaced by a DIRECT test --
+    # does Fisher survive dropping the single most influential seed -- and Simes is kept as a
+    # recorded readout. See `_simes` and `_leave_one_out_fisher`.
+    rank_all["leave_one_out_fisher"] = _leave_one_out_fisher(
+        [rank_p_all[i] for i in set_all_idx])
+    rank_comp["leave_one_out_fisher"] = _leave_one_out_fisher(
+        [rank_p_all[i] for i in set_comp_idx])
+    rests_on_few_seeds = bool(rank_all["fisher"].get("significant")
+                              and rank_all["leave_one_out_fisher"].get("significant") is False)
+
+    # ---- the mechanical SPLIT declaration (E4) -------------------------------------------
+    # The design must be able to REPORT the split as the finding rather than average it away.
+    _pc = [rank_p_all[i] for i in set_all_idx if np.isfinite(rank_p_all[i])]
+    split_declared = bool(any(v <= float(SPLIT_LOW) for v in _pc)
+                          and any(v >= float(SPLIT_HIGH) for v in _pc))
+
+    # RECORDED, NOT SCORED: what the withdrawn V3-EXQ-1043 predicate would have said on these
+    # same numbers, so the three runs stay comparable without re-deriving anything.
+    d_rand_comm_legacy = _paired_positive(c2_obs_per_seed, ORIENTATION_MARGIN_RECORDED_ONLY)
+
+    # ---- C4 (R3): the DECISION-TARGETED probe at the scored rank ---------------------------
+    # The generic whole-subspace probe remains a recorded diagnostic and is NOT a criterion.
+    sens_ratios = [float(r["sensitivity_decision_targeted_parsrank"]["sensitivity_ratio"])
+                   for r in seed_rows]
+    null_ratios = [float(r["sensitivity_decision_targeted_parsrank"]["null_sensitivity_ratio"])
+                   for r in seed_rows]
+    floor_ratios = [float(r["sensitivity_decision_targeted_parsrank"]
+                          ["jacobian_aligned_floor_ratio"]) for r in seed_rows]
+    isotropic_ratios = [float(r["sensitivity_decision_targeted_parsrank"]
+                              ["isotropic_reference_ratio"]) for r in seed_rows]
+    c4b_ceilings = [float(r["sensitivity_decision_targeted_parsrank"]["c4b_ceiling"])
+                    for r in seed_rows]
+    generic_ratios = [float(r["sensitivity_generic_diagnostic"]["sensitivity_ratio"])
+                      for r in seed_rows]
+    null_margins = [float(n - m) for n, m in zip(null_ratios, sens_ratios)]
+    # RECORDED, NEVER SCORED -- autopsy-forbidden (retention-confounded). Kept so C4a stays on
+    # the record with its confound stated, exactly as V3-EXQ-1043 did.
+    d_null_margin = _paired_positive(null_margins, INSENSITIVITY_NULL_MARGIN)
+    # A seed whose ceiling is NaN is UNREACHABLE (see `_c4b_ceiling`): F did not come in
+    # strictly below I, so no ceiling drawn between them means anything on that encoder. Those
+    # seeds are excluded from the denominator rather than counted as failures -- an
+    # un-anchorable criterion must not print a verdict, which is the whole point of R3.
+    c4b_reachable = [i for i, c in enumerate(c4b_ceilings) if np.isfinite(c)]
+    n_c4b_unreachable = len(c4b_ceilings) - len(c4b_reachable)
+    n_insensitive = sum(1 for i in c4b_reachable
+                        if np.isfinite(sens_ratios[i]) and sens_ratios[i] <= c4b_ceilings[i])
+    c4b_margins = [float(c4b_ceilings[i] - sens_ratios[i]) for i in c4b_reachable
+                   if np.isfinite(sens_ratios[i])]
+    # STEP 4.5 RED-TEAM M2 (accepted as a RECORDING fix; the RULE is user-ratified and is NOT
+    # altered here). Because the probe perturbs by the UN-NORMALISED components,
+    #     measured = (b / a) x (S_out / S_in)   and   I = (b / a),
+    # so `measured <= (F + I)/2` is exactly `S_out / S_in <= (F/I + 1)/2`. The quantity the
+    # rule actually constrains is the PER-UNIT ratio S_out/S_in, and the effective bar RISES
+    # toward 1.0 as F approaches I -- the criterion gets WEAKER the less the encoder's
+    # most-sensitive rank-r subspace concentrates its response, and at F -> I a PASS means
+    # only "no more coupled than isotropy predicts". That is a real weakness of the ratified
+    # rule. It is RECORDED per seed here rather than left for a reader to derive, so an
+    # autopsy can see exactly how much headroom each seed's ceiling actually had.
+    per_unit_ratios = [float(r["sensitivity_decision_targeted_parsrank"]["by_eps"][
+        "%.3f" % SENSITIVITY_EPS_FRACS[-1]]["measured"].get(
+        "per_unit_sensitivity_ratio_diagnostic", float("nan"))) for r in seed_rows]
+    c4b_effective_bars = [(float((f / i + 1.0) / 2.0)
+                           if (np.isfinite(f) and np.isfinite(i) and abs(i) > 1e-12)
+                           else float("nan"))
+                          for f, i in zip(floor_ratios, isotropic_ratios)]
+    c4b_headroom = [(float((i - f) / i) if (np.isfinite(f) and np.isfinite(i)
+                                            and abs(i) > 1e-12) else float("nan"))
+                    for f, i in zip(floor_ratios, isotropic_ratios)]
+
+    n_equivalent = sum(1 for r in seed_rows
+                       if abs(float(r["delta_full_minus_comm_parsrank"])) <= EQUIVALENCE_BAND)
+
+    # CROSS-SEED OVERLAP IS A DIAGNOSTIC, NOT A PREMISE INPUT. Each seed warms up its OWN
+    # agent (`_run_seed` builds a fresh one and trains it), so the per-seed bases belong to
+    # THREE DIFFERENT TRAINED ENCODERS. A disagreement between them is encoder
+    # non-identifiability across training replicates -- a real and interesting fact, but not
+    # MECH-537's registered falsifier, which is about instability "across frame or
+    # receiver-state strata" WITHIN a receiver. Counting it against the premise would let a run
+    # whose every seed individually shows the full C1..C4 routing signature emit
+    # `non_contributory / premise fails` for a reason no reader could recover from the label.
+    # It is recorded, alongside the measured chance level, and left to the reader.
+    cross_seed_min = float(min([v for v in cross_seed_overlaps if np.isfinite(v)])
+                           if any(np.isfinite(v) for v in cross_seed_overlaps)
+                           else float("nan"))
+    # Cross-STRATUM instability counts only where the two strata's own data spans overlap
+    # (F7): a ridge RRR basis lies in the row space of the visited data, so strata that visit
+    # different regions produce different bases for an identical encoder, and reading that as
+    # receiver-state dependence would be a mis-attribution.
+    span_overlaps = [float(r["cross_stratum_data_span_overlap_parsrank"]) for r in seed_rows]
+    informative_stratum = [ov for ov, sp in zip(cross_stratum_overlaps, span_overlaps)
+                           if np.isfinite(ov) and np.isfinite(sp)
+                           and sp >= SPAN_OVERLAP_MIN]
+    cross_stratum_min_informative = (float(min(informative_stratum)) if informative_stratum
+                                     else float("nan"))
+    # The premise is the WITHIN-ENCODER cross-stratum test, and only that -- exactly the
+    # falsifier the claim registers. Scored against the MEASURED CHANCE LEVEL for two
+    # independent rank-r subspaces in this sender's live dimensions rather than an absolute
+    # bar: chance overlap falls as 1/rank-ish (r=32 -> ~0.24, r=8 -> ~0.06 at 136 live dims),
+    # so a fixed absolute threshold silently changes meaning with the CV-selected rank.
+    chance_overlaps = [float(r["subspace_overlap_chance_level_parsrank"]) for r in seed_rows]
+    chance_mean = _mean(chance_overlaps)
+    stability_required = float(chance_mean + STABILITY_MARGIN_OVER_CHANCE)
+    stability_min = cross_stratum_min_informative
+    premise_ok = bool((not np.isfinite(stability_min))
+                      or stability_min >= stability_required)
+    c1 = bool(d_full_comm["passed"])
+    # C2 (R1): a SEED MAJORITY whose within-run permutation p clears alpha. The three-way
+    # conjunction V3-EXQ-1043 used (absolute floor AND mean >= 2*sd AND seed majority) is
+    # gone: the autopsy showed all three clauses fail together on one noisy signal, and only
+    # one of them responds to n. A per-seed permutation p already contains the
+    # noise-vs-effect comparison the 2*sd clause was reaching for, measured inside the seed
+    # instead of across seeds -- which is why the across-seed population sd (ddof=0, so not
+    # a standard error, so it does not shrink with n) is no longer load-bearing anywhere.
+    # C2 (1043b): the RANK CO-PRIMARY is the scored conjunct, and the sign clause is
+    # RETAINED from 1043a's red-team M1 finding. The percentile is a statement about where
+    # D_comm sits, so on its own it is blind to nothing -- but the criterion the CLAIM names
+    # is the CONTRAST `D_randrank - D_comm`, and keeping the sign conjunct is what keeps the
+    # confirm branch and the `_c2_falsified` branch reading the SAME contrast.
+    n_c2_positive = sum(1 for i in _contrib
+                        if np.isfinite(c2_denoised_per_seed[i])
+                        and c2_denoised_per_seed[i] > 0.0)
+    c2 = bool(rank_significant and n_c2_positive >= SEED_MAJORITY)
+    c3 = bool(n_perp_retains >= SEED_MAJORITY)
+    # C4 is the ABSOLUTE, un-normalised ratio and nothing else. The null-margin leg is
+    # RECORDED but is NOT a conjunct: once the component weights are inside the measurement
+    # (which is what makes the ratio a statement about the consumer's actual response to a
+    # change in a decision coordinate), the random-subspace null is no longer matched on
+    # RETENTION -- a fitted subspace that retains the decision coordinates better than chance
+    # deflates the measured ratio for a retention reason, not a coupling one. A confounded
+    # conjunct in the confirm path would be one fewer independent leg than the verdict text
+    # implies, so it is reported instead of scored.
+    # C4b (R3): the ceiling is now MEASURED per seed by `_c4b_ceiling` from that seed's own
+    # attainable floor F and isotropic reference I. A seed whose anchor is unreachable is
+    # excluded, never counted as a fail; if a MAJORITY of seeds are unreachable the criterion
+    # cannot be scored at all and C4 is False with `c4b_unreachable` recorded, which routes
+    # to `undetermined` rather than to a falsification.
+    c4b_scoreable = bool(len(c4b_reachable) >= SEED_MAJORITY)
+    c4 = bool(c4b_scoreable and n_insensitive >= SEED_MAJORITY)
+    equivalent = bool(n_equivalent >= SEED_MAJORITY)
+
+    criteria = [
+        {"name": "C1_target_drops_inside_comm_subspace", "load_bearing": False,
+         "rank_confounded": True,
+         "passed": c1, "measured": d_full_comm["mean"], "threshold": float(ROUTING_DROP_MIN),
+         "sd": d_full_comm["sd"], "n_seeds": d_full_comm["n_seeds_clearing"],
+         "seeds_required": int(SEED_MAJORITY), "per_seed": d_full_comm["per_seed"],
+         "detail": "D_full - D_comm, paired per seed, AT THE PARSIMONIOUS RANK (R2). "
+                   "Rank-confounded and not load-bearing, as in V3-EXQ-1043: the full "
+                   "sender and a rank-r subspace differ in dimensionality, so this is the "
+                   "PHENOTYPE, never the orientation reading."},
+        {"name": "C2_PRIMARY_declared_absolute_difference_ci", "load_bearing": True,
+         "reference": "95% two-sided t-CI on the cross-seed mean of the DE-NOISED C2",
+         "passed": bool(ci_excludes_floor),
+         "measured": primary_ci.get("mean"), "threshold": float(H1_DECLARED_FLOOR),
+         "ci_lo": primary_ci.get("lo"), "ci_hi": primary_ci.get("hi"),
+         "sd": primary_ci.get("sd"), "sem": primary_ci.get("sem"),
+         "n_seeds": int(primary_ci.get("n") or 0),
+         "ci_excludes_declared_floor": bool(ci_excludes_floor),
+         "ci_excludes_zero": bool(ci_excludes_zero),
+         "ci_entirely_above_declared_floor": bool(ci_entirely_above_floor),
+         "per_seed": [c2_denoised_per_seed[i] for i in _contrib],
+         "comparability_form_1043a_protocol": {
+             "note": "1043a's EXACT single-draw, single-fit statistic. Draw 0 reuses 1043a's "
+                     "recorded draw seed (seed*7919+131), so this is that run's literal "
+                     "number, not a re-drawn approximation. 1043a landed [0.0051, 0.0948].",
+             "mean": primary_ci_single.get("mean"), "sd": primary_ci_single.get("sd"),
+             "ci_lo": primary_ci_single.get("lo"), "ci_hi": primary_ci_single.get("hi"),
+             "per_seed": [c2_obs_per_seed[i] for i in _contrib]},
+         "legacy_1043_predicate_recomputed": {
+             "note": "What V3-EXQ-1043's withdrawn three-way conjunction (floor 0.05 AND "
+                     "mean >= 2*sd AND seed majority) would have said on THESE numbers. "
+                     "RECORDED ONLY -- it is not this run's criterion.",
+             "passed": bool(d_rand_comm_legacy["passed"]),
+             "mean": d_rand_comm_legacy["mean"], "sd": d_rand_comm_legacy["sd"],
+             "n_seeds_clearing": d_rand_comm_legacy["n_seeds_clearing"],
+             "floor": float(ORIENTATION_MARGIN_RECORDED_ONLY)},
+         "detail": "THE DECLARED PRIMARY, pre-registered at "
+                   "evidence/planning/v3_exq_1043b_prereg_rank_coprimary_20260922.md section "
+                   "2 (REE_assembly origin/master 927cf907e49), and REPORTED WHATEVER IT "
+                   "SAYS. Declared null, verbatim from hypothesis_space_registry.v1.json qid "
+                   "mech537_communication_subspace_orientation, H1-small-but-real: 'the CI "
+                   "excludes 0.05 (H1 falsified, not rescued)'. The comparator is the B-draw "
+                   "MEAN and D_comm is the K-refit mean, so both sides are de-noised -- that "
+                   "is the instrument 1043b was built to supply. IT IS EXPECTED TO COME BACK "
+                   "UNDECIDED at n = 6 (CI excluding 0, including 0.05), because the binding "
+                   "variance is the CROSS-SEED sd ~0.038 rather than the draw noise this run "
+                   "removes, and the upper bound first clears 0.05 near n ~ 75 seeds. That "
+                   "expectation is recorded IN ADVANCE precisely so that its occurrence "
+                   "cannot be used as an argument for demoting this criterion in favour of "
+                   "the rank co-primary. Demoting or omitting it is violation 1 of the "
+                   "pre-registration's section 12."},
+        {"name": "C2_RANK_COPRIMARY_percentile_in_random_subspace_reference",
+         "load_bearing": True,
+         "reference": "per-seed percentile of D_comm inside that seed's own B-draw random "
+                      "rank-r reference distribution; Fisher across seeds",
+         "passed": bool(c2),
+         "measured": rank_all["fisher"].get("p"), "threshold": float(RANK_ALPHA),
+         "direction": "upper",
+         "n_seeds": int(min(int(rank_all["fisher"].get("n") or 0), n_c2_positive)),
+         "seeds_required": int(SEED_MAJORITY),
+         "n_seeds_contrast_positive": int(n_c2_positive),
+         "conjunction": "Fisher combined p <= alpha (SET-ALL) AND a seed majority with "
+                        "(D_randrank - D_comm) > 0",
+         "direction_convention": "LOW per-seed percentile = EFFECT PRESENT (D_comm BELOW the "
+                                 "random same-rank draws). See _reference_percentile.",
+         "per_seed": rank_p_all,
+         "per_seed_resolution_capped": capped_flags,
+         "min_attainable_percentile": [float(r["randrank_reference"]
+                                             ["min_attainable_percentile"])
+                                       for r in seed_rows],
+         "n_draws": int(N_RANDRANK_DRAWS if not dry_run else DRY_RUN_RANDRANK_DRAWS),
+         "SET_ALL": rank_all,
+         "SET_COMPETENT": rank_comp,
+         "sets_disagree": bool(sets_disagree),
+         "rests_on_few_seeds_fisher_not_simes": bool(rests_on_few_seeds),
+         "split_declared": bool(split_declared),
+         "split_rule": ("at least one contributing seed with percentile <= %.3f AND at least "
+                        "one with percentile >= %.3f" % (SPLIT_LOW, SPLIT_HIGH)),
+         "competence_margins": [float(r["randrank_reference"]["competence_margin"])
+                                for r in seed_rows],
+         "detail": "THE RANK CO-PRIMARY, pre-registered at "
+                   "evidence/planning/v3_exq_1043b_prereg_rank_coprimary_20260922.md sections "
+                   "3-5. It is NOT a statistic invented after seeing the absolute-difference "
+                   "numbers: hypothesis H2-no-orientation, registered 2026-09-17 (three days "
+                   "BEFORE the instrument smoke ran), names this exact reference -- 'not "
+                   "meaningfully different from A RANDOM SUBSPACE OF THE SAME RANK', declared "
+                   "null 'the observed C2 sits inside the null'. 1043a built a permutation "
+                   "null instead, which tests fit-EXISTENCE (p = 1.0 on 6/6) and is "
+                   "uninformative for orientation. This is that registered falsifier "
+                   "instrumented correctly for the first time. D_comm enters as a SINGLE fit "
+                   "matched to the draws' single fits, because exchangeability under the null "
+                   "holds only between quantities from the SAME fit protocol -- averaging "
+                   "D_comm against single-fit draws would inflate apparent extremity. BOTH "
+                   "SET-ALL and SET-COMPETENT are reported and NEITHER may stand alone; "
+                   "reporting only SET-COMPETENT is violation 2 of the pre-registration's "
+                   "section 12. A percentile equal to min_attainable_percentile is CENSORED "
+                   "and reads '< 1/B', never as a measured zero."},
+        {"name": "C3_complement_retains_the_decodability", "load_bearing": False,
+         "expected_to_pass_by_dimensionality": True,
+         "passed": c3, "measured": _mean(perp_losses),
+         "threshold": float(COMPLEMENT_RETENTION_TOL), "direction": "upper",
+         "n_seeds": int(n_perp_retains), "seeds_required": int(SEED_MAJORITY),
+         "per_seed": perp_losses,
+         "detail": "AT THE PARSIMONIOUS RANK. D_full - D_perp, an UPPER bound: deleting the "
+                   "communication subspace from "
+                   "the sender must cost essentially nothing, which is the claim's own 'no "
+                   "information having been destroyed'. Stated against the FULL sender rather "
+                   "than against D_comm because the complement's rank is (live - r) against "
+                   "the subspace's r, so a perp-minus-comm difference would be confounded by "
+                   "dimensionality exactly as C1 is. NOT load-bearing, and deliberately so: a "
+                   "rank-(live - r) complement retains each decision coordinate at norm "
+                   ">= sqrt(1 - retention_comm^2) whatever its orientation, so a PASS here is "
+                   "close to automatic and carries no orientation information. It is included "
+                   "because its FAILURE would be informative -- it would mean deleting the "
+                   "communication subspace destroys decodability, which is not a routing story "
+                   "at all. C2 is the only rank-matched contrast and the only one that "
+                   "licenses an orientation reading."},
+        {"name": "C4a_decision_complement_coupling_below_matched_null",
+         "load_bearing": False, "scored_as_conjunct": False, "retention_confounded": True,
+         "passed": bool(d_null_margin["passed"]), "measured": d_null_margin["mean"],
+         "threshold": float(INSENSITIVITY_NULL_MARGIN), "sd": d_null_margin["sd"],
+         "n_seeds": d_null_margin["n_seeds_clearing"], "seeds_required": int(SEED_MAJORITY),
+         "per_seed": d_null_margin["per_seed"],
+         "detail": "null_ratio - measured_ratio, paired per seed, on the DECISION-TARGETED "
+                   "probe: for each of the five coordinates the oracle actually reads, e_j is "
+                   "split into its communication-subspace and complement components (in the "
+                   "standardised basis, the same decomposition the decode arms use), each "
+                   "component is mapped to raw sender space, normalised, and applied at "
+                   "matched eps, and the ratio is mean||dz_world|| complement-component over "
+                   "comm-component. A GENERIC complement direction puts only ~1.5% of its "
+                   "energy on those five coordinates, so a generic ratio would measure whether "
+                   "the encoder's Jacobian is isotropic off the subspace -- not whether the "
+                   "decision content reaches the receiver -- which is why C4 scores the aimed "
+                   "probe and the generic one is recorded as a diagnostic only. The null "
+                   "repeats the identical construction on a RANDOM subspace of the same rank "
+                   "AND the same live-dimension support, so the gate is calibrated on this "
+                   "encoder by this machinery and cannot be unmeetable by construction."},
+        {"name": "C4b_decision_complement_coupling_below_absolute_ceiling",
+         "load_bearing": True, "scored_as_conjunct": True,
+         "ceiling_anchor": "measured_in_run",
+         "ceiling_rule": C4B_CEILING_RULE,
+         "passed": c4, "measured": _mean(sens_ratios),
+         "threshold": _mean([c for c in c4b_ceilings if np.isfinite(c)]),
+         "direction": "upper",
+         "n_seeds": int(n_insensitive), "seeds_required": int(SEED_MAJORITY),
+         "per_seed": sens_ratios,
+         "per_seed_ceiling": c4b_ceilings,
+         "per_seed_jacobian_aligned_floor": floor_ratios,
+         "per_seed_isotropic_reference": isotropic_ratios,
+         "per_seed_margin_below_ceiling": c4b_margins,
+         "per_seed_per_unit_sensitivity_ratio": per_unit_ratios,
+         "per_seed_effective_per_unit_bar": c4b_effective_bars,
+         "per_seed_anchor_headroom_frac": c4b_headroom,
+         "n_seeds_unreachable_anchor": int(n_c4b_unreachable),
+         "scoreable": bool(c4b_scoreable),
+         "legacy_1043_ceiling_recorded_only": float(INSENSITIVITY_RATIO_MAX_LEGACY_1043),
+         "null_control_per_seed": null_ratios,
+         "detail": "THE C4 CONJUNCT, with its ceiling MEASURED IN-RUN rather than hand-set "
+                   "(the confirmed autopsy's required_changes: 'ANCHOR C4b's ABSOLUTE 0.5 "
+                   "CEILING from a measured reference'). There was no reference to import: "
+                   "V3-EXQ-1002 / 1008 / 1010 never measured this statistic, and nothing "
+                   "measured anywhere in the corpus sat at or below 0.50 on this aimed probe "
+                   "(lowest observed 0.8318), so the old ceiling had no demonstrated "
+                   "reachability at all. It is therefore measured here, per seed, from that "
+                   "seed's own encoder: F = the ratio through the rank-r subspace the encoder "
+                   "is MOST SENSITIVE TO (top-r eigenvectors of the state-averaged "
+                   "finite-difference J_std^T J_std, run through the IDENTICAL probe) -- the "
+                   "attainable best-case ROUTING reference, and an attainable one rather than "
+                   "a certified infimum; and I = the NO-ROUTING reference from the FITTED "
+                   "decomposition's own component norms, retention-MATCHED by construction "
+                   "and so free of the confound that bars C4a from the conjunct. The rule "
+                   "mapping them to the ceiling is fixed before execution in `_c4b_ceiling` "
+                   "and is not tunable after seeing data. A seed whose F is not strictly "
+                   "below I has no measurable headroom at that rank, is scored UNREACHABLE "
+                   "and is EXCLUDED rather than failed. "
+                   "Ratio of mean||dz_world|| along the COMPLEMENT COMPONENT "
+                   "of each oracle decision coordinate to that along its COMMUNICATION-SUBSPACE "
+                   "COMPONENT, components taken UN-NORMALISED so their weights in e_j stay "
+                   "inside the measurement -- it is therefore the share of the consumer's "
+                   "ACTUAL response to a change in that coordinate that arrives via the "
+                   "complement rather than via the subspace, which is exactly what the claim "
+                   "asserts is small. Control-free and reachable BY HYPOTHESIS rather than by "
+                   "assumption: under a genuine routing failure the encoder Jacobian is "
+                   "supported on the communication subspace, the complement term goes to ~0 "
+                   "and the ratio to ~0; under no routing failure the ratio is ~b/a > 1. The "
+                   "dry-run smoke measured 6.46 at that no-routing end, so the statistic "
+                   "demonstrably has the dynamic range this criterion needs."},
+        {"name": "C5_single_subspace_premise_holds", "load_bearing": True,
+         "passed": premise_ok, "measured": stability_min,
+         "threshold": stability_required, "direction": "lower",
+         "chance_level_measured": chance_mean,
+         "margin_over_chance_required": float(STABILITY_MARGIN_OVER_CHANCE),
+         "detail": "min mean_squared_cosine_overlap between the ORACLE-driven and "
+                   "RANDOM-driven basis WITHIN each seed's own encoder, over the seeds whose "
+                   "two strata's data spans overlap. Scored against the MEASURED chance "
+                   "overlap for two independent rank-r subspaces in this sender's live "
+                   "dimensions, because chance overlap scales with rank and an absolute bar "
+                   "would mean something different at every CV-selected rank. CROSS-SEED "
+                   "overlap is deliberately NOT an input: each seed trains its OWN encoder, so "
+                   "a cross-seed disagreement is encoder non-identifiability across training "
+                   "replicates, not the receiver-state-strata instability this claim "
+                   "registers; it is recorded as a diagnostic instead. Its FAILURE routes to "
+                   "MECH-547 / MECH-555 and is not a MECH-537 conjunct."},
+    ]
+
+    outcome, label, direction, hypothesis_verdict = _adjudicate(
+        premise_ok, c1, c2, c3, c4, equivalent,
+        # RED-TEAM FINDING 4, CONFIRMED AND FIXED. This read ALL six seeds while the
+        # confirming conjunct `n_c2_positive` reads only `_contrib`, so a seed whose reference
+        # distribution FAILED non-degeneracy could vote for `weakens` but not for `supports`.
+        # Both directions now read the same seed set, which is 1043a's own red-team M1
+        # principle (confirm and falsify must read the SAME contrast) applied to the DENOMINATOR.
+        _c2_falsified([c2_denoised_per_seed[i] for i in _contrib]))
+
+    # ---- the PRE-REGISTERED two-primary grid, carried ALONGSIDE the signature verdict -----
+    primary_label = _primary_grid(ci_positive, ci_excludes_floor,
+                                  ci_entirely_above_floor, rank_significant)
+    if split_declared:
+        primary_label += "_split"
+    if sets_disagree:
+        primary_label += "_conditional_on_competence"
+    primary_agreement = {
+        "label": primary_label,
+        "declared_primary_ci_lo": primary_ci.get("lo"),
+        "declared_primary_ci_hi": primary_ci.get("hi"),
+        "declared_primary_excludes_declared_floor": bool(ci_excludes_floor),
+        "declared_primary_excludes_zero": bool(ci_excludes_zero),
+        "rank_coprimary_significant_set_all": rank_all["fisher"].get("significant"),
+        "rank_coprimary_significant_set_competent": rank_comp["fisher"].get("significant"),
+        # RED-TEAM FINDING 7, CONFIRMED AND FIXED. This compared `ci_entirely_above_floor`
+        # (a MAGNITUDE claim) against `rank_significant` (an EXISTENCE claim), so a run where
+        # the CI excluded 0 and the rank statistic fired -- both saying "an effect is present"
+        # -- reported primaries_agree: False, while a doubly-null run reported True. The two
+        # primaries answer the same question only at the level of EXISTENCE, so that is what
+        # is compared; magnitude agreement is `declared_primary_excludes_declared_floor`.
+        "primaries_agree": bool(bool(ci_excludes_zero and ci_positive)
+                                == bool(rank_significant)),
+        "split_declared": bool(split_declared),
+        "sets_disagree": bool(sets_disagree),
+        "rests_on_few_seeds_fisher_not_simes": bool(rests_on_few_seeds),
+        "per_seed_rank_percentile": rank_p_all,
+        "per_seed_resolution_capped": capped_flags,
+        "note": "PRE-REGISTERED (v3_exq_1043b_prereg_rank_coprimary_20260922.md section 8). "
+                "A disagreement between the two primaries IS the result and is reported as "
+                "one, never resolved in favour of whichever is friendlier. The expected "
+                "single outcome, stated in the prereg BEFORE the run, is "
+                "`orientation_effect_rank_only_magnitude_undecided_split`: declared primary "
+                "undecided, rank co-primary significant, split declared, one seed "
+                "non-contributory on competence. That is a real adjudication of "
+                "H2-no-orientation and a NON-adjudication of H1's magnitude claim, and must "
+                "be reported as exactly that, with no upgrade.",
+    }
+    if not gate_green:
+        outcome = "FAIL"
+        label = "substrate_not_ready_requeue"
+        direction = "non_contributory"
+        hypothesis_verdict = ("A pre-registered readiness precondition is unmet, so no "
+                              "scientific leg is adjudicated. This is a refusal with a "
+                              "record, not a verdict about MECH-537. NOTE the 1043b scoping: "
+                              "the non-degeneracy gate is evaluated PER SEED and the run "
+                              "proceeds on ANY seed that passes, so reaching this branch "
+                              "means ZERO of the seeds produced a reference distribution "
+                              "whose spread is dominated by subspace orientation -- a much "
+                              "stronger statement than 1043a's refusal, which fired on an "
+                              "elevation margin that 6/6 seeds cleared in sign and 5/6 missed "
+                              "only in magnitude.")
+        primary_agreement["label"] = "not_adjudicated_readiness_gate_red"
+
+    degeneracy = check_degeneracy({
+        "C2_drop_is_orientation_not_rank": c2_obs_per_seed,
+        "C3_complement_retains_the_decodability": perp_losses,
+        "C4_receiver_insensitive_to_decision_complement":
+            [v for v in sens_ratios if np.isfinite(v)],
+        "arm_agreement_spread": {
+            "groups": [[float(r["agreements"][a]) for a in ARM_IDS] for r in seed_rows]},
+    })
+
+    def _flat(v: Any) -> Any:
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        return f if np.isfinite(f) else None
+
+    readout: Dict[str, Any] = {}
+    for k, v in (
+        ("d_full_mean", _mean(full_ag)),
+        ("d_comm_mean", _mean([r["agreements"][ARM_COMM] for r in seed_rows])),
+        ("d_perp_mean", _mean([r["agreements"][ARM_PERP] for r in seed_rows])),
+        ("d_randrank_mean", _mean([r["agreements"][ARM_RAND] for r in seed_rows])),
+        ("delta_full_minus_comm_mean", d_full_comm["mean"]),
+        ("delta_randrank_minus_comm_mean", _mean(c2_obs_per_seed)),
+        ("delta_randrank_minus_comm_denoised_mean", primary_ci.get("mean")),
+        ("primary_ci_lo", primary_ci.get("lo")),
+        ("primary_ci_hi", primary_ci.get("hi")),
+        ("primary_ci_excludes_declared_floor", float(1 if ci_excludes_floor else 0)),
+        ("primary_ci_excludes_zero", float(1 if ci_excludes_zero else 0)),
+        ("rank_percentile_mean", _mean([v for v in rank_p_all if np.isfinite(v)])),
+        ("rank_percentile_min", (float(min(v for v in rank_p_all if np.isfinite(v)))
+                                 if any(np.isfinite(v) for v in rank_p_all) else None)),
+        ("rank_fisher_p_set_all", rank_all["fisher"].get("p")),
+        ("rank_simes_p_set_all", rank_all["simes"].get("p")),
+        ("rank_fisher_p_set_competent", rank_comp["fisher"].get("p")),
+        ("rank_simes_p_set_competent", rank_comp["simes"].get("p")),
+        ("rank_sets_disagree", float(1 if sets_disagree else 0)),
+        ("rank_rests_on_few_seeds", float(1 if rests_on_few_seeds else 0)),
+        ("split_declared", float(1 if split_declared else 0)),
+        ("n_seeds_nondegenerate", float(n_nondegenerate)),
+        ("n_seeds_competent", float(sum(1 for f in competent_flags if f))),
+        ("n_seeds_resolution_capped", float(sum(1 for f in capped_flags if f))),
+        ("n_randrank_draws", float(N_RANDRANK_DRAWS if not dry_run
+                                   else DRY_RUN_RANDRANK_DRAWS)),
+        ("scored_rank_mean", _mean([float(r["parsimonious_rank"]) for r in seed_rows])),
+        ("c4b_ceiling_mean", _mean([c for c in c4b_ceilings if np.isfinite(c)])),
+        ("c4b_jacobian_aligned_floor_mean", _mean(floor_ratios)),
+        ("c4b_isotropic_reference_mean", _mean(isotropic_ratios)),
+        ("delta_perp_minus_comm_mean",
+         _mean([r["delta_perp_minus_comm"] for r in seed_rows])),
+        ("delta_full_minus_perp_mean", _mean(perp_losses)),
+        ("decision_sensitivity_ratio_mean", _mean(sens_ratios)),
+        ("decision_null_sensitivity_ratio_mean", _mean(null_ratios)),
+        ("generic_sensitivity_ratio_mean", _mean(generic_ratios)),
+        ("cross_seed_stability_min", cross_seed_min),
+        ("sensitivity_null_margin_mean", d_null_margin["mean"]),
+        ("cross_stratum_stability_min", stability_min),
+        ("subspace_overlap_chance_level_mean", chance_mean),
+        ("stability_required", stability_required),
+        ("rrr_heldout_r2_worst_seed", w_r2),
+        ("selected_rank_mean", _mean([float(r["selected_rank"]) for r in seed_rows])),
+        ("n_seeds_rank_at_ladder_ceiling",
+         sum(1 for r in seed_rows if r["rrr_rank_at_ladder_ceiling"])),
+        ("source_adequacy_worst_seed", w_full),
+        ("decision_retention_comm_max_mean",
+         _mean([r["decision_coordinate_retention"]["comm_subspace"]["max"] for r in seed_rows])),
+        ("decision_retention_randrank_max_mean",
+         _mean([r["decision_coordinate_retention"]["randrank_control"]["max"]
+                for r in seed_rows])),
+        ("c1_passed", int(c1)), ("c2_passed", int(c2)), ("c3_passed", int(c3)),
+        ("c4_passed", int(c4)), ("c5_premise_holds", int(premise_ok)),
+        ("gate_green", int(gate_green)),
+    ):
+        fv = _flat(v)
+        if fv is not None:
+            readout[k] = fv
+
+    manifest.update({
+        "outcome": outcome,
+        "evidence_direction": direction,
+        "hypothesis_verdict": hypothesis_verdict,
+        "criteria": criteria,
+        "combination_rule": (
+            "PREMISE FIRST: not C5 (WITHIN-ENCODER cross-stratum subspace stability against "
+            "the MEASURED chance level -- the claim's own registered falsifier -- counted only "
+            "where the two strata's data spans overlap >= %.2f; CROSS-SEED overlap is a "
+            "diagnostic and NOT a premise input, because each seed trains its own encoder) -> "
+            "single_subspace_premise_fails (non_contributory, routes MECH-547/MECH-555). Else "
+            "ALL SCORED CONTRASTS ARE READ AT THE PARSIMONIOUS RANK. "
+            "FALSIFY iff |D_full - D_comm| <= %.2f on >= %d seeds (weakens). Else CONFIRM iff "
+            "C1 AND C2 AND C3 AND C4 (supports), where C2 is a SEED MAJORITY whose WITHIN-RUN "
+            "PERMUTATION p clears alpha (not a hand-set floor) and C4 is C4b alone against a "
+            "ceiling MEASURED per seed from that encoder's own attainable floor and isotropic "
+            "reference -- C4a is recorded but "
+            "retention-confounded and not scored. Else FALSIFY iff C1 AND the C2 contrast is "
+            "genuinely NON-POSITIVE (mean <= 0 and a seed majority <= 0, never merely `not "
+            "C2`) (weakens: the drop is rank, not orientation). Else undetermined (mixed). C2 "
+            "is the only RANK-MATCHED contrast and the only one that licenses an ORIENTATION "
+            "reading. A red readiness gate overrides everything with "
+            "substrate_not_ready_requeue."
+            % (SPAN_OVERLAP_MIN, EQUIVALENCE_BAND, SEED_MAJORITY)),
+        "contrasts": {"full_minus_comm": d_full_comm,
+                      "randrank_minus_comm_reference_distribution_referenced": {
+                          "per_seed_contrast_single_fit": c2_obs_per_seed,
+                          "per_seed_contrast_denoised": c2_denoised_per_seed,
+                          "per_seed_rank_percentile": rank_p_all,
+                          "per_seed_resolution_capped": capped_flags,
+                          "per_seed_competent": competent_flags,
+                          "per_seed_nondegenerate": nondegen_flags,
+                          "alpha": float(RANK_ALPHA),
+                          "declared_primary_ci": primary_ci,
+                          "declared_primary_ci_comparability_form": primary_ci_single,
+                          "rank_coprimary_SET_ALL": rank_all,
+                          "rank_coprimary_SET_COMPETENT": rank_comp,
+                          "split_declared": bool(split_declared),
+                          "seeds_required": int(SEED_MAJORITY),
+                          "legacy_1043_predicate_recomputed": d_rand_comm_legacy},
+                      "c4b_measured_ceiling": {
+                          "rule": C4B_CEILING_RULE,
+                          "per_seed_ceiling": c4b_ceilings,
+                          "per_seed_jacobian_aligned_floor": floor_ratios,
+                          "per_seed_isotropic_reference": isotropic_ratios,
+                          "n_seeds_unreachable_anchor": int(n_c4b_unreachable),
+                          "scoreable": bool(c4b_scoreable)},
+                      "full_minus_perp_per_seed": perp_losses,
+                      "n_seeds_complement_retains": int(n_perp_retains),
+                      "n_seeds_equivalent_within_band": int(n_equivalent),
+                      "complement_coupling_null_margin": d_null_margin,
+                      "n_seeds_insensitive": int(n_insensitive),
+                      "generic_sensitivity_ratio_per_seed": generic_ratios,
+                      "cross_seed_stability_min": cross_seed_min,
+                      "cross_stratum_stability_min_informative": cross_stratum_min_informative,
+                      "cross_stratum_data_span_overlap_per_seed": span_overlaps},
+        "readout": readout,
+        "pre_registered": {
+            "agreement_bar": float(AGREEMENT_BAR),
+            "agreement_elevation_min": float(AGREEMENT_ELEVATION_MIN),
+            "rrr_r2_floor": float(RRR_R2_FLOOR),
+            "randrank_control_margin_recorded_only":
+                float(RANDRANK_CONTROL_MARGIN_RECORDED_ONLY),
+            "routing_drop_min": float(ROUTING_DROP_MIN),
+            "orientation_margin_recorded_only": float(ORIENTATION_MARGIN_RECORDED_ONLY),
+            "prereg_document": ("REE_assembly/evidence/planning/"
+                                "v3_exq_1043b_prereg_rank_coprimary_20260922.md"),
+            "prereg_commit": "927cf907e49 (REE_assembly origin/master)",
+            "rank_alpha": float(RANK_ALPHA),
+            "n_randrank_draws": int(DRY_RUN_RANDRANK_DRAWS if dry_run else N_RANDRANK_DRAWS),
+            "n_decoder_refits": int(DRY_RUN_DECODER_REFITS if dry_run else N_DECODER_REFITS),
+            "rank_combining_rule_primary": "fisher",
+            "rank_combining_rule_robustness": "simes",
+            "rank_direction": "LOW percentile = effect present",
+            "nondegeneracy_orientation_ratio": float(NONDEGENERACY_ORIENTATION_RATIO),
+            "nondegeneracy_sd_floor": float(NONDEGENERACY_SD_FLOOR),
+            "competence_margin": float(COMPETENCE_MARGIN),
+            "split_low": float(SPLIT_LOW), "split_high": float(SPLIT_HIGH),
+            "h1_declared_floor": float(H1_DECLARED_FLOOR),
+            "primary_ci_level": float(PRIMARY_CI_LEVEL),
+            "parsimonious_r2_tol": float(PARSIMONIOUS_R2_TOL),
+            "c4b_ceiling_rule": C4B_CEILING_RULE,
+            "jacobian_eps_frac": float(JACOBIAN_EPS_FRAC),
+            "n_jacobian_states": int(DRY_RUN_JACOBIAN_STATES if dry_run
+                                     else N_JACOBIAN_STATES),
+            "seed_majority_inherited_rule": SEED_MAJORITY_INHERITED_RULE,
+            "complement_retention_tol": float(COMPLEMENT_RETENTION_TOL),
+            "equivalence_band": float(EQUIVALENCE_BAND),
+            "insensitivity_null_margin": float(INSENSITIVITY_NULL_MARGIN),
+            "insensitivity_ratio_max_legacy_1043_recorded_only":
+                float(INSENSITIVITY_RATIO_MAX_LEGACY_1043),
+            "span_overlap_min": float(SPAN_OVERLAP_MIN),
+            "stability_margin_over_chance": float(STABILITY_MARGIN_OVER_CHANCE),
+            "delta_sd_multiple": float(DELTA_SD_MULTIPLE),
+            "seed_majority": int(SEED_MAJORITY),
+            "heldout_min_steps": int(HELDOUT_MIN_STEPS),
+        },
+        "interpretation": {
+            "label": label,
+            "preconditions": gate_payload,
+            "criteria_non_degenerate": {
+                # A contrast criterion DISCRIMINATED only if the arms it compares actually
+                # produced different agreements. All-zero deltas mean the projections changed
+                # nothing (e.g. a rank that made P_comm the identity, or a decoder collapsed
+                # to one class on every arm) -- that is a vacuous pass, not a null result.
+                "C1_target_drops_inside_comm_subspace": _contrast_discriminated(
+                    d_full_comm["per_seed"]),
+                # The DECLARED PRIMARY discriminated only if the de-noised contrast
+                # actually varies across seeds; a bit-identical vector means the arms did not
+                # differ and the CI is a statement about nothing.
+                "C2_PRIMARY_declared_absolute_difference_ci": _contrast_discriminated(
+                    c2_denoised_per_seed),
+                # The RANK CO-PRIMARY discriminated only if (a) at least one seed passed the
+                # non-degeneracy gate -- otherwise every percentile is decoder jitter -- AND
+                # (b) not every contributing seed is RESOLUTION-CAPPED at 1/(B+1). An
+                # all-capped vector cannot distinguish "extreme" from "at the floor", so a
+                # significant Fisher p off it would be an artefact of B, not a measurement.
+                "C2_RANK_COPRIMARY_percentile_in_random_subspace_reference": bool(
+                    n_nondegenerate > 0
+                    and any(np.isfinite(rank_p_all[i]) for i in _contrib)
+                    and not all(capped_flags[i] for i in _contrib)),
+                "C3_complement_retains_the_decodability": _contrast_discriminated(perp_losses),
+                # The ratio is meaningless if the COMM perturbations themselves moved z_world
+                # by nothing -- then the denominator is noise and so is the ratio.
+                "C4_receiver_insensitive_to_decision_complement": bool(
+                    [v for v in sens_ratios if np.isfinite(v)]
+                    and all(float(r["sensitivity_decision_targeted_parsrank"]["by_eps"][
+                        "%.3f" % SENSITIVITY_EPS_FRACS[-1]]["measured"]["mean_dz_inside"])
+                        > 1e-9 for r in seed_rows)),
+                "C5_single_subspace_premise_holds": bool(np.isfinite(stability_min)),
+            },
+            "gate_green": bool(gate_green),
+            # THE PRE-REGISTERED TWO-PRIMARY VERDICT. Carried at the top of `interpretation`
+            # so no reader can reach `label` without also seeing whether the two primaries
+            # agreed, whether the per-seed percentiles SPLIT, and whether the conclusion is
+            # conditional on the competence exclusion.
+            "primary_agreement": primary_agreement,
+            "n_seeds_nondegenerate": int(n_nondegenerate),
+            "n_seeds_competent": int(sum(1 for f in competent_flags if f)),
+        },
+        "guards": {"gate_green": bool(gate_green),
+                   "anchor_reachability": anchor_reachability},
+    })
+    manifest.update(degeneracy)
+    manifest["_elapsed_seconds_measured"] = float(time.perf_counter() - t0)
+    manifest["_started_at"] = t0
+    return manifest
+
+
+# ==========================================================================================
+def _run_self_test() -> int:
+    """Exercise the verdict grid and the geometry helpers without a multi-hour run."""
+    fails: List[str] = []
+
+    def chk(name: str, cond: bool) -> None:
+        print("  [selftest] %-52s %s" % (name, "ok" if cond else "FAIL"), flush=True)
+        if not cond:
+            fails.append(name)
+
+    o, lab, d, _h = _adjudicate(True, True, True, True, True, False, False)
+    chk("confirm -> supports", (o, d) == ("PASS", "supports")
+        and lab == "communication_subspace_routing_failure_confirmed")
+    o, lab, d, _h = _adjudicate(True, False, False, False, False, True, False)
+    chk("equivalent -> weakens", (o, d) == ("PASS", "weakens"))
+    o, lab, d, _h = _adjudicate(False, True, True, True, True, False, False)
+    chk("unstable subspace -> non_contributory", (o, d) == ("PASS", "non_contributory"))
+    o, lab, d, _h = _adjudicate(True, True, True, True, True, False, True)
+    chk("an inconsistent (c2 and c2_falsified) caller still cannot print a falsification",
+        lab == "communication_subspace_routing_failure_confirmed")
+    o, lab, d, _h = _adjudicate(True, True, False, True, True, False, True)
+    chk("C1 but not C2, discriminated -> weakens (rank, not orientation)",
+        (o, d) == ("PASS", "weakens")
+        and lab == "routing_drop_explained_by_rank_not_orientation")
+    o, lab, d, _h = _adjudicate(True, True, False, True, True, False, False)
+    chk("C1, C2 fails but is NOT falsified -> undetermined, never a falsification",
+        (o, d) == ("FAIL", "mixed"))
+    # The exact shape the second red-team pass found: positive on every seed, but failing the
+    # 2*SD consistency clause. It must NOT read as "rank explains it".
+    # n = 6 now, so these fixtures are 6-long: SEED_MAJORITY is 4 and a 3-long fixture could
+    # never clear it, which would make the assertion pass for the wrong reason.
+    noisy = [0.10, 0.30, 0.02, 0.09, 0.28, 0.03]
+    chk("noisy-but-positive C2 contrast is not `passed` (legacy predicate)",
+        not _paired_positive(noisy, ORIENTATION_MARGIN_RECORDED_ONLY)["passed"])
+    chk("noisy-but-positive C2 contrast is NOT falsified either", not _c2_falsified(noisy))
+    o, lab, d, _h = _adjudicate(True, True, False, True, True, False,
+                                _c2_falsified(noisy))
+    chk("...so it routes to undetermined, not to a rank-explains-it weakens",
+        lab == "routing_signature_incomplete_undetermined")
+    chk("genuinely non-positive C2 contrast IS falsified",
+        _c2_falsified([-0.04, 0.0, -0.11, -0.02, -0.07, 0.0]))
+    o, lab, d, _h = _adjudicate(True, True, True, True, False, False, False)
+    chk("C4 false -> undetermined, never premise-fail and never supports",
+        lab == "routing_signature_incomplete_undetermined")
+    # c2 and c2_falsified are mutually exclusive on real data; the grid is exercised with
+    # CONSISTENT pairs only, and the branch itself additionally requires `not c2`.
+    labels = {_adjudicate(*a)[2] for a in (
+        (True, True, True, True, True, False, False),    # confirm
+        (True, False, False, False, False, True, False),  # equivalent
+        (False, True, True, True, True, False, False),    # premise fails
+        (True, True, False, True, True, False, True),     # rank, not orientation
+        (True, True, True, True, False, False, False))}   # undetermined
+    chk("grid reaches supports AND weakens AND non_contributory AND mixed",
+        labels == {"supports", "weakens", "non_contributory", "mixed"})
+
+    pp = _paired_positive([0.20, 0.21, 0.19, 0.20, 0.22, 0.18], 0.05)
+    chk("paired_positive: consistent large deltas pass", pp["passed"])
+    pp = _paired_positive([0.20, -0.18, 0.21, -0.20, 0.19, -0.17], 0.05)
+    chk("paired_positive: seed-disagreeing deltas fail", not pp["passed"])
+    pp = _paired_positive([0.02] * 6, 0.05)
+    chk("paired_positive: below the absolute floor fails", not pp["passed"])
+    chk("SEED_MAJORITY is the PROPORTIONAL re-specification of the inherited 2 of 3",
+        int(SEED_MAJORITY) == 4 and len(SEEDS) == 6
+        and int(SEED_MAJORITY) != int(x1002.SEED_MAJORITY))
+
+    # ---- R2: the parsimonious-rank rule, replayed on V3-EXQ-1043's LANDED ladder --------
+    # Not a synthetic fixture: these are the real `rrr_heldout_r2_by_rank` values from
+    # v3_exq_1043_..._20260916T111630Z_v3.json, and the autopsy states the answer is
+    # 8 / 10 / 10. If this ever stops reproducing, the rule has drifted from what was
+    # ratified, which is exactly the regression worth catching without a multi-hour run.
+    lad42 = {1: 0.98310, 4: 0.99420, 6: 0.99620, 8: 0.99727, 9: 0.99750, 10: 0.99770,
+             12: 0.99790, 16: 0.99810, 24: 0.99820, 32: 0.99820}
+    chk("parsimonious_rank reproduces the autopsy's seed-42 answer of 8",
+        _parsimonious_rank(lad42, 1.0e-3) == 8)
+    chk("parsimonious_rank at a LOOSER tol picks a smaller rank",
+        _parsimonious_rank(lad42, 1.0e-2) <= 8)
+    chk("parsimonious_rank at tol 0 picks the ladder argmax",
+        _parsimonious_rank(lad42, 0.0) == 24)
+
+    # ---- 1043b (E1): the reference percentile, its DIRECTION, and its resolution cap ---
+    # THE DIRECTION TEST IS THE LOAD-BEARING ONE HERE. Inverting the sign convention would
+    # silently turn every verdict inside out while every other assertion in this file still
+    # passed, so it is asserted from a CONSTRUCTED case whose correct answer is known by
+    # hand, not from a value read back out of the module.
+    ref = [0.60, 0.61, 0.62, 0.63, 0.64]
+    chk("percentile: D_comm BELOW every draw hits the 1/(B+1) floor -- the EFFECT-PRESENT "
+        "end, which is the direction MECH-537's phenotype predicts",
+        abs(_reference_percentile(0.50, ref) - 1.0 / 6.0) < 1e-12)
+    chk("percentile: D_comm ABOVE every draw is 1.0 -- the NO-EFFECT end",
+        abs(_reference_percentile(0.99, ref) - 1.0) < 1e-12)
+    chk("percentile is MONOTONE INCREASING in D_comm (low = effect present)",
+        _reference_percentile(0.50, ref) < _reference_percentile(0.615, ref)
+        < _reference_percentile(0.99, ref))
+    chk("percentile: a draw exactly equal to D_comm COUNTS as at-or-below",
+        abs(_reference_percentile(0.60, ref) - 2.0 / 6.0) < 1e-12)
+    chk("percentile is NaN with no usable reference -- CANNOT DETERMINE, never 0.0, so a "
+        "broken reference can never read as a maximally-significant seed",
+        not np.isfinite(_reference_percentile(0.5, [])))
+    chk("percentile floor is exactly 1/(B+1), so a CENSORED seed is recognisable",
+        abs(_reference_percentile(0.0, [0.5] * 24) - 1.0 / 25.0) < 1e-12)
+
+    # ---- 1043b (E1): the combining rules -----------------------------------------------
+    # Independently checkable by hand: -2*sum(ln 0.5) over 6 seeds = 12*ln 2 = 8.3178, on
+    # df 12, which is nowhere near significant -- six perfectly median seeds must not fire.
+    f_med = _fisher_combined([0.5] * 6)
+    chk("Fisher: X2 = -2*sum(ln p) computed correctly (6 x 0.5 -> 12*ln2)",
+        abs(f_med["chi2"] - 8.317766) < 1e-5 and f_med["df"] == 12)
+    chk("Fisher: six median seeds are NOT significant", f_med["significant"] is False)
+    chk("Fisher: six strongly-low seeds ARE significant",
+        _fisher_combined([0.001] * 6)["significant"] is True)
+    chk("Fisher: a null p is monotone decreasing in the evidence",
+        _fisher_combined([0.001] * 6)["p"] < _fisher_combined([0.04] * 6)["p"]
+        < _fisher_combined([0.5] * 6)["p"])
+    chk("Fisher reports CANNOT DETERMINE (significant=None) on an empty set rather than a "
+        "default verdict -- the negative-instrument rule",
+        _fisher_combined([])["significant"] is None)
+    chk("Simes: six median seeds are NOT significant", _simes([0.5] * 6)["significant"] is False)
+    chk("Simes: min_k n*p_(k)/k computed correctly on a known vector",
+        abs(_simes([0.001, 0.001, 0.042, 0.042, 0.5, 0.583])["p"] - 0.003) < 1e-9)
+    chk("Simes reports CANNOT DETERMINE on an empty set", _simes([])["significant"] is None)
+    # THE B-CHOICE JUSTIFICATION IS ITSELF ASSERTED, because it is the one number the
+    # pre-registration had to re-derive: at B=50 the Simes robustness check does NOT clear
+    # alpha purely from RESOLUTION CENSORING, while at B=1000 it does. If this assertion ever
+    # fails, the prereg's section 6 argument for B=1000 has been invalidated.
+    _obs = [0.583, 0.042, 0.042, 0.500, 0.0, 0.0]
+    def _scaled(B):
+        return [min((round(f * 24) * (B / 24.0) + 1) / (B + 1), 1.0) for f in _obs]
+    chk("B=50 leaves the Simes check NON-significant (resolution censoring) -- this is why "
+        "the smoke's de-noising recommendation does not carry over",
+        _simes(_scaled(50))["significant"] is False)
+    chk("B=1000 clears it comfortably", _simes(_scaled(1000))["significant"] is True)
+
+    # ---- 1043b (E5): the declared primary's CI -----------------------------------------
+    ci = _t_ci_95([0.05] * 6)
+    chk("t-CI on a zero-variance sample is a point interval at the mean",
+        abs(ci["mean"] - 0.05) < 1e-12 and abs(ci["hi"] - ci["lo"]) < 1e-12)
+    ci = _t_ci_95([0.002, 0.033, 0.041, 0.001, 0.087, 0.083])
+    chk("t-CI reproduces the smoke's projected declared-primary interval to 3 decimals",
+        abs(ci["lo"] - 0.0013) < 5e-4 and abs(ci["hi"] - 0.0804) < 5e-4)
+    chk("...and that interval is the EXPECTED UNDECIDED case: excludes 0, INCLUDES 0.05",
+        ci["lo"] > 0.0 and ci["lo"] < 0.05 < ci["hi"])
+    chk("t-CI reports CANNOT DETERMINE below n=2 rather than a bare number",
+        not np.isfinite(_t_ci_95([0.1])["lo"]))
+
+    # ---- 1043b (E4/E8): the split rule and the two-primary grid -------------------------
+    chk("SPLIT fires on the smoke's own percentile vector",
+        any(v <= SPLIT_LOW for v in _obs) and any(v >= SPLIT_HIGH for v in _obs))
+    chk("SPLIT does NOT fire on a uniformly-low vector",
+        not (any(v <= SPLIT_LOW for v in [0.01] * 6)
+             and any(v >= SPLIT_HIGH for v in [0.01] * 6)))
+    chk("grid: the EXPECTED case (CI positive, includes the floor, rank significant) is "
+        "rank_only_magnitude_undecided -- NOT a confirmation",
+        _primary_grid(True, False, False, True)
+        == "orientation_effect_rank_only_magnitude_undecided")
+    chk("grid: the same CI with a NULL rank co-primary is not_established",
+        _primary_grid(True, False, False, False) == "orientation_effect_not_established")
+    chk("grid: CI entirely above the floor AND rank significant is the only confirmation",
+        _primary_grid(True, True, True, True)
+        == "orientation_effect_confirmed_both_primaries")
+    chk("grid: a non-positive CI with a NULL rank statistic is the plain not-positive label",
+        _primary_grid(False, True, True, False) == "orientation_contrast_not_positive")
+    chk("grid (RED-TEAM F2): a non-positive CI must NOT silently veto a SIGNIFICANT rank "
+        "co-primary -- it is a DISAGREEMENT, which the prereg says IS the result",
+        _primary_grid(False, True, True, True)
+        == "orientation_contrast_not_positive_rank_significant_DISAGREEMENT")
+    chk("grid: the veto branch is the ONLY place the two primaries can disagree without the "
+        "label saying so -- and it now says so",
+        "DISAGREEMENT" in _primary_grid(False, False, False, True))
+    chk("grid: a sub-floor CI with a significant rank statistic is present_but_below_floor",
+        _primary_grid(True, True, False, True)
+        == "orientation_effect_present_but_below_floor")
+    chk("grid: EVERY branch is reachable and they are all distinct",
+        len({_primary_grid(*a) for a in ((False, True, True, False), (False, True, True, True),
+                                         (True, True, True, True),
+                                         (True, False, False, True), (True, False, False, False),
+                                         (True, True, False, True), (True, True, False, False))})
+        == 7)
+
+    # ---- RED-TEAM F1: the corrected robustness check ------------------------------------
+    # The measured reversal that invalidated the Simes-based predicate, pinned as a test so
+    # the prereg's corrected section 4 cannot silently drift back.
+    chk("F1: at the B=1000 floor, Simes fires on ONE seed alone -- it is NOT a "
+        "robustness-against-one-seed check, which is why the predicate was replaced",
+        _simes([0.001] + [1.0] * 5)["significant"] is True
+        and _fisher_combined([0.001] + [1.0] * 5)["significant"] is False)
+    chk("F1: leave-one-out Fisher DOES catch the one-seed case the old predicate missed",
+        _leave_one_out_fisher([0.001] + [1.0] * 5)["significant"] is False)
+    chk("F1: leave-one-out Fisher SURVIVES a genuinely broad result",
+        _leave_one_out_fisher([0.001, 0.002, 0.004, 0.006, 0.01, 0.02])["significant"] is True)
+    chk("F1: leave-one-out reports CANNOT DETERMINE below 3 usable seeds",
+        _leave_one_out_fisher([0.01, 0.02])["significant"] is None)
+
+    # ---- R3: the floor -> ceiling rule, and its reachability guard ---------------------
+    chk("c4b ceiling is the arithmetic midpoint of the measured floor and isotropic",
+        abs(_c4b_ceiling(0.20, 1.04) - 0.62) < 1e-12)
+    chk("c4b ceiling lies strictly between the two measured landmarks",
+        0.20 < _c4b_ceiling(0.20, 1.04) < 1.04)
+    chk("c4b ceiling is UNREACHABLE (NaN) when the floor is not below the isotropic",
+        not np.isfinite(_c4b_ceiling(1.10, 1.04)))
+    chk("c4b ceiling is UNREACHABLE (NaN) on a non-finite input",
+        not np.isfinite(_c4b_ceiling(float("nan"), 1.04)))
+    chk("c4b ceiling rejects a negative floor rather than inventing one",
+        not np.isfinite(_c4b_ceiling(-0.01, 1.04)))
+    chk("the V3-EXQ-1043 observed ratios would FAIL a ceiling built from a low floor",
+        all(r > _c4b_ceiling(0.20, 1.04) for r in (0.8368, 0.8318, 0.8718)))
+    chk("...and would PASS one built from a high floor -- so the verdict is genuinely "
+        "undetermined in advance, which is what a pre-registration should look like",
+        all(r < _c4b_ceiling(0.75, 1.04) for r in (0.8368, 0.8318)))
+
+    # ---- the jacobian-aligned basis --------------------------------------------------
+    g = torch.diag(torch.tensor([9.0, 4.0, 1.0, 0.25], dtype=torch.float64))
+    kb = torch.tensor([0, 2, 4, 6])
+    jb = _jacobian_aligned_basis(g, kb, 10, 2)
+    chk("jacobian-aligned basis is orthonormal",
+        bool(torch.allclose(jb.T @ jb, torch.eye(2), atol=1e-4)))
+    chk("jacobian-aligned basis picks the LARGEST-eigenvalue directions",
+        float(jb[0].abs().max()) > 0.9 and float(jb[2].abs().max()) > 0.9)
+    chk("jacobian-aligned basis is zero off the kept dimensions",
+        float(jb[[i for i in range(10) if i not in set(kb.tolist())]].abs().max()) == 0.0)
+
+    sub_b = _random_orthonormal(40, 5, seed=3)
+    keep_idx = torch.arange(0, 200, 5)[:40]
+    emb = _embed_basis(sub_b, keep_idx, 250)
+    chk("embed_basis preserves orthonormality",
+        bool(torch.allclose(emb.T @ emb, torch.eye(5), atol=1e-4)))
+    chk("embed_basis is zero off the kept dimensions",
+        float(emb[[i for i in range(250) if i not in set(keep_idx.tolist())]].abs().max()) == 0.0)
+
+    b = _random_orthonormal(250, 8, seed=1)
+    chk("random_orthonormal is orthonormal",
+        bool(torch.allclose(b.T @ b, torch.eye(8), atol=1e-4)))
+    x = torch.randn(64, 250)
+    p = _project(x, b)
+    chk("projection is idempotent", bool(torch.allclose(_project(p, b), p, atol=1e-4)))
+    chk("projection + complement reconstructs x",
+        bool(torch.allclose(p + (x - p), x, atol=1e-5)))
+    chk("projection and complement are orthogonal",
+        float((p * (x - p)).sum(dim=1).abs().max()) < 1e-3)
+
+    # The one runtime premise this driver's whole design rests on.
+    env = x734._make_env(42, x734._env_kwargs_for_rung(RUNG))
+    _flat_obs, obs = env.reset()
+    ws = torch.as_tensor(obs["world_state"]).reshape(-1).float()
+    rf = torch.as_tensor(obs["resource_field_view"]).reshape(-1).float()
+    chk("world_state is 250-dim", int(ws.shape[0]) == WORLD_STATE_DIM)
+    chk("resource_field_view == world_state[225:250]",
+        bool(torch.allclose(ws[RESOURCE_FIELD_OFFSET:RESOURCE_FIELD_OFFSET + 25], rf)))
+    chk("decision indices lie inside the resource field slice",
+        all(RESOURCE_FIELD_OFFSET <= j < RESOURCE_FIELD_OFFSET + 25 for j in DECISION_INDICES))
+
+    print("SELF-TEST: %s" % ("PASS" if not fails else ("FAIL -- " + ", ".join(fails))),
+          flush=True)
+    return 0 if not fails else 1
+
+
+def _parse_args():
+    ap = argparse.ArgumentParser(description=EXPERIMENT_TYPE)
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--self-test", action="store_true")
+    ap.add_argument("--seeds", type=int, nargs="*", default=None)
+    return ap.parse_args()
+
+
+def main():
+    """Run and write the manifest. Returns (outcome, manifest_path) for the __main__ block,
+    which is where `emit_outcome` must be CALLED (validate_experiments asserts that literally,
+    and the runner reads the sentinel it writes)."""
+    args = _parse_args()
+
+    if args.self_test:
+        sys.exit(_run_self_test())
+
+    seeds = args.seeds if args.seeds else (DRY_RUN_SEEDS if args.dry_run else SEEDS)
+    result = run_experiment(list(seeds), dry_run=bool(args.dry_run))
+    started_at = result.pop("_started_at", None)
+    result.pop("_elapsed_seconds_measured", None)
+
+    out_path = write_flat_manifest(
+        result,
+        dry_run=bool(args.dry_run),
+        config=result["config"],
+        seeds=list(seeds),
+        script_path=Path(__file__),
+        started_at=started_at,
+        z_goal_stream_stats=_ZG.stats(),
+    )
+    print("manifest: %s" % out_path, flush=True)
+    print("outcome: %s  label: %s  direction: %s"
+          % (result["outcome"], result["interpretation"]["label"],
+             result["evidence_direction"]), flush=True)
+
+    _outcome_raw = str(result["outcome"]).upper()
+    return (_outcome_raw if _outcome_raw in ("PASS", "FAIL") else "FAIL",
+            out_path, bool(args.dry_run))
+
+
+if __name__ == "__main__":
+    _outcome, _out_path, _dry = main()
+    emit_outcome(outcome=_outcome, manifest_path=_out_path, dry_run=_dry)
