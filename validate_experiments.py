@@ -5121,20 +5121,89 @@ def _dry_sliced_sweep_subscripts(tree: ast.AST, sweep_names: Set[str]
     return out
 
 
-def _point_is_keyed(tree: ast.AST, point_name: str) -> bool:
-    """Best-effort: is `point_name` used as a selection key anywhere -- an equality
-    comparison, or the tolerance-comparison idiom `abs(<expr with point_name>) < eps`
-    (the float-equality workaround the corpus specimen uses:
-    `is_r_star = abs(float(r) - R_STAR) < 1e-9`). This is what separates a genuinely
-    load-bearing pre-registered point -- used to pick ONE cell out of a swept axis --
-    from an unrelated module scalar that happens to numerically coincide with a sweep
-    element."""
+def _axis_derived_names(tree: ast.AST, axis_name: str) -> Set[str]:
+    """Names that carry the swept axis or an ELEMENT of it -- the only things a
+    pre-registered point can meaningfully be compared AGAINST.
+
+    Two levels, because the corpus idiom is always `subset = AXIS[...]` then
+    `for x in subset`:
+      - CONTAINERS: the axis name itself, plus any name assigned from an expression
+        that mentions a container (transitively, to a fixed point) -- `values`,
+        `seeds`, `r_values`.
+      - ELEMENTS: any `for`/comprehension target iterating over an expression that
+        mentions a container -- `v`, `r`, `seed`. Tuple targets (`for i, v in
+        enumerate(values)`) contribute every Name in the target, deliberately loosely:
+        over-including here only ever costs a false POSITIVE of the keying test, which
+        the membership + exclusion preconditions still have to agree with.
+
+    Name-based and scope-blind, like every other static helper here. A driver that
+    rebinds one of these names to something unrelated elsewhere in the file widens the
+    set rather than narrowing it, which is the safe direction for a WARN-only gate.
+    """
+    containers: Set[str] = {axis_name}
+    elements: Set[str] = set()
+
+    def mentions_container(node: ast.AST) -> bool:
+        return any(isinstance(n, ast.Name) and n.id in containers
+                   for n in ast.walk(node))
+
+    def target_names(node: ast.AST) -> Set[str]:
+        return {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
+
+    # Fixed point -- an assignment chain can bind in any source order.
+    for _ in range(8):
+        before = (len(containers), len(elements))
+        for n in ast.walk(tree):
+            if isinstance(n, ast.Assign) and mentions_container(n.value):
+                for t in n.targets:
+                    containers |= target_names(t)
+            elif (isinstance(n, ast.AnnAssign) and n.value is not None
+                    and mentions_container(n.value)):
+                containers |= target_names(n.target)
+            elif isinstance(n, (ast.For, ast.AsyncFor)) and mentions_container(n.iter):
+                elements |= target_names(n.target)
+            elif isinstance(n, ast.comprehension) and mentions_container(n.iter):
+                elements |= target_names(n.target)
+        if (len(containers), len(elements)) == before:
+            break
+    return containers | elements
+
+
+def _point_is_keyed(tree: ast.AST, point_name: str,
+                    axis_value_names: Optional[Set[str]] = None) -> bool:
+    """Best-effort: is `point_name` used as a selection key OVER THE SWEPT AXIS -- an
+    equality comparison, or the tolerance-comparison idiom `abs(<expr with point_name>)
+    < eps` (the float-equality workaround the corpus specimen uses:
+    `is_r_star = abs(float(r) - R_STAR) < 1e-9`), against a value that came from the
+    axis. This is what separates a genuinely load-bearing pre-registered point -- used
+    to pick ONE cell out of a swept axis -- from an unrelated module scalar that
+    happens to numerically coincide with a sweep element.
+
+    `axis_value_names` is `_axis_derived_names(tree, <axis>)`; the comparison must
+    mention one of those names as well as the point. WITHOUT that second half the test
+    is satisfied by ANY equality anywhere in the file, which is a confirmed over-fire
+    (2026-09-22, V3-EXQ-1066): `SEEDS = [0, 42, 100, 123, 200]` with
+    `COMMIT_WINDOW = 200` -- an E3 variance-window LENGTH that coincides with a seed
+    VALUE by pure numeric accident -- was read as a pre-registered evaluation point on
+    the strength of two config sanity assertions
+    (`assert config.e3.commit_threshold_quantile_window == COMMIT_WINDOW`), and
+    `SEEDS[:1]` was reported as dropping it. The driver was correct; every one of its
+    criteria is a `>= 4/5 seeds` count, none keys on a seed value. This is exactly the
+    OVER-fire the docstring of the lint below names as bounded by this precondition,
+    so the precondition, not the driver, is what had to change.
+
+    Passing `None` restores the old axis-blind behaviour and is for callers that have
+    no axis in hand; the lint always passes a set.
+    """
     for node in ast.walk(tree):
         if not (isinstance(node, ast.Compare) and len(node.ops) == 1):
             continue
         names_here = {nm.id for nm in ast.walk(node) if isinstance(nm, ast.Name)}
         if point_name not in names_here:
             continue
+        if axis_value_names is not None and not (names_here & axis_value_names
+                                                 - {point_name}):
+            continue  # keyed against something unrelated to the axis -- not a selector
         op = node.ops[0]
         if isinstance(op, ast.Eq):
             return True
@@ -5170,10 +5239,11 @@ def dry_run_sweep_excludes_keyed_point_lint(path: Path) -> Optional[str]:
       (4) inside the branch taken when dry_run is truthy, the axis name is SLICED
           (`AXIS[:n]`, `AXIS[a:b:c]`, ...) with every present bound a resolvable literal
           int, and the point from (3) is NOT a member of the resulting static subset.
-      (5) the point is KEYED elsewhere in the file -- used in an `==` comparison, or the
-          `abs(<expr> - POINT) < eps` tolerance idiom -- which is what makes it a
-          selection criterion rather than a scalar that merely happens to coincide with
-          an axis element.
+      (5) the point is KEYED AGAINST THE AXIS elsewhere in the file -- used in an `==`
+          comparison, or the `abs(<expr> - POINT) < eps` tolerance idiom, whose OTHER
+          side mentions a name carrying the axis or an element of it
+          (`_axis_derived_names`) -- which is what makes it a selection criterion
+          rather than a scalar that merely happens to coincide with an axis element.
 
     Confirmed instance (V3-EXQ-935, 2026-08-16): the first smoke of
     experiments/v3_exq_935_mech266_margin_normalised_cap_rule.py took
@@ -5196,10 +5266,13 @@ def dry_run_sweep_excludes_keyed_point_lint(path: Path) -> Optional[str]:
         design, so the fix itself never re-fires), when a slice bound is a name or
         expression rather than a literal int, or when the point is keyed by something
         other than `==`/tolerance-`abs` (e.g. `min(axis, key=lambda x: abs(x - POINT))`).
-      - OVER-fires when the point coincides with a sweep element by pure numeric
-        accident and is independently keyed for an unrelated reason (unobserved in the
-        corpus at authoring time; the keying precondition in (5) exists specifically to
-        bound this).
+      - OVER-fired (until 2026-09-22) when the point coincided with a sweep element by
+        pure numeric accident and was `==`-compared for an unrelated reason. Observed
+        on V3-EXQ-1066: `SEEDS = [0, 42, 100, 123, 200]` vs `COMMIT_WINDOW = 200`, a
+        deque length keyed only by two `assert config.e3.<...> == COMMIT_WINDOW` config
+        checks. Precondition (5) now requires the comparison's other side to come from
+        the axis, which is what it was always meant to bound. It still over-fires if an
+        unrelated scalar is `==`-compared against an axis-derived value.
 
     Exempt with DRY_RUN_SWEPT_POINT_EXEMPT = "<reason>" when the criterion is genuinely
     not meant to be evaluable in a smoke.
@@ -5244,12 +5317,19 @@ def dry_run_sweep_excludes_keyed_point_lint(path: Path) -> Optional[str]:
     if not subs:
         return None
 
-    keyed_cache: Dict[str, bool] = {}
+    keyed_cache: Dict[Tuple[str, str], bool] = {}
+    axis_names_cache: Dict[str, Set[str]] = {}
 
-    def is_keyed(name: str) -> bool:
-        if name not in keyed_cache:
-            keyed_cache[name] = _point_is_keyed(tree, name)
-        return keyed_cache[name]
+    def is_keyed(sweep_name: str, point_name: str) -> bool:
+        # Keyed per (axis, point): the same scalar can be a selector over one axis and
+        # an unrelated constant next to another.
+        key = (sweep_name, point_name)
+        if key not in keyed_cache:
+            if sweep_name not in axis_names_cache:
+                axis_names_cache[sweep_name] = _axis_derived_names(tree, sweep_name)
+            keyed_cache[key] = _point_is_keyed(tree, point_name,
+                                               axis_names_cache[sweep_name])
+        return keyed_cache[key]
 
     findings: List[Tuple[int, str, str, str]] = []
     seen: Set[Tuple[int, str]] = set()
@@ -5264,7 +5344,7 @@ def dry_run_sweep_excludes_keyed_point_lint(path: Path) -> Optional[str]:
                 continue  # point isn't even part of this axis -- unrelated constant
             if any(abs(point_val - x) < _POINT_EPS for x in sliced):
                 continue  # point survives the slice -- nothing excluded
-            if not is_keyed(point_name):
+            if not is_keyed(sweep_name, point_name):
                 continue
             key = (lineno, point_name)
             if key in seen:

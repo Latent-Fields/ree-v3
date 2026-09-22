@@ -241,6 +241,58 @@ def test_dsp_a_short_axis_is_silent():
     assert _lint_src(src) is None
 
 
+def test_dsp_a_point_keyed_against_something_off_the_axis_is_silent():
+    """THE SECOND LINE THIS GATE HOLDS (added 2026-09-22 from V3-EXQ-1066). The point
+    IS `==`-compared, and it IS numerically a member of the axis -- but the comparison's
+    other side has nothing to do with the axis, so the scalar is not selecting a cell
+    out of it. The real specimen: `SEEDS = [0, 42, 100, 123, 200]` (an RNG seed list)
+    alongside `COMMIT_WINDOW = 200` (an E3 variance-window LENGTH), keyed only by
+    `assert config.e3.commit_threshold_quantile_window == COMMIT_WINDOW` -- two config
+    sanity assertions. `SEEDS[:1]` was reported as dropping a pre-registered evaluation
+    point that does not exist: every criterion in that driver is a `>= 4/5 seeds` count,
+    none keys on a seed VALUE. Firing here is the OVER-fire the lint's own docstring
+    names, and the fix belonged in precondition (5), not in the driver."""
+    src = _DEFECTIVE.replace(
+        "    for v in values:\n"
+        "        is_point = abs(v - POINT) < 1e-9\n"
+        "        if is_point:\n"
+        "            cell = {\"occ\": 0.5}\n",
+        "    assert config.e3.commit_threshold_quantile_window == POINT\n"
+        "    for v in values:\n"
+        "        cell = {\"occ\": 0.5}\n")
+    src = src.replace("def _run_seed(dry_run):", "def _run_seed(dry_run, config=None):")
+    assert _lint_src(src) is None
+
+
+def test_dsp_the_axis_keying_precondition_is_not_vacuous():
+    """NON-VACUITY for the test above: the SAME file, with the SAME comparison kept but
+    an axis-derived operand added back, must still FIRE -- otherwise the silence above
+    could come from the edit having broken the fixture rather than from the
+    off-axis-keying rule doing its job."""
+    src = _DEFECTIVE.replace(
+        "        is_point = abs(v - POINT) < 1e-9\n",
+        "        is_point = abs(v - POINT) < 1e-9\n"
+        "        _cfg_ok = config.e3.commit_threshold_quantile_window == POINT\n")
+    src = src.replace("def _run_seed(dry_run):", "def _run_seed(dry_run, config=None):")
+    assert _lint_src(src) is not None
+
+
+def test_dsp_axis_derived_names_follows_the_slice_then_loop_idiom():
+    """Helper-level: the corpus idiom is `subset = AXIS[...]` then `for x in subset`,
+    so BOTH the container and the loop target must come back -- that two-level walk is
+    what the keying precondition consumes."""
+    tree = _ast.parse(
+        "SWEEP = [1.0, 2.0, 3.0]\n"
+        "def f(dry_run):\n"
+        "    values = SWEEP[:2] if dry_run else SWEEP\n"
+        "    for v in values:\n"
+        "        pass\n"
+        "    unrelated = 3\n")
+    out = V._axis_derived_names(tree, "SWEEP")
+    assert {"SWEEP", "values", "v"} <= out
+    assert "unrelated" not in out
+
+
 def test_dsp_explicit_opt_out_is_honoured():
     src = _DEFECTIVE.replace(
         '"""A driver whose --dry-run subset drops the swept axis\'s pre-registered point."""',
