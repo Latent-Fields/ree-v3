@@ -76,5 +76,13 @@
   guard fails on it).
   Design doc:
   REE_assembly/docs/architecture/sd_pp_b5_action_sensitive_world_forward.md
-  Validation experiment: EXQ-TBD (see Step 8).
+  Validation experiment: V3-EXQ-1075 (queued 2026-09-23, live in the coordinator
+  DB; ree-v3 9e17cb644f). It gates on the ACTION-SENSITIVITY axis only -- the
+  inverted-rule battery ratio, where its OFF arm reproduces V3-EXQ-1073
+  (0.833/0.879 vs 0.760/0.901). The READABILITY axis (skill vs the trivial
+  predictor, MECH-573) is RECORDED NOT GATED (user decision rec-20260923-cb59ede6):
+  it is encoder-bound and the driver's OFF arm does NOT reproduce 1073 on it
+  (-5.79/-2.24 vs -0.071/+0.227, cause unidentified). So B5's ENCODER half stays
+  OPEN: if V3-EXQ-1075 returns FAIL-a the route is SD-018-amend / SD-009 / SD-106
+  as a new substrate entry, per the user's 2026-09-22 scope decision.
   See MECH-572, MECH-573, MECH-574, INV-063, SD-013, SD-031, SD-056.
