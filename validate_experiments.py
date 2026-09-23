@@ -58,6 +58,7 @@ CHECK_NAMES = ("conformance", "readiness", "arm_fingerprint", "degeneracy", "man
                "contextmemory_write_enablement",
                "flat_scalar_readout",
                "criteria_threshold",
+               "supersedes_not_emitted",
                "use_before_def")
 
 # Readiness-gate static lint (proposal_trivial_prediction_readiness_gate_2026-06-06).
@@ -2192,6 +2193,113 @@ def flat_scalar_readout_lint(path: Path) -> Optional[str]:
             "FLAT_SCALAR_READOUT_EXEMPT = \"<reason>\". See "
             "experimental_recording_standard_2026-07-12.md sec 3b + "
             "flat_scalar_readout_recording_gap_20260909.md.")
+
+
+_SUPERSEDES_EMISSION_EXEMPT_MARKER = "SUPERSEDES_EMISSION_EXEMPT"
+
+
+def _module_level_supersedes_const(tree: ast.Module) -> Optional[str]:
+    """The driver's own `SUPERSEDES = "V3-EXQ-<id>"` module constant, or None
+    if absent or explicitly set to None/empty. Module-scope assignment only
+    (mirrors _ubd_module_level_names' scoping discipline) -- a SUPERSEDES
+    bound inside a function is not the corpus convention CLAUDE.md's EXQ
+    Versioning and Supersession Policy describes and _ANCHOR_LINEAGE_NAMES
+    already names as a module constant."""
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id == "SUPERSEDES":
+                if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str) and node.value.value:
+                    return node.value.value
+    return None
+
+
+def supersedes_not_emitted_lint(path: Path) -> Optional[str]:
+    """Supersession-recording check. Return a warning string, or None.
+
+    CLAUDE.md "EXQ Versioning and Supersession Policy" requires `supersedes`
+    on BOTH the queue entry and the manifest, so a superseded predecessor's
+    evidence can be excluded from claim confidence. Measured 2026-09-22: 19
+    (re-measured 2026-09-23 while landing this check: 3, most of the
+    original backlog already closed by ordinary authoring work in the
+    interim -- this is a moving population, not a fixed defect count) ree-v3
+    drivers define a module-level `SUPERSEDES` constant (the corpus's own
+    lineage-recording convention -- see _ANCHOR_LINEAGE_NAMES) but never
+    write it into the manifest dict as `"supersedes": SUPERSEDES`, so the
+    landed artifact carries `supersedes: null` despite the driver's author
+    clearly declaring the lineage. Confirmed on a landed manifest
+    (v3_exq_1043a_..._20260919T030056Z_v3.json reads null despite its
+    driver setting SUPERSEDES = "V3-EXQ-...").
+
+    THIS IS A RECORDING-COMPLETENESS GAP, NOT A LIVE SCORING BUG.
+    `supersedes` alone does not route anything to governance -- nothing
+    reads it looking for owed follow-on work (see CLAUDE.md's own
+    `supersedes` paragraph); the actual governance hookup is a separate
+    `governance_flag.py raise --flag-type evidence_discrepancy` step. This
+    check closes the narrower, purely mechanical gap: the driver DECLARED
+    the lineage and the manifest silently dropped it.
+
+    WARN-ONLY IN BOTH MODES, matching flat_scalar_readout_lint /
+    criteria_threshold_lint's posture -- CLAUDE.md: a gate that fires on a
+    double-digit slice of the corpus at once gets disabled, which is worse
+    than no gate. Reference implementation that emits correctly:
+    experiments/v3_exq_1043b_mech537_communication_subspace_randrank.py
+    (`"supersedes": SUPERSEDES` alongside `"queue_id"`).
+
+    Fires only on a script that (a) declares SUPERSEDES as a non-empty
+    module-level string constant, AND (b) writes a result manifest (the same
+    `_MANIFEST_IDENTITY_TOKENS` predicate as flat_scalar_readout_lint).
+    Discharged by ANY mention of the string key "supersedes" (dict key,
+    subscript, kwarg, or bare name -- see _dict_key_and_kwarg_names' own
+    "wider means more false negatives" rationale; the sound direction for a
+    WARN is to under-report rather than cry wolf on a compliant driver).
+
+    Static name-scan only, same limitation class as its siblings: it can
+    MISS (a runtime-computed manifest key is invisible to a static scan) but
+    should not falsely fire on a compliant driver. Exempt with
+    SUPERSEDES_EMISSION_EXEMPT = "<reason>".
+    """
+    try:
+        src = path.read_text(encoding="utf-8")
+        tree = ast.parse(src, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError):
+        return None  # check_script already reports unreadable / syntax errors
+
+    if _has_main_block(tree) is None:
+        return None  # library-style helper, no entry point -- exempt
+
+    supersedes_id = _module_level_supersedes_const(tree)
+    if supersedes_id is None:
+        return None  # no lineage declared -- nothing for this check to enforce
+
+    strings = {n.value for n in ast.walk(tree)
+               if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+    names = _dict_key_and_kwarg_names(tree)
+    # The exempt marker is conventionally a bare module-level assignment
+    # target (`SUPERSEDES_EMISSION_EXEMPT = "<reason>"`), which lands in
+    # `names` (bare ast.Name ids), not `strings` (string literal VALUES) --
+    # checking both mirrors flat_scalar_readout_lint's own dual check.
+    if (_SUPERSEDES_EMISSION_EXEMPT_MARKER in names
+            or _SUPERSEDES_EMISSION_EXEMPT_MARKER in strings):
+        return None
+
+    if not all(t in strings for t in _MANIFEST_IDENTITY_TOKENS):
+        return None  # no result-manifest write to gate
+
+    if "supersedes" in names:
+        return None  # already discharges -- the key is mentioned somewhere
+
+    return ("declares SUPERSEDES = %r but never writes it into the manifest "
+           "as \"supersedes\": SUPERSEDES -- the landed artifact will carry "
+           "supersedes: null despite the declared lineage, so the "
+           "predecessor's evidence keeps weighting claim confidence "
+           "(CLAUDE.md 'EXQ Versioning and Supersession Policy'). Add "
+           "\"supersedes\": SUPERSEDES alongside \"queue_id\" in the "
+           "manifest dict. Reference: experiments/"
+           "v3_exq_1043b_mech537_communication_subspace_randrank.py. "
+           "Exempt with SUPERSEDES_EMISSION_EXEMPT = \"<reason>\"."
+           % supersedes_id)
 
 
 # Threshold-family tokens, kept identical in meaning to
@@ -9281,6 +9389,7 @@ def main() -> int:
     manifest_writer_warnings: List[Tuple[Path, str]] = []
     flat_readout_warnings: List[Tuple[Path, str]] = []
     criteria_threshold_warnings: List[Tuple[Path, str]] = []
+    supersedes_not_emitted_warnings: List[Tuple[Path, str]] = []
     anchor_warnings: List[Tuple[Path, str]] = []
     specimen_warnings: List[Tuple[Path, str]] = []
     n_anchor_superseded = 0
@@ -9367,6 +9476,15 @@ def main() -> int:
                 # 216 flat manifests with load-bearing criteria record none
                 # that is re-derivable).
                 criteria_threshold_warnings.append((p, ct))
+        if "supersedes_not_emitted" in selected:
+            sne = supersedes_not_emitted_lint(p)
+            if sne:
+                # WARN-only in BOTH modes -- never routes to `failures`, even
+                # under --paths. See supersedes_not_emitted_lint() for why:
+                # a recording-completeness gap, not a live scoring bug, and
+                # the backlog (3-19 depending on measurement date) is a
+                # moving population other authoring work keeps shrinking.
+                supersedes_not_emitted_warnings.append((p, sne))
         if "anchor_reachability" in selected:
             anch = anchor_reachability_lint(p)
             if anch:
@@ -9623,6 +9741,7 @@ def main() -> int:
           f"{len(manifest_writer_warnings)} manifest-writer-backlog, "
           f"{len(flat_readout_warnings)} flat-scalar-readout-backlog, "
           f"{len(criteria_threshold_warnings)} criteria-threshold-backlog, "
+          f"{len(supersedes_not_emitted_warnings)} supersedes-not-emitted-backlog, "
           f"{len(anchor_warnings)} anchor-reachability-warning(s)"
           + (f" ({n_anchor_superseded} superseded)" if n_anchor_superseded else "") + ", "
           f"{len(recomput_warnings)} precondition-recomputability-warning(s), "
@@ -10123,6 +10242,15 @@ def main() -> int:
         print("", flush=True)
         print("[validate_experiments] CRITERIA-THRESHOLD WARNINGS (advisory, non-blocking in BOTH modes):", flush=True)
         for p, warn in criteria_threshold_warnings:
+            rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
+            print(f"  - {rel}: {warn}", flush=True)
+    if supersedes_not_emitted_warnings:
+        # WARN-only in BOTH modes -- NEVER hardens under --paths, same posture
+        # as the two backlog sections above. Recording-completeness gap, not
+        # a live scoring bug -- see supersedes_not_emitted_lint().
+        print("", flush=True)
+        print("[validate_experiments] SUPERSEDES-NOT-EMITTED WARNINGS (advisory, non-blocking in BOTH modes):", flush=True)
+        for p, warn in supersedes_not_emitted_warnings:
             rel = p.relative_to(REPO_ROOT) if REPO_ROOT in p.parents or p == REPO_ROOT else p
             print(f"  - {rel}: {warn}", flush=True)
     if degen_warnings:
