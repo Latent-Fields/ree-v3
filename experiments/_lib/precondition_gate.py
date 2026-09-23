@@ -135,9 +135,21 @@ only reason from an explicitly declared `structural_max` / `structural_min`.
 A spec that declares neither is NOT CHECKED -- and until 2026-09-22 that was
 reported identically to a spec that was checked and found fine.
 
-Measured 2026-09-22 across `ree-v3/experiments/`: 108 drivers call the guard, 43
-declare a structural bound, and **65 (60%) declare neither** -- for those the
-guard ran, returned cleanly, and proved nothing. V3-EXQ-1062 is the confirmed
+Measured 2026-09-23 at `cbfd7c1e41`, by AST -- counting `PreconditionSpec`
+keyword arguments, NOT by grepping for the token: 108 drivers call the guard, 41
+declare a structural bound, and **67 (62%) declare neither** -- for those the
+guard ran, returned cleanly, and proved nothing. At SPEC level the gap is wider
+still: **110 of 526 specs (20.9%)** carry a bound.
+
+The method matters, and this figure was previously wrong because of it. A grep
+for `structural_max|structural_min` reports 43/65, over-counting by 3 -- and all
+three extra files are files that say IN WORDS they cannot be bounded:
+`v3_exq_834_...` names a local variable `structural_max_depth` (a different
+referent sharing the token), while `v3_exq_839_...` and `v3_exq_874b_...` carry
+the prose "No `structural_max` / `structural_min` is declarable: both are
+emergent" and "no pre-registered constant bounds, so no structural_max/min
+applies". A token match is not a referent match -- which is this module's own
+subject matter, so the self-report has to be held to it too. V3-EXQ-1062 is the confirmed
 instance: all eight of its PreconditionSpecs omit the bounds, so the guard could
 not fire even though `fresh_select_sample_floor` (200) was structurally
 unreachable under that run's own --dry-run P2 budget of 60 steps. See

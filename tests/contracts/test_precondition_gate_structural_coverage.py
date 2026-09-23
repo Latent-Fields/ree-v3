@@ -8,8 +8,11 @@ ONLY via the optional `structural_max` / `structural_min` lambdas. Until
 to a spec that was checked and found fine. The guard therefore ran, passed, and
 proved nothing, silently.
 
-Measured 2026-09-22 across ree-v3/experiments/: 108 drivers call the guard, 43
-declare a structural bound, 65 (60%) declare neither. V3-EXQ-1062 is the
+Measured 2026-09-23 at cbfd7c1e41, by AST (counting PreconditionSpec keyword
+arguments, not by grepping for the token): 108 drivers call the guard, 41 declare
+a structural bound, 67 (62%) declare neither; at spec level 110 of 526 (20.9%)
+carry a bound. A grep for the token reports 43/65 -- it over-counts by 3, because
+a file whose prose says it CANNOT be bounded still contains the string. V3-EXQ-1062 is the
 confirmed instance -- all eight of its PreconditionSpecs omit the bounds, so the
 guard could not fire even though `fresh_select_sample_floor` (200) was
 structurally unreachable under that run's own --dry-run P2 budget of 60 steps.
