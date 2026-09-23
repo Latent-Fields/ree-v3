@@ -48,27 +48,6 @@
       "experiment_type": "v3_exq_1077_sdppb9_harm_head_undertrain_probe",
       "predecessor": "V3-EXQ-1062a",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-1079",
-      "title": "SD-PP-B10 test 1: alpha_world operating-point probe -- 1075 ARM_OFF at alpha 0.3/0.9/1.0, within-row action-swap d_act on a burn-in battery (diagnostic)",
-      "script": "experiments/v3_exq_1079_sdppb10_alphaworld_operating_point_probe.py",
-      "priority": 30,
-      "machine_affinity": "any",
-      "estimated_minutes": 20,
-      "backlog_id": null,
-      "note": "SD-PP-B10-zworld-encoder-action-displacement candidate test rank 1 (alpha_world operating point; 'MAY DISSOLVE THE PREMISE -- run first'; needs no substrate). DIAGNOSTIC, claim_ids [] (bears_on MECH-573/MECH-574/INV-063/MECH-582/SD-008), validates_substrate SD-PP-B10. AUTHORITY: SD-PP-B10's authority field says /governance adjudicates before any /queue-experiment commission; the user explicitly approved this probe in chat on 2026-09-23 (rec-20260923-98a4da88), so the field is not treated as a block. WHY: GFLAG-0433 -- V3-EXQ-1073/1075 never set alpha_world and inherited the from_dims default 0.3 (config.py:7562; EMA stack.py:1584), below SD-008's >= 0.9. Re-runs V3-EXQ-1075 ARM_OFF (no margin; same env/dims/3600-step budget/optimiser/rollout/seeds 42/123/456) at alpha_world 0.3 (reproduction control) / 0.9 / 1.0. DESIGN = user decision rec-20260923-98a4da88 (Option A): 30-step burn-in before either battery; routed DV = within-row action-swap d_act=(SSE_swap-SSE_true)/(sum) on the SAME rows (analytic null 0), paired row bootstrap CI per cell (persistence_skill_gate construction); per seed CI on d_act(0.9)-d_act(0.3): lower>0 grows / upper<0 shrinks / else cannot_determine; GROWS if >=2/3 grow, SHRINKS if >=2/3 shrink, else UNDETERMINED; 1075 ratio + blind/init nulls (both collection orders) + persistence verdict RECORDED non-gating; SD-007 reafference off; machine_affinity any. BURN-IN BATTERY = 512 rows: coordinator decision E1 (2026-09-23) under the user's standing delegation, recorded because it changes what is measured: 1075's 64 rows cover only steps 31-94 after reset vs a 3600-step training trajectory, and in recon that window flipped the answer (64 rows: 0.3 read -0.075/+0.056/-0.032, positive control live 1/3 -> not_ready; 512 rows: +0.18/+0.23/+0.24, live 3/3, GROWS 3/3). 1075-order batteries stay 64 rows so the 0.3 control reproduces exactly (Mac: 0.8331/0.8790/0.7068). READINESS (added per /queue-experiment's readiness assert): ridge [1,z0,a,z0 x a] positive control fitted on the cell's own buffer, same d_act, same rows; a seed not live at 0.3 or 0.9 is scoped out per seed (never whole-run AND); >=2 live seeds required else substrate_not_ready_requeue. GOV-REUSE-1: no manifest carries a within-row action-swap statistic and no 1073/1075-lineage run set alpha_world -> not recoverable -> run. PREMISE CORRECTION found in prep (GFLAG-0434, REE_assembly ce0c5323ca): the 1075 blind null 0.56 is an EMA warm-up artifact of battery collection order at 0.3, and at 0.9/1.0 the blind null exceeds the init null, so the 1075 ratio cannot carry this contrast. Step 2.5c: SD-PP-B5 (corrupting, e2_fast.world_forward) is THE SUBJECT of this probe, not an unrelated defect; degrading WARNs on exercised paths: SD-ZWORLD-SENSE-PATH-PARITY (agent.sense), SD-018, SD-106 (stack.py), SD-091/SD-MECH303/mech005 (agent.py, not exercised: no select_action). DV-SYMMETRY per arm (ALPHA_0.3/0.9/1.0): DV d_act is a normalised SSE difference on fixed rows; alpha is not a broadcast constant, monotone rescale of both SSEs, or unit permutation, so not invariant; alpha also changes the input (EMA history) and the target's lag term, so every reader's d_act can move -- the head/PC readability ratio is recorded to separate that. red-team (fable): CONTESTED -> fixed (label-only, counts unchanged): F1 GROWS split on the run's own 0.3 control (alpha_world_amplifies_present_action_read vs alpha_world_damping_masked_action_read); F2 SHRINKS attributed to the encoder only if the paired positive-control contrast CI upper <= 0 on >=2 shrinking seeds, else action_read_shrinks_head_fit_confound; F3 docstring DV-symmetry claim corrected, head/PC ratio recorded; F4 PC gate expected to pass (dismissed as a defect, kept). Smoke (dry-run 2 seeds x 3 alphas, FULL budget, nothing short-circuited): PASS, label alpha_world_amplifies_present_action_read, contrasts +0.322 [0.284,0.360] / +0.167 [0.145,0.190]; validate_experiments --strict OK, validate_recording --strict OK. Decision trail: ree-v3/.scratch/alphaworld_probe/DECISION.md + DECISION2.md (chips chip-20260923-alphaworld-probe-decision, -decision-2).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-09-23T17:21:05Z"
-      },
-      "claim_ids": [],
-      "conditions": 3,
-      "episodes_per_run": 40,
-      "experiment_type": "v3_exq_1079_sdppb10_alphaworld_operating_point_probe",
-      "predecessor": "V3-EXQ-1075",
-      "seeds": 3
     }
   ]
 }
