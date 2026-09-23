@@ -273,6 +273,12 @@ from experiments._lib.precondition_gate import (  # noqa: E402
     evaluate_arm_gate,
     aggregate_arm_gates,
     assert_no_structurally_unsatisfiable_gate,
+    summarize_structural_audit,
+)
+from experiments._lib.run_budget import (  # noqa: E402
+    RunBudget,
+    budget_ceiling,
+    budget_ceiling_total,
 )
 
 EXPERIMENT_PURPOSE = "diagnostic"
@@ -325,63 +331,128 @@ def _arms() -> List[Dict[str, Any]]:
     return out
 
 
-PRECONDITIONS = [
-    PreconditionSpec(
-        name="e3_rate_separation_between_arousal_arms",
-        description=("mean e3_steps_per_tick at AROUSAL_LO minus at AROUSAL_HI; certifies "
-                     "that the arousal manipulation reaches the E3 selection cadence. "
-                     "CERTIFIES THE AROUSAL CHANNEL ONLY -- it says nothing about the "
-                     "urgency channel, which carries its own fidelity precondition."),
-        control="the two pre-registered arousal arms at a common seed; probe 2026-09-09 "
-                "measured 18.05 vs 5.00 (separation 13.05) on an untrained agent",
-        threshold=MIN_E3_STEPS_SEPARATION,
-        direction="lower",
-        kind="readiness",
-    ),
-    PreconditionSpec(
-        name="fresh_selects_per_cell",
-        description=("WORST cell's count of fresh E3 selections (latched ticks excluded). "
-                     "The margin mean is denominated on this, so the worst cell governs."),
-        control="a cell is 600 ticks; the LO-arousal probe yielded ~1 fresh select per 15 "
-                "ticks, i.e. ~40 expected in the worst arm",
-        threshold=MIN_FRESH_SELECTS,
-        direction="lower",
-        kind="readiness",
-    ),
-    PreconditionSpec(
-        name="urgency_injection_fidelity",
-        description=("max |realized urgency_applied - assigned target| over fresh selects. "
-                     "CEILING: met when the error stays BELOW the bound."),
-        control="V3-EXQ-785a verified this instrument to 2.8e-17 over 600 ticks",
-        threshold=URGENCY_FIDELITY_MAX,
-        direction="upper",
-        kind="readiness",
-    ),
-    PreconditionSpec(
-        name="arousal_arm_state_covariate_overlap",
-        description=("|mean hazard-proximity(AROUSAL_HI) - mean hazard-proximity(AROUSAL_LO)|, "
-                     "from the learner's own 5x5 view. CEILING: met when the arms sample "
-                     "COMPARABLE world states, so a margin difference is not simply a "
-                     "different state distribution. This is the stated inherent confound."),
-        control="the two arousal arms measured on the SAME trained agent and the same env seed",
-        threshold=COVARIATE_OVERLAP_MAX,
-        direction="upper",
-        kind="readiness",
-    ),
-]
+def _preconditions(fresh_floor: float) -> List[PreconditionSpec]:
+    """The main gate's specs, with every DERIVABLE structural bound declared.
+
+    Before 2026-09-23 this was a module-level list and NOT ONE spec declared a
+    `structural_max` / `structural_min`, so `assert_no_structurally_unsatisfiable_
+    gate` ran, returned clean, and proved nothing: the smoke printed
+    `COVERAGE 0/16 -- this guard PROVED NOTHING for this run`. That is the
+    V3-EXQ-1062 defect exactly (autopsy 2026-09-22 section 6, findings 1 and 2),
+    and here it was live: `fresh_selects_per_cell` has a floor of 30 against a
+    --dry-run budget of 25 ticks, so the gate was arithmetically unreachable and
+    the smoke routed `substrate_not_ready_requeue` -- indistinguishable from a
+    real substrate failure.
+
+    `fresh_floor` is the pre-registered MIN_FRESH_SELECTS on a real run and the
+    budget-scaled value under --dry-run ONLY (RunBudget.scaled_floor). No
+    threshold is ever relaxed for a scored run.
+
+    What the scaling does and does NOT buy, stated so a reader does not
+    over-read the improvement: the smoke's readiness gate is now EVALUATED
+    rather than arithmetically foreclosed, and the analysis path runs. The
+    smoke's C1 verdict is still predetermined -- `--dry-run` uses one seed,
+    `signs_agree` requires >= 2 per-seed deltas (see `c1_passed`), so
+    `nu_modulates_deliberation_rate_only` is what EVERY dry run emits whatever
+    the substrate does. The smoke tests that the scoring path executes; it does
+    not test what the scoring path concludes.
+
+    An honest None is left where no bound is derivable, rather than a fabricated
+    one: `e3_rate_separation_between_arousal_arms` is a difference of two
+    measured E3 cadences with no pre-registered ceiling, so it stays
+    `not_evaluated` -- which is the correct verdict, not a gap.
+    """
+    return [
+        PreconditionSpec(
+            name="e3_rate_separation_between_arousal_arms",
+            description=("mean e3_steps_per_tick at AROUSAL_LO minus at AROUSAL_HI; certifies "
+                         "that the arousal manipulation reaches the E3 selection cadence. "
+                         "CERTIFIES THE AROUSAL CHANNEL ONLY -- it says nothing about the "
+                         "urgency channel, which carries its own fidelity precondition."),
+            control="the two pre-registered arousal arms at a common seed; probe 2026-09-09 "
+                    "measured 18.05 vs 5.00 (separation 13.05) on an untrained agent",
+            threshold=MIN_E3_STEPS_SEPARATION,
+            direction="lower",
+            kind="readiness",
+        ),
+        PreconditionSpec(
+            name="fresh_selects_per_cell",
+            description=("WORST cell's count of fresh E3 selections (latched ticks excluded). "
+                         "The margin mean is denominated on this, so the worst cell governs."),
+            control="a cell is 600 ticks; the LO-arousal probe yielded ~1 fresh select per 15 "
+                    "ticks, i.e. ~40 expected in the worst arm",
+            threshold=float(fresh_floor),
+            direction="lower",
+            kind="readiness",
+            # A cell cannot make more FRESH E3 selections than it takes ticks, so the
+            # per-cell tick budget IS the best attainable value. PER-CELL and not
+            # `budget_ceiling_total`: the measured value is _worst_cell(..., "min"),
+            # one cell's counter, so the aggregate ceiling would overstate it by a
+            # factor of `cells` and stop the bound binding.
+            structural_max=budget_ceiling,
+        ),
+        PreconditionSpec(
+            name="urgency_injection_fidelity",
+            description=("max |realized urgency_applied - assigned target| over fresh selects. "
+                         "CEILING: met when the error stays BELOW the bound."),
+            control="V3-EXQ-785a verified this instrument to 2.8e-17 over 600 ticks",
+            threshold=URGENCY_FIDELITY_MAX,
+            direction="upper",
+            kind="readiness",
+            # CEILING -> the bound is the best attainable MINIMUM. This is an
+            # absolute error, so it cannot go below zero. Weak but true, and it is
+            # not decoration: it makes the guard refuse a future edit that sets this
+            # ceiling to zero or negative, which no other check here would catch.
+            structural_min=lambda ctx: 0.0,
+        ),
+        PreconditionSpec(
+            name="arousal_arm_state_covariate_overlap",
+            description=("|mean hazard-proximity(AROUSAL_HI) - mean hazard-proximity(AROUSAL_LO)|, "
+                         "from the learner's own 5x5 view. CEILING: met when the arms sample "
+                         "COMPARABLE world states, so a margin difference is not simply a "
+                         "different state distribution. This is the stated inherent confound."),
+            control="the two arousal arms measured on the SAME trained agent and the same env seed",
+            threshold=COVARIATE_OVERLAP_MAX,
+            direction="upper",
+            kind="readiness",
+            # CEILING -> best attainable MINIMUM. An absolute difference of two
+            # means is >= 0 by construction. Same rationale as the fidelity bound.
+            structural_min=lambda ctx: 0.0,
+        ),
+    ]
 
 # The commitment-pressure diagnostic carries its OWN gate, evaluated separately so a
 # starved commit channel can never vacate C1.
-COMMIT_PRECONDITION = PreconditionSpec(
-    name="commit_channel_live",
-    description=("count of fresh selects with committed==True in the cell. Below floor the "
-                 "commitment-pressure DIAGNOSTIC is starved, not falsified, and routes to "
-                 "substrate_not_ready_requeue for ITSELF ONLY."),
-    control="probe 2026-09-09 measured 0 of 59 on an UNTRAINED agent; this run trains first",
-    threshold=COMMIT_CHANNEL_FLOOR,
-    direction="lower",
-    kind="readiness",
-)
+def _commit_precondition(commit_floor: float) -> PreconditionSpec:
+    """The commitment diagnostic's OWN spec, budget-bounded the same way.
+
+    `commit_channel_live` is measured as `sum(r["n_committed"] for r in
+    arm_results)` -- a RUN-AGGREGATE counter, not a per-cell one -- so its
+    ceiling is `ticks * cells`, i.e. `budget_ceiling_total`. The per-cell
+    `budget_ceiling` would UNDERSTATE it by a factor of `cells`. Stated exactly:
+    at THIS driver's numbers that swap would change no verdict (25 > 0.5 and
+    100 > 0.5 both clear), so the choice is about the bound being TRUE of the
+    quantity it bounds, not about a refusal this driver would suffer -- a floor
+    above the per-cell tick budget is what would turn the same mistake into a
+    false `unsatisfiable`.
+
+    Note this bound does NOT bind at either budget (dry 25*4 = 100 and real
+    900*12 = 10800, both far above the floor of 10). It is declared anyway: a
+    true bound that proves satisfiability is what moves this pair out of
+    `not_evaluated`, and the guard's value is the coverage denominator, not the
+    refusal count.
+    """
+    return PreconditionSpec(
+        name="commit_channel_live",
+        description=("count of fresh selects with committed==True in the cell. Below floor the "
+                     "commitment-pressure DIAGNOSTIC is starved, not falsified, and routes to "
+                     "substrate_not_ready_requeue for ITSELF ONLY."),
+        control="probe 2026-09-09 measured 0 of 59 on an UNTRAINED agent; this run trains first",
+        threshold=float(commit_floor),
+        direction="lower",
+        kind="readiness",
+        structural_max=budget_ceiling_total,
+    )
 
 
 def _build(seed: int):
@@ -654,9 +725,38 @@ def run_experiment(dry_run: bool) -> Dict[str, Any]:
     zp0 = 1 if dry_run else ZWORLD_P0_EPISODES
     arms = _arms()
 
+    # The RESOLVED sampling budget for THIS invocation, carried into every arm
+    # context so the per-tick counters' structural bounds can be written against
+    # it. `cells` is this invocation's own seed x arm grid, because
+    # commit_channel_live sums over exactly those cells.
+    budget = RunBudget(ticks=n_ticks, nominal_ticks=MEASURE_TICKS,
+                       dry_run=bool(dry_run), cells=len(seeds) * len(arms),
+                       label="measure ticks")
+    # Sample floors: the pre-registered constants on a REAL run, scaled to the
+    # reduced budget under --dry-run ONLY. Without this the 25-tick smoke cannot
+    # reach a floor of 30 no matter what the substrate does, and routes
+    # substrate_not_ready_requeue bit-identically to a genuine failure
+    # (V3-EXQ-1062 autopsy section 6, finding 2).
+    fresh_floor = budget.scaled_floor(MIN_FRESH_SELECTS, name="fresh_selects_per_cell")
+    commit_floor = budget.scaled_floor(COMMIT_CHANNEL_FLOOR, name="commit_channel_live")
+    preconditions = _preconditions(fresh_floor)
+    commit_precondition = _commit_precondition(commit_floor)
+
     # Design-time proof BEFORE any compute: refuse a gate no arm could satisfy.
-    arm_ctxs = [dict(a, n_ticks=n_ticks) for a in arms]
-    assert_no_structurally_unsatisfiable_gate(PRECONDITIONS, arm_ctxs)
+    arm_ctxs = budget.attach([dict(a, n_ticks=n_ticks) for a in arms])
+    # arm_id_key="arm_id": these arm dicts key on `arm_id`, not the guard's
+    # default `id`, and without it every audited row (and any refusal message)
+    # names the arm as "?" -- which lands in the manifest's structural_gate_audit.
+    audited = assert_no_structurally_unsatisfiable_gate(
+        preconditions, arm_ctxs, arm_id_key="arm_id")
+    # The commitment diagnostic has its own gate, so it needs its own audit --
+    # one RUN-AGGREGATE context, not one per arm. Omitting it would leave the
+    # one spec whose bound is the aggregate ceiling permanently unchecked.
+    audited += assert_no_structurally_unsatisfiable_gate(
+        [commit_precondition],
+        [dict(budget.as_ctx(), arm_id="COMMITMENT_PRESSURE_DIAGNOSTIC")],
+        arm_id_key="arm_id")
+    structural_audit = summarize_structural_audit(audited)
 
     arm_results: List[Dict[str, Any]] = []
     full_config = {
@@ -674,6 +774,15 @@ def run_experiment(dry_run: bool) -> Dict[str, Any]:
             "COVARIATE_OVERLAP_MAX": COVARIATE_OVERLAP_MAX,
             "COMMIT_CHANNEL_FLOOR": COMMIT_CHANNEL_FLOOR,
         },
+        # The floors ACTUALLY applied this invocation. Equal to the
+        # pre-registered constants above on a real run; budget-scaled under
+        # --dry-run only. Recorded so a reader can tell which was in force.
+        "active_floors": {
+            "fresh_selects_per_cell": float(fresh_floor),
+            "commit_channel_live": float(commit_floor),
+            "scaled_for_dry_run_only": bool(dry_run),
+        },
+        "run_budget": budget.manifest_block(),
     }
 
     total_denom = p0 + p1
@@ -753,7 +862,7 @@ def run_experiment(dry_run: bool) -> Dict[str, Any]:
         "arousal_arm_state_covariate_overlap": cov_gap,
     }
     gate = evaluate_arm_gate("MECH005_NU_MAIN", {"arm_id": "MECH005_NU_MAIN"},
-                             PRECONDITIONS, measured)
+                             preconditions, measured)
     agg = aggregate_arm_gates([gate])
 
     for p in gate.get("preconditions", []):
@@ -766,7 +875,7 @@ def run_experiment(dry_run: bool) -> Dict[str, Any]:
     total_committed = int(sum(r["n_committed"] for r in arm_results))
     commit_gate = evaluate_arm_gate(
         "COMMITMENT_PRESSURE_DIAGNOSTIC", {"arm_id": "COMMITMENT_PRESSURE_DIAGNOSTIC"},
-        [COMMIT_PRECONDITION], {"commit_channel_live": float(total_committed)})
+        [commit_precondition], {"commit_channel_live": float(total_committed)})
     commit_live = bool(commit_gate.get("gate_green", False))
 
     gate_green = bool(agg.get("non_degenerate", False))
@@ -850,6 +959,23 @@ def run_experiment(dry_run: bool) -> Dict[str, Any]:
                 "verdict."),
         },
         "per_arm_gate": agg,
+        # The design-time guard's own pre-filter DENOMINATOR: how many
+        # (arm, precondition) pairs carried a usable structural bound. A
+        # `coverage` of 0.0 / `proved_nothing: true` means the guard's clean
+        # pass is NOT evidence the gate was satisfiable -- the distinction the
+        # V3-EXQ-1062 autopsy turned on. Recorded rather than only printed, so
+        # it survives into any consumer that reads the manifest.
+        "structural_gate_audit": structural_audit,
+        # The PER-PAIR rows behind those counts. Without them `n_satisfiable`
+        # conflates two different kinds of proof: a bound DERIVED FROM THIS
+        # ARM's budget (fresh_selects_per_cell, commit_channel_live) and a bound
+        # that is a DOMAIN CONSTANT independent of the arm (the two
+        # `structural_min=0.0` ceilings, which say only "an absolute value is
+        # >= 0" and are counted once per arm). Both are true proofs, but only
+        # the first says anything about this run's budget -- and a reader of the
+        # bare count cannot tell how many of each they have. Recording the rows
+        # keeps the denominator honest rather than merely large.
+        "structural_gate_audit_pairs": audited,
         "diagnostics": {
             "per_seed_margin_delta": per_seed_delta,
             "delta_mean": delta_mean, "delta_sd": delta_sd,
