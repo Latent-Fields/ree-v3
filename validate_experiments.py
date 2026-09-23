@@ -9171,18 +9171,36 @@ def use_before_def_lint(path: Path) -> Optional[Dict[str, Any]]:
     return {"hard": hard, "carried": carried}
 
 
-def _candidate_paths(paths: Sequence[str]) -> List[Path]:
+def _candidate_paths(paths: Optional[Sequence[str]]) -> Tuple[List[Path], List[Path]]:
+    """Resolve --paths (or the full glob when omitted) into (existing, missing).
+
+    `missing` holds every --paths entry that does not resolve to a readable
+    file. Negative-instrument finding: `Path(p).resolve()` alone performs no
+    existence check, and 7 of 8 per-path lints catch the resulting OSError on
+    `read_text()` and return None (= clean) -- so an unreadable or nonexistent
+    path used to validate as silently green. Callers MUST treat a non-empty
+    `missing` as a could-not-validate failure, never as "nothing to report".
+    """
     if paths:
-        return [Path(p).resolve() for p in paths]
-    return sorted(EXPERIMENTS_DIR.glob("v3_exq_*.py"))
+        resolved = [Path(p).resolve() for p in paths]
+        missing = [p for p in resolved if not p.is_file()]
+        existing = [p for p in resolved if p.is_file()]
+        return existing, missing
+    return sorted(EXPERIMENTS_DIR.glob("v3_exq_*.py")), []
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate experiment scripts conform to the runner contract.")
     parser.add_argument("--strict", action="store_true",
                         help="Exit 1 on any non-conforming script. Default mode is report-only.")
-    parser.add_argument("--paths", nargs="*", default=[],
-                        help="Specific scripts to check (default: all v3_exq_*.py in experiments/).")
+    parser.add_argument("--paths", nargs="*", default=None,
+                        help="Specific scripts to check (default: all v3_exq_*.py in experiments/). "
+                             "`default=None` (NOT []) is load-bearing: it is what lets `--paths` "
+                             "omitted entirely (None, full-glob sweep) be told apart from `--paths` "
+                             "present but expanding to zero tokens ([], e.g. an empty shell glob) "
+                             "-- argparse gives both the same [] with nargs='*' otherwise, and the "
+                             "latter used to silently fall back to the former with all four hard "
+                             "gates downgraded to advisory. See the empty-expansion check below.")
     parser.add_argument("--quiet", action="store_true",
                         help="Suppress the per-script OK lines.")
     parser.add_argument("--checks", nargs="*", default=None, choices=CHECK_NAMES,
@@ -9196,7 +9214,35 @@ def main() -> int:
 
     selected = set(args.checks) if args.checks else set(CHECK_NAMES)
 
-    paths = _candidate_paths(args.paths)
+    # --paths was given explicitly but expanded to nothing (empty shell glob,
+    # CLAUDE.md "Shell Portability" hazard). This is a could-not-validate state
+    # -- NOT the same as a clean full-glob run -- so refuse rather than
+    # silently falling back to `_candidate_paths(None)` (all 1504 drivers,
+    # every hard gate downgraded to advisory; the exact negative-instrument
+    # finding this check exists to close).
+    if args.paths is not None and not args.paths:
+        print("[validate_experiments] ERROR: --paths was given but expanded to zero paths "
+              "(empty shell glob or command substitution?). Refusing to silently fall back to "
+              "a full-glob run with the hard gates downgraded to advisory -- pass explicit "
+              "script paths, or omit --paths entirely to run the full sweep on purpose.",
+              flush=True)
+        return 3
+
+    paths, missing_paths = _candidate_paths(args.paths)
+    if missing_paths:
+        # An explicitly-named --paths entry that does not exist or cannot be
+        # read is a could-not-validate state -- distinct from both
+        # validated-clean and validated-nothing, and it must never collapse
+        # into either (the "7 of 8 lints return None on OSError" finding).
+        # This is an invocation error, so it fails independent of --strict:
+        # an un-resolvable path is not a conformance verdict to report on.
+        for mp in missing_paths:
+            rel = mp.relative_to(REPO_ROOT) if REPO_ROOT in mp.parents or mp == REPO_ROOT else mp
+            print(f"[validate_experiments] ERROR: --paths entry does not exist or is not a "
+                  f"readable file: {rel}", flush=True)
+        print(f"[validate_experiments] could not validate: {len(missing_paths)} of "
+              f"{len(missing_paths) + len(paths)} --paths entries were unreadable", flush=True)
+        return 3
     if not paths:
         print("[validate_experiments] no scripts found to check", flush=True)
         return 0
