@@ -8,21 +8,6 @@
   },
   "items": [
     {
-      "queue_id": "V3-EXQ-1075",
-      "title": "SD-PP-B5 validation: does the action-margin loss make e2.world_forward read its action?",
-      "script": "experiments/v3_exq_1075_sdppb5_action_sensitivity_validation.py",
-      "priority": 70,
-      "machine_affinity": "any",
-      "estimated_minutes": 45,
-      "note": "Step 8 validation for SD-PP-B5 (substrate landed ree-v3 8f10214). Diagnostic; claim_ids DELIBERATELY EMPTY -- see below. GOV-REUSE-1 (Step 2.4): decisive readout is the inverted-rule battery ratio on a head trained WITH the margin term; that term did not exist in any substrate before 8f10214, so no manifest on any substrate_hash can carry it. Checked v3_exq_1073 and v3_exq_1063 (the only runs carrying identity_predictor_mse) -- both OFF-arm only. Not recoverable -> run. Step 2.5b re-derive brake: MECH-573 0 hits, MECH-572 1 hit (threshold 2) -- not braked. Step 2.5c: no OPEN corrupting substrate_queue entry overlaps this driver's paths. Degrading overlaps noted: SD-PP-B5 itself (e2_fast.py::world_forward, latent/stack.py), SD-018 and SD-106 (latent/stack.py) -- the latter two ARE the escalation route if A1 fails. red-team (fable): BLOCKING -> all findings dispositioned, design revised, see below. Red-team fixes: (F1) the reconstruction guard was dead code because A2 was strictly tighter than A3/A4 -- guard is now read against rungs meeting A1 ALONE, so FAIL-b is reachable; (F2) the DV was an action-SHUFFLE ratio while the pre-registered 1.0 bar came from 1073's inverted-RULE instrument (OFF reads ~1.05 under shuffle vs 0.76-0.88 under inversion) -- now uses the inverted-rule battery, and OFF reproduces 1073 at 0.833/0.879 vs 0.760/0.901; (F3) the operating point claimed to match 1073 but did not -- now copies 1073's constants (grid 5, 1 hazard, 1 resource, batch 8, min_buf 16, battery 64, lr 1e-3); (F4) the interventional coin shared the rollout rng so ON arms trained on different trajectories than OFF -- now two separate streams; (F6) check_canary re-implemented its own comparison and could not fail -- it now drives readiness_verdict through synthetic batteries, with blind-spot contracts proving it catches a reciprocal ratio and an inverted skill formula; (F7) A1/A2 were counted independently across seeds -- now same-seed. F5 accepted as a known limit of N3. A2 WITHDRAWN AS A GATE (user decision rec-20260923-cb59ede6): skill vs the trivial predictor is encoder-bound and this driver's OFF arm does NOT reproduce 1073 on it (-5.79/-2.24 here vs -0.071/+0.227 there, cause unidentified; the obs_harm hypothesis was tested and eliminated). Gating on an axis whose own control does not reproduce its reference would charge the encoder for a regime difference. Skill is RECORDED per cell. Because A2 no longer gates, the run does not test MECH-573's CONFIRMING clause and therefore tags NO claim -- readability is deferred to the encoder work. DV-symmetry: the DV is a ratio of two MSEs on fixed frozen batteries and the manipulation changes only the trained weights, so it is invariant under no symmetry of that DV. Routes: PASS = margin loss restores contradiction-posability; FAIL-a = margin form did not raise action-sensitivity -> escalate to the encoder remedy; FAIL-b = bought by destroying reconstruction (the 701b direction on the margin form); UNDETERMINED = N1/N2/N3 unmet, NOT a FAIL.",
-      "status": "pending",
-      "claim_ids": [],
-      "conditions": 5,
-      "episodes_per_run": 40,
-      "experiment_type": "v3_exq_1075_sdppb5_action_sensitivity_validation",
-      "seeds": 3
-    },
-    {
       "queue_id": "V3-EXQ-1043b",
       "title": "MECH-537 communication-subspace routing, INSTRUMENT REPAIR 2: is D_comm's ORIENTATION special against a B=1000 reference distribution of random same-rank subspaces -- read as a pre-registered RANK CO-PRIMARY alongside the retained absolute-difference CI?",
       "script": "experiments/v3_exq_1043b_mech537_communication_subspace_randrank.py",
