@@ -27,6 +27,23 @@
       "experiment_type": "v3_exq_1067_mech266_squash_vs_clamp_cap_sweep",
       "predecessor": "V3-EXQ-934",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-1077",
+      "title": "SD-PP-B9: e2_harm_a under-training probe -- 1062a-schedule head vs decayed-optimiser converged head, skill vs persistence (diagnostic)",
+      "experiment_type": "v3_exq_1077_sdppb9_harm_head_undertrain_probe",
+      "script": "experiments/v3_exq_1077_sdppb9_harm_head_undertrain_probe.py",
+      "priority": 30,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 240,
+      "episodes_per_run": 90,
+      "seeds": 3,
+      "conditions": 1,
+      "backlog_id": null,
+      "predecessor": "V3-EXQ-1062a",
+      "note": "SD-PP-B9 piece 3, cheapest GOV-FANOUT-1 leg (H-harm-head-undertrained) from failure_autopsy_V3-EXQ-1062a_2026-09-23 (ratified governance-20260923-0717, rec-20260923-10bca6b5). DIAGNOSTIC, claim_ids [] (bears_on mech055_harm_pe_source_validity); NOT a MECH-055 re-test: the MECH-055 re-derive brake (N=2) refuses any V3-EXQ-1062b and the autopsy's refused_requeue_scope exempts this probe (new number, different mechanism and DV, no claim tag). Design = user decisions rec-20260923-533fb67e (Option A) + rec-20260923-f787f416 (Option 1 optimiser repair). Stationary only, seeds 42/137/2026; one shared 1062a-exact P0+P1 per seed: ARM_ONLINE_B1 (reproduction control, must be persistence_dominated @ eps 0.0) vs ARM_CONVERGED (same init + data, offline batch 64, Adam 5e-4 halved per 1000-step plateau vs best-so-far, best checkpoint, stop lr<5e-4/256, cap 40000; converged = schedule exhausted AND best held-out <= persistence). Instrument: experiments/_lib/persistence_skill_gate.persistence_verdict (ree-v3 88b1005), no absolute R2 or skill floor. Eval no-grad 1800 steps at eps 0.1 (matched) and 0.0. Routing: ready>=2 -> h_undertrained_confirmed (PASS); persistence_dominated>=2 -> declared null; cannot_determine>=2 -> AMBIGUOUS (aliased, NOT a ceiling verdict); <2 eligible -> substrate_not_ready_requeue = NOT_CONVERGED, an INSTRUMENT outcome not a structural verdict. Recorded non-gating: loss/lr curves (1062a recorded none), cross-scoring, in-sample bound + permuted-delta twin. GOV-REUSE-1: reanalysis_query -> 0 manifests carry an e2_harm_a training curve or a plateau-trained head; needs a new training manipulation -> run. Step 2.5c degrading WARNs (no corrupting): SD-PP-B9 (subject), SD-018, SD-106, SD-091, SD-ZWORLD-SENSE-PATH-PARITY, SD-PP-B4, sd061-resume-progress-ecology, SD-MECH303-THRESHOLD-SOURCING, mech005-betagate-decommit-counter-and-commit-ceiling. red-team (fable): BLOCKING (fixed-lr plateau certified a head 1.18x above persistence on its own train rows) -> fixed per rec-20260923-f787f416; confirmers re-run on the driver's fitter pass (reachability refuses a floor; in-sample real vs permuted separate). Lead, one seed/20-ep buffer: decayed fit reaches ~1.00x held-out, so seed-level not_converged is a live possibility. DV-symmetry: d is a signed SSE contrast of two predictors on identical rows; the manipulation (training procedure) changes the head's per-row predictions, not a uniform shift or rescale both predictors share, so d is not invariant to it. Smoke (dry-run, short-circuit not present) PASS.",
+      "claim_ids": []
     }
   ]
 }
