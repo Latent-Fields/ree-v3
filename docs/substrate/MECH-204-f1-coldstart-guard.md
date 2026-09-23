@@ -76,7 +76,7 @@ first REAL capture (2.9191 = 1/rv at REM entry) instead of the 2.0 sentinel.
 
 ### Validation experiment
 
-V3-EXQ-541d (queued 2026-09-18): re-run of 541c's design with
+V3-EXQ-541d was REFUSED at /queue-experiment Step 4.5 (2026-09-18; GFLAG-0369) and never queued. Per GFLAG-0391 (REE_assembly 44a0665b4fc) MECH-204 Option A is CLOSED and no 541-lineage successor will be queued. Design below retained for history: re-run of 541c's design with
 `precision_zero_point_require_waking` as a second factor. Pre-registered prediction with the
 guard ON: cycle 1 does not fire, and cycle 2+ targets sit within ~2x of
 1/realized-PE-variance instead of climbing away from it. FALSIFIER OF THE WHOLE FIX: if with
