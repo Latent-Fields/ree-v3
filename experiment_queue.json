@@ -48,28 +48,6 @@
       "experiment_type": "v3_exq_1077_sdppb9_harm_head_undertrain_probe",
       "predecessor": "V3-EXQ-1062a",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-1078",
-      "title": "INV-069 coherence leg (Option C): z_self burst recovery (arm a) + frozen maintenance in the unsettled post-boundary regime (arm b, scoped out) -- diagnostic",
-      "script": "experiments/v3_exq_1078_inv069_zself_coherence_unsettled.py",
-      "priority": 30,
-      "machine_affinity": "any",
-      "estimated_minutes": 75,
-      "backlog_id": null,
-      "note": "INV-069 coherence leg under the user's decision Option C (recommendation ledger rec-20260923-061462f2; decision chip chip-20260923-inv069-armb-degenerate; GFLAG-0414 behavioural leg dead, GFLAG-0428 arm (b) sign-locked). DIAGNOSTIC, claim_ids [INV-069], evidence_direction PRE-REGISTERED 'unknown' in every branch: CONFIRMING needs arm (b), which cannot discriminate on per_stream_vs['z_self']; arm (a) non-recovery is UNTESTABLE per the what_would_answer, not a weakening. PURPOSE decided diagnostic, not evidence (obvious: no branch can emit supports/weakens). ARM (a): one-tick burst (0.5x||z_self||) into the recurrent hidden state at tick 30 vs deep-copied matched control twin (RNG restored, control replay determinism checked), >=3 events x 3 seeds (42/43/45). Load-bearing A1 (vs gap within 0.005 at K=30) AND A2 (state divergence ratio <=0.10 at K). A2 added because vs is a consecutive-difference readout: any one-tick event lets vs recover through the EMA even if the offset persists; A1 without A2 routes undetermined. ARM (b): freeze (SelfRecurrenceCell returns its hidden input, E1-anchor coupling 0) at tick 2 after reset for 8 ticks (the unsettled regime: pilot live err 0.16 -> 0.003), vs live twin. Scoped OUT of scoring: the frozen trace is closed-form 1-(1-tau)^n(1-vs_onset), so frozen-minus-live is a function of the live trace alone; recorded as a descriptive magnitude vs the detrended settled noise band and as an instrument identity check (deviation or any frozen<live tick -> arm-b instrument fault). DV-SYMMETRY per arm: (a) the burst is a random-direction additive shift of one latent at one tick, not a broadcast constant/monotone rescale/permutation of per_stream_vs's inputs, so the DV is not invariant under it; (b) the manipulation IS invariant-by-construction (fixes its own DV) -> disposition (b), scoped out, routed non_contributory. PREMISES CORRECTED: (1) no V3 loss reaches the LatentStack at all (0/53 tensors changed after P0, GRU delta 0.0) -- the recurrence is untrained, so an A1+A2 pass is GRU init contraction; (2) default contaminated_harm kills a stationary agent at tick ~7, so env uses contaminated_harm 0.0, hazard_harm 0.1, 2 hazards (harm is not the subject); (3) the settled window is still an EMA ramp (raw sd 5x the detrended sd). GOV-REUSE-1: reanalysis_query per_stream_vs x INV-069 -> 0 of 1066 manifests; the 2026-09-22/23 pilots were never recorded -> run. Step 2.5b brake: 0 INV-069 autopsies. Step 2.5c: corrupting overlaps DISMISSED with reason -- contextmemory-write-path-addressing-degeneracy (E1 ContextMemory.write reaches z_self only via the 0.15 E1 anchor, identically in both twins at every split) and SD-PP-B5 (world_forward, exercised only in candidate generation; action divergence recorded 0.0 in both arms); degrading WARNs on exercised paths: SD-018, SD-106 (stack.py), SD-ZWORLD-SENSE-PATH-PARITY (agent.sense), SD-MECH267-CEM-SELECTION-FIX (hippocampal/module.py), SD-091, mech005 (agent.select_action). Step 2.5d: EVENT/DV/INSTRUMENT present; arm (a) DV moves (dip 0.032 ~ 42x detrended settled sd); arm (b) INERT-by-construction, declared and scoped out per the user's Option C. Ethics preflight all-false/allow. red-team (fable): CONTESTED -> fixed, labelling/recording only per orchestrator decision under standing delegation: F1 A1/A2 criteria_non_degenerate False when GRU untrained, label 'arm_a_state_restores_after_burst[_untrained_gru_init_contraction]' (no 'maintenance'), latent reverse error stated (c<0.20 reads substrate_not_ready), A2 horizon NOT moved; F2 freeze identity voids arm (b) only (arm-b failed preconditions kept out of the flat adjudication list); F3 noise band detrended, B.passed honours the unsettled-regime precondition; F4 CLEAR. Smoke (dry-run 1 seed, 1 event; nothing short-circuited, plus a forced-gate run exercising the arm-a label path): dip 0.032, gapK 0.0020, state ratio 2.5e-7, b gap 0.022 (29x detrended sd); validate_experiments --strict OK; validate_recording --strict OK.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-3",
-        "claimed_at": "2026-09-23T17:51:13Z"
-      },
-      "claim_ids": [
-        "INV-069"
-      ],
-      "conditions": 1,
-      "episodes_per_run": 24,
-      "experiment_type": "v3_exq_1078_inv069_zself_coherence_unsettled",
-      "seeds": 3
     }
   ]
 }
