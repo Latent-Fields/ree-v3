@@ -3358,6 +3358,57 @@ class ResidueConfig:
     # MECH-303 behavioural promote-to-active gate). None -> falls back to
     # kernel_bandwidth (bit-identical OFF). See sd_067_safety_terrain_bandwidth.md.
     safety_terrain_bandwidth: Optional[float] = None
+    # SD residue-field-kernel-resolution (GFLAG-0337, MECH-023 / INV-023 / MECH-018):
+    # dedicated RBF bandwidth for the HARM residue field (ResidueField.rbf_field).
+    # SD-067 above fixed the same saturation for the MECH-303 SAFETY terrain only;
+    # the harm-geometry case was unowned, and this is it. None -> falls back to
+    # kernel_bandwidth (bit-identical OFF).
+    #
+    # WHY. kernel_bandwidth is 1.0 while the reachable z_world cloud spans ~0.125
+    # (max pairwise, igw-242 2026-09-17; median 0.065). The two most distant points
+    # the agent can reach therefore read exp(-0.125^2 / 2) = 0.9922 -- 0.8% apart.
+    # The harm field is a near-broadcast constant across everywhere the agent can go,
+    # so a ratio-of-means readout over it SATURATES. Measured 2026-09-23 (pilot
+    # session inv023-dvrestructure-20260923), harm/safe ratio at bandwidth 1.0:
+    # 1.006675 (seed 0) and 1.000454 (seed 1). The saturation is seed-INDEPENDENT.
+    #
+    # THE TUNING SURFACE (same pilot; harm ctx n=96 both seeds). The rank-AUC column
+    # is SEED 0's shape, NOT a general calibration -- seed 1 starts at 0.5737 and is
+    # flat across the whole range:
+    #     bw      seed0 ratio / AUC        seed1 ratio / AUC
+    #     1.000   1.006675 / 0.8066        1.000454 / 0.5737
+    #     0.500   1.026524 / 0.8061        1.001930 / 0.5742
+    #     0.200   1.151437 / 0.7837        1.016429 / 0.5732
+    #     0.100   1.195467 / 0.6282        1.100596 / 0.5940
+    #     0.065   0.748631 / 0.3587        1.253352 / 0.5797
+    # seed0 geometry: centroid_dist 0.187763, within-spread harm 0.131291 safe 0.052448
+    # seed1 geometry: centroid_dist 0.080564, within-spread harm 0.120749 safe 0.085289
+    #
+    # RECOMMENDED VALUE 0.15, and what it trades away. 0.15 is the smallest value
+    # above EVERY measured within-cluster spread (max 0.131291, seed 0 harm). That
+    # floor is the one with an observed failure mechanism: at bw 0.065 -- below it --
+    # seed 0 INVERTS (ratio 0.748631, AUC 0.3587: harm contexts read LOWER than safe),
+    # because a kernel narrower than the within-class spread stops generalising within
+    # a class. DO NOT copy SD-067's 0.03 or the 0.065 release-condition figure into
+    # this field. 0.15 is also below seed 0's centroid_dist 0.187763, so between-class
+    # structure is still resolvable when it exists. COST: 0.15 is INTERPOLATED between
+    # measured 0.200 and 0.100, and both seeds' absolute gap keeps improving below it
+    # (seed1 only reaches 1.1006 at 0.100) -- so 0.15 deliberately gives up absolute
+    # gap to stay out of the regime where the one observed inversion occurred.
+    #
+    # THE PAYOFF IS CONDITIONAL ON PER-RUN z_world SEPARATION, which was measured
+    # ADEQUATE ON 1 OF 2 SEEDS. On seed 1 the harm/safe centroid separation (0.080564)
+    # is BELOW the within-cluster spread of BOTH classes (0.120749 / 0.085289): the
+    # classes genuinely overlap and no bandwidth recovers what is not there (its AUC is
+    # flat, 0.5732-0.5940, across a 15x bandwidth range, and 1.35 null-SE above chance
+    # = not significant). This knob fixes the INSTRUMENT -- a bandwidth ~8x the
+    # reachable manifold cannot resolve separation WHEN separation exists. It does not
+    # and must not be read as a claim about how often that separation is there. Any
+    # consumer should report centroid_dist against within-cluster spread per run.
+    # NOTE the pilot's shuffled-control column (0.459 / 0.392) is ONE permutation at a
+    # fixed seed reused across bandwidths; it is NOT a calibrated 0.5 null. Use the
+    # analytic null SE instead.
+    harm_field_bandwidth: Optional[float] = None
     # SD-024 (MECH-232): DA-modulated RBF center density on the BENEFIT terrain.
     # When a reward encounter carries a phasic dopamine signal (benefit_magnitude *
     # drive_level per SD-012), accumulate_benefit() allocates MULTIPLE closely-spaced
@@ -8858,6 +8909,14 @@ class REEConfig:
         use_variance_tracking_commit_threshold: bool = False,
         commit_threshold_quantile: float = -1.0,
         commit_threshold_quantile_window: int = -1,
+        # SD residue-field-kernel-resolution: dedicated bandwidth for the HARM
+        # residue RBF. Needs all THREE wiring sites (ResidueConfig field, this
+        # signature entry, and the config.residue mirror in the body) or from_dims
+        # silently swallows it via **kwargs and the lever is inert. Placed
+        # immediately before **kwargs so no existing positional index moves.
+        # None -> kernel_bandwidth (bit-identical OFF). Recommended when armed: 0.15
+        # (see the ResidueConfig.harm_field_bandwidth comment for the tuning surface).
+        harm_field_bandwidth: Optional[float] = None,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -10497,6 +10556,13 @@ class REEConfig:
             # SD-067: dedicated (tighter) bandwidth for the safety-terrain RBF read.
             # None -> ResidueField falls back to kernel_bandwidth (bit-identical OFF).
             config.residue.safety_terrain_bandwidth = safety_terrain_bandwidth
+
+        # SD residue-field-kernel-resolution: dedicated bandwidth for the HARM
+        # residue RBF (ResidueField.rbf_field). UNCONDITIONAL -- unlike the SD-067
+        # safety mirror above there is no enabling flag to gate on, because the harm
+        # field always exists. None -> ResidueField falls back to kernel_bandwidth
+        # (bit-identical OFF).
+        config.residue.harm_field_bandwidth = harm_field_bandwidth
 
         # MECH-108: BreathOscillator -- wire heartbeat params from from_dims().
         # breath_period=0 disables; default 50 enables periodic uncommitted windows.

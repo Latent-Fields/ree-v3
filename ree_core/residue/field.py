@@ -425,10 +425,42 @@ class ResidueField(nn.Module):
         super().__init__()
         self.config = config or ResidueConfig()
 
+        # SD residue-field-kernel-resolution (GFLAG-0337; MECH-023 / INV-023 /
+        # MECH-018): the HARM residue field may use a dedicated bandwidth instead
+        # of the shared kernel_bandwidth. SD-067 did exactly this for the MECH-303
+        # SAFETY terrain below; the harm-geometry case was unowned and this is it.
+        #
+        # kernel_bandwidth 1.0 is ~8x the reachable z_world cloud (max pairwise
+        # ~0.125), so the two most distant points the agent can reach read 0.9922
+        # apart -- a near-broadcast constant, and any ratio-of-means readout over it
+        # saturates (measured harm/safe ratio 1.006675 / 1.000454 on two seeds,
+        # 2026-09-23). None -> kernel_bandwidth, which is BIT-IDENTICAL to the
+        # pre-SD behaviour: the resolved float below is then the same object-valued
+        # float that was passed before, at every consumer.
+        #
+        # Resolved ONCE here and reused, so every consumer of "the harm field's
+        # kernel scale" moves together. A knob wired into the RBF read but not into
+        # integrate()'s sampling noise would train neural_field on points almost
+        # entirely outside the narrowed field's support (targets ~0 everywhere) --
+        # a silently vacuous distillation, which is the structurally-present-but-
+        # functionally-inert failure this codebase keeps producing.
+        # NOT a buffer: a plain float, so state_dict/checkpoint shape is unchanged.
+        # The OFF branch passes config.kernel_bandwidth through UNCOERCED (no
+        # float() around it), so the value AND its python type are exactly what
+        # RBFLayer received before this knob existed -- a config carrying an int
+        # kernel_bandwidth still yields an int here, as it always did. Coercing
+        # only the ON branch keeps "bit-identical when off" true by identity
+        # rather than by a numerical argument.
+        _harm_bw = getattr(self.config, "harm_field_bandwidth", None)
+        if _harm_bw is None:
+            self.effective_harm_bandwidth = self.config.kernel_bandwidth
+        else:
+            self.effective_harm_bandwidth = float(_harm_bw)
+
         self.rbf_field = RBFLayer(
             world_dim=self.config.world_dim,
             num_centers=self.config.num_basis_functions,
-            bandwidth=self.config.kernel_bandwidth,
+            bandwidth=self.effective_harm_bandwidth,
         )
 
         self.neural_field = nn.Sequential(
@@ -1209,7 +1241,13 @@ class ResidueField(nn.Module):
             # `_harm_history.append(z_world.detach().clone())` producer). Do NOT
             # hoist this out of the loop to "save compute": that would turn
             # num_steps independent graphs into one accumulated graph.
-            noise = torch.randn_like(harm_locations) * self.config.kernel_bandwidth
+            # SD residue-field-kernel-resolution: sample at the HARM FIELD's own
+            # kernel scale, not the shared kernel_bandwidth. Equal when the knob is
+            # off (effective_harm_bandwidth is kernel_bandwidth) -> bit-identical.
+            # When armed they differ, and using the shared 1.0 here would scatter
+            # samples far outside the narrowed field's support, making the
+            # distillation target ~0 everywhere and the loop vacuous.
+            noise = torch.randn_like(harm_locations) * self.effective_harm_bandwidth
             sample_points = harm_locations + noise
             with torch.no_grad():
                 targets = self.rbf_field(sample_points)
