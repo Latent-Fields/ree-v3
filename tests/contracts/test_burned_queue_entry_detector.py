@@ -61,7 +61,10 @@ gave 93 hits, 85 of them benign):
 
 import datetime as dt
 import importlib.util
+import json
 import os
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -487,6 +490,112 @@ class BurnDetectorLogicTest(unittest.TestCase):
             any(f["already_ran_identical_script"] for f in without),
             "with no blob provider the field must default to False, never "
             "be absent -- consumers read it unconditionally")
+
+
+class MisnamedDriverTest(unittest.TestCase):
+    """C3e: a driver whose EXPERIMENT_TYPE is not its filename stem.
+
+    Manifests are named after EXPERIMENT_TYPE. Until 2026-09-23 every lookup
+    here was keyed on the FILENAME stem, so a misnamed driver's runs were
+    invisible -- which is how V3-EXQ-1055's own-number PASS went unseen
+    (chip-20260923-experiment-type-naming-blind-spot; C7 PIN UPDATE
+    2026-09-23 (b)). This replays that shape end to end through `audit()`
+    on a throwaway git repo, so the resolution is exercised against real
+    `git cat-file` blobs rather than a fake. Both arms FAIL on the pre-fix
+    detector (measured): (i) the advisory stays silent, (ii) a burn is
+    reported for a stint that DID produce a manifest.
+    """
+
+    SCRIPT = "experiments/v3_exq_901_misnamed_probe.py"
+    MANIFEST_STEM = "zz_misnamed_probe"          # what the driver WRITES
+
+    def _git(self, repo, when, *args):
+        env = dict(os.environ,
+                   GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
+                   GIT_COMMITTER_NAME="t",
+                   GIT_COMMITTER_EMAIL="t@example.invalid",
+                   GIT_AUTHOR_DATE=when, GIT_COMMITTER_DATE=when)
+        subprocess.run(["git", "-c", "core.hooksPath=/dev/null",
+                        "-c", "commit.gpgsign=false", "-C", repo, *args],
+                       check=True, capture_output=True, env=env)
+
+    def _commit_queue(self, repo, when, subject, items):
+        with open(os.path.join(repo, "experiment_queue.json"), "w") as fh:
+            json.dump({"schema_version": "v1", "items": items}, fh)
+        self._git(repo, when, "add", "-A")
+        self._git(repo, when, "commit", "-q", "-m", subject)
+
+    def _build(self, root):
+        repo = os.path.join(root, "repo")
+        os.makedirs(os.path.join(repo, "experiments"))
+        self._git(repo, "2026-07-01T00:00:00+00:00", "init", "-q")
+        with open(os.path.join(repo, self.SCRIPT), "w") as fh:
+            fh.write('"""probe"""\nEXPERIMENT_TYPE = (\n    "%s"\n)\n'
+                     % self.MANIFEST_STEM)
+        item = {"queue_id": "V3-EXQ-901", "script": self.SCRIPT}
+        self._commit_queue(repo, "2026-07-01T10:00:00+00:00",
+                           "queue: V3-EXQ-901", [item])
+        self._commit_queue(repo, "2026-07-01T10:30:00+00:00",
+                           "phase3-queue: snapshot", [])
+        # The burned re-add, 26 hours later, same driver blob.
+        self._commit_queue(repo, "2026-07-02T12:00:00+00:00",
+                           "queue: re-add V3-EXQ-901", [item])
+        self._commit_queue(repo, "2026-07-02T12:03:00+00:00",
+                           "phase3-queue: snapshot", [])
+        return repo
+
+    def _evidence(self, root, stamp):
+        ev = os.path.join(root, "evidence")
+        os.makedirs(ev)
+        open(os.path.join(ev, "%s_%s_v3.json"
+                          % (self.MANIFEST_STEM, stamp)), "w").close()
+        return ev
+
+    def _audit(self, repo, ev):
+        return [f for f in audit.audit(repo=repo, evidence_dir=ev)
+                if f["queue_id"] == "V3-EXQ-901"]
+
+    def test_c3e_misnamed_driver_is_resolved_by_experiment_type(self):
+        self.assertEqual(
+            audit.experiment_type_of(
+                'EXPERIMENT_TYPE = (\n    "a_b"\n)\nEXPERIMENT_TYPE = "c_d"\n'),
+            "c_d", "last module-level assignment wins, as at import time")
+        for not_a_literal in ('EXPERIMENT_TYPE = f"v3_{X}"\n',
+                              'EXPERIMENT_TYPE = ("a" "b")\n',
+                              'EXPERIMENT_TYPE = ("a",)\n',
+                              '    EXPERIMENT_TYPE = "nested"\n',
+                              'EXPERIMENT_TYPE = BASE + "_x"\n'):
+            with self.subTest(source=not_a_literal):
+                self.assertIsNone(audit.experiment_type_of(not_a_literal),
+                                  "non-literal forms must fall back to the "
+                                  "filename stem, never half-parse")
+
+        with tempfile.TemporaryDirectory() as root:
+            repo = self._build(root)
+            # (i) THE 1055 SHAPE: the driver ran BEFORE the burned re-add
+            # and wrote under its EXPERIMENT_TYPE. The burn is still a
+            # finding (disposition unchanged), but the already-ran advisory
+            # must now see the run.
+            findings = self._audit(repo, self._evidence(root,
+                                                        "20260701T101500Z"))
+            self.assertEqual(len(findings), 1)
+            self.assertTrue(findings[0]["already_ran_identical_script"],
+                            "a manifest filed under the driver's "
+                            "EXPERIMENT_TYPE must count as its run")
+            self.assertEqual(findings[0]["already_ran_identical_script_at"],
+                             "2026-07-01T10:15:00Z")
+            self.assertFalse(findings[0]["evidence_recovered"],
+                             "the advisory is disposition-neutral")
+
+        with tempfile.TemporaryDirectory() as root:
+            repo = self._build(root)
+            # (ii) L3: the re-add stint DID run, under the misnamed stem.
+            # That is not a burn at all -- keyed on the filename stem it
+            # looked like one.
+            self.assertEqual(
+                self._audit(repo, self._evidence(root, "20260702T120200Z")),
+                [], "a manifest under the driver's EXPERIMENT_TYPE inside "
+                    "the stint window means the stint ran")
 
 
 @unittest.skipUnless(
@@ -918,6 +1027,28 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
         guard again. The residual path that produced this exact finding --
         a misnamed driver plus a blind re-add -- is still open until the
         naming follow-on lands.
+
+        PIN UPDATE 2026-09-23 (b): THE NAMING FOLLOW-ON LANDED, and V3-EXQ-1055
+        moves from bucket (d) into (b), exactly as the entry above predicted.
+        NOTHING ELSE MOVED: the full audit was diffed before and after on the
+        real corpus -- same 24 findings, same 21 ids, and 1055's
+        `already_ran_identical_script` / `_at` are the ONLY changed fields
+        (False -> True, None -> 2026-09-18T18:23:37Z). Its disposition is
+        unchanged (still LOST, as for 895/929/956: intent is not machine-
+        visible), so the cap stays at 21. What changed is the lookup key. A
+        driver is now resolved, at the burned stint's own add commit, to the
+        stem it actually WRITES -- its literal EXPERIMENT_TYPE (DriverStems) --
+        falling back to the filename stem only when there is no literal. For
+        1055 that is sd098_ghost_goal_readtime_rerank, whose one manifest is
+        18:23:37Z; blob identity then passes because the driver is unchanged
+        since 4748ead. Bucket (d) is retired, being empty. Measured on the way:
+        the blind spot was 12 drivers, not 5 -- seven more (585-591c) have an
+        EXPERIMENT_TYPE that omits their filename's trailing "_v3". None of
+        the seven has a finding, so none moves here. C3e pins the resolution
+        end to end on a throwaway repo, and both of its arms fail on the pre-
+        fix detector. validate_queue.py's burned-ID guard got the matching
+        fix in the same commit
+        (test_validate_queue_burned_id_source.py C8-C10).
         """
         # 21 since 2026-09-23 (V3-EXQ-1055, adjudicated genuine; see PIN
         # UPDATE 2026-09-23). Tracks the adjudicated corpus exactly -- no
@@ -934,10 +1065,11 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
                             # between. Re-added on a REBASED-AWAY-SHA
                             # misreading -- see PIN UPDATE 2026-09-17.
             "V3-EXQ-1055",  # own number ran PASS at 2026-09-18T18:23:37Z,
-                            # ~44h BEFORE the stint; manifest filed under a
-                            # MISNAMED stem (sd098_...), invisible to the
-                            # advisory. Re-added off a stale READY_TO_LAND
-                            # sidecar -- see PIN UPDATE 2026-09-23.
+                            # ~44h BEFORE the stint; manifest filed under its
+                            # EXPERIMENT_TYPE (sd098_...), now resolved, so
+                            # the advisory fires. Re-added off a stale
+                            # READY_TO_LAND sidecar -- see PIN UPDATEs
+                            # 2026-09-23 and 2026-09-23 (b).
             "V3-EXQ-569a",
             "V3-EXQ-683",
             "V3-EXQ-686",
@@ -965,6 +1097,7 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
         lost_already_ran = {qid: when for qid, when in already_ran.items()
                             if qid in lost}
         self.assertEqual(lost_already_ran, {
+            "V3-EXQ-1055": "2026-09-18T18:23:37Z",   # from bucket (d), 2026-09-23 (b)
             "V3-EXQ-895": "2026-08-08T01:24:22Z",
             "V3-EXQ-929": "2026-08-14T08:16:06Z",
             "V3-EXQ-956": "2026-08-29T01:45:24Z",
@@ -1006,43 +1139,27 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
                     "manifest is gone that premise is dead and this entry "
                     "belongs in bucket (a), not here" % queue_id)
 
-        # BUCKET (d), NEW 2026-09-23: ran under its OWN number, but the
-        # driver's EXPERIMENT_TYPE lacks its "v3_exq_<n>_" prefix, so the
-        # manifest is filed under a stem the detector never looks up. Kept
-        # apart from (c) because (c) asserts that the DRIVER stem ran, and
-        # here it did not -- the MISNAMED stem did. Pinned against that
-        # stem, so this bucket cannot silently decay into (a). When the
-        # auditor learns to resolve EXPERIMENT_TYPE, 1055 should move to (b)
-        # and this pin should fail: expected drift, to be re-adjudicated.
-        naming_invisible_but_ran = {
-            "V3-EXQ-1055": "sd098_ghost_goal_readtime_rerank",
-        }
-        for queue_id, manifest_stem in naming_invisible_but_ran.items():
-            with self.subTest(queue_id=queue_id):
-                self.assertNotIn(queue_id, already_ran,
-                                 "%s: the advisory cannot see a manifest "
-                                 "filed under a misnamed stem" % queue_id)
-                script = [f["script"] for f in self.findings
-                          if f["queue_id"] == queue_id][0]
-                driver_stem = os.path.basename(script)[:-len(".py")]
-                index = audit.EvidenceIndex(str(EVIDENCE_DIR))
-                self.assertFalse(
-                    index.ran_ever(driver_stem),
-                    "%s's driver stem now resolves to a manifest -- the "
-                    "naming blind spot is closed, so re-adjudicate it into "
-                    "bucket (b)" % queue_id)
-                self.assertTrue(
-                    index.ran_ever(manifest_stem),
-                    "%s is pinned as 'ran under a misnamed stem'; if that "
-                    "manifest is gone the premise is dead and this entry "
-                    "belongs in bucket (a), not here" % queue_id)
+        # BUCKET (d), 2026-09-23 -- RETIRED the same day (PIN UPDATE
+        # 2026-09-23 (b)). It held V3-EXQ-1055, whose run was filed under its
+        # EXPERIMENT_TYPE and so invisible to a filename-stem lookup. The
+        # detector now resolves EXPERIMENT_TYPE, and 1055 sits in (b) above.
+        # What stays pinned is WHY it is there: the driver stem itself still
+        # has no manifest, so if 1055 ever drops out of (b) the cause is the
+        # EXPERIMENT_TYPE resolution regressing, not the evidence moving.
+        index = audit.EvidenceIndex(str(EVIDENCE_DIR))
+        self.assertFalse(
+            index.ran_ever("v3_exq_1055_sd098_ghost_goal_readtime_rerank"),
+            "fixture drift: 1055's FILENAME stem now has a manifest, so its "
+            "(b) placement no longer proves EXPERIMENT_TYPE resolution")
+        self.assertTrue(
+            index.ran_ever("sd098_ghost_goal_readtime_rerank"),
+            "fixture drift: 1055's EXPERIMENT_TYPE manifest is gone")
 
         # The partition must be EXHAUSTIVE over the LOST set -- otherwise a
         # future entry could join `lost` above and be adjudicated by nobody.
         self.assertEqual(
             sorted(set(lost_already_ran) | set(never_ran)
-                   | set(advisory_silent_but_ran)
-                   | set(naming_invisible_but_ran)),
+                   | set(advisory_silent_but_ran)),
             lost,
             "every LOST entry must sit in exactly one adjudicated bucket")
 

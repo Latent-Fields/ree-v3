@@ -333,6 +333,85 @@ def script_stem(script):
     return base[:-3] if base.endswith(".py") else base
 
 
+# A manifest is named after the driver's EXPERIMENT_TYPE constant, NOT its
+# filename. The two agree for ~99% of drivers, which is why keying on the
+# filename stem looked sufficient -- but measured 2026-09-23, 12 of the 1444
+# drivers with a literal EXPERIMENT_TYPE write a different stem: five drop the
+# "v3_exq_<n>_" prefix or carry the wrong number (v3_exq_1055_... writes
+# sd098_ghost_goal_readtime_rerank; v3_exq_059_... writes v3_exq_060_...), and
+# seven (585-591c) omit the filename's trailing "_v3". Every run of those
+# drivers was invisible here, which is how V3-EXQ-1055's own-number PASS was
+# missed (chip-20260923-experiment-type-naming-blind-spot).
+#
+# Matches a module-level string-literal assignment, bare or parenthesised
+# (the multi-line `EXPERIMENT_TYPE = (\n    "..."\n)` form is in use). Anything
+# else -- an f-string, a concatenation, a tuple, a computed value -- does not
+# match and falls back to the filename stem, the pre-2026-09-23 behaviour.
+# Kept byte-identical to validate_queue.py's _EXPERIMENT_TYPE_RE (a copy, not
+# an import: that file must not depend on ree-v3/scripts at commit time).
+EXPERIMENT_TYPE_RE = re.compile(
+    r"^EXPERIMENT_TYPE[ \t]*(?::[ \t]*str[ \t]*)?=[ \t]*"
+    r"(?:\(\s*(?P<q1>[\"'])(?P<v1>[A-Za-z0-9_.\-]+)(?P=q1)\s*\)"
+    r"|(?P<q2>[\"'])(?P<v2>[A-Za-z0-9_.\-]+)(?P=q2))[ \t]*(?:#[^\n]*)?$",
+    re.M)
+
+
+def experiment_type_of(source):
+    """The literal EXPERIMENT_TYPE a driver's source assigns, or None.
+
+    The LAST module-level assignment wins, as it does at import time.
+    """
+    if not source:
+        return None
+    value = None
+    for match in EXPERIMENT_TYPE_RE.finditer(source):
+        value = match.group("v1") or match.group("v2")
+    return value
+
+
+class DriverStems:
+    """(revision, script) -> the manifest stem that revision of the driver
+    writes: its literal EXPERIMENT_TYPE, else its filename stem.
+
+    Resolved AT A REVISION, not from the working tree, because a driver's
+    EXPERIMENT_TYPE can change over its life (v3_exq_059_arc016_... switched
+    from writing v3_exq_059_... to v3_exq_060_... in ree-v3 7fa84ce), and
+    what a stint could have produced is what THAT revision would write.
+
+    Cost discipline, as for ScriptBlobs: `prefetch` reads every blob a pass
+    needs in ONE batched `git cat-file --batch`, and only stints that already
+    survived the cheap legs (L1, L2, window, cutover) are ever resolved. A
+    blob git cannot read falls back to the filename stem.
+    """
+
+    def __init__(self, repo):
+        self.repo = repo
+        self._stem = {}
+
+    def prefetch(self, pairs):
+        wanted = []
+        for rev, script in pairs:
+            if script and (rev, script) not in self._stem \
+                    and (rev, script) not in wanted:
+                wanted.append((rev, script))
+        if not wanted:
+            return
+        contents = cat_file_batch(
+            self.repo, ["%s:%s" % (rev, script) for rev, script in wanted])
+        for rev, script in wanted:
+            blob = contents.get("%s:%s" % (rev, script))
+            source = blob.decode("utf-8", "replace") if blob else None
+            self._stem[(rev, script)] = (experiment_type_of(source)
+                                         or script_stem(script))
+
+    def stem(self, script, rev):
+        if not script:
+            return None
+        if (rev, script) not in self._stem:
+            self.prefetch([(rev, script)])
+        return self._stem[(rev, script)]
+
+
 # A stem is "v[34]_exq_<number><letters>_<descriptive slug>". The RENUMBER
 # recovery route keys on the descriptive slug: an id COLLISION is resolved by
 # copying the driver to a fresh exq number (v3_exq_893_foo -> v3_exq_894_foo),
@@ -566,18 +645,21 @@ def annotate_already_ran(pairs, by_stem, script_blobs):
     removes a finding. Demotion is the dangerous direction (see the REFUTED
     ROUTE block in the module tests), so this route only annotates.
 
-    `pairs` is [(finding, stint)]. Two phases so that every oid read goes
-    through ONE batched `git cat-file` -- phase 1 resolves which revisions
-    to compare, phase 2 reads them all at once.
+    `pairs` is [(finding, stint, stem)], where `stem` is the manifest stem
+    the stint's driver writes (its EXPERIMENT_TYPE -- see DriverStems), not
+    necessarily its filename stem. The blob comparison below is still on the
+    script PATH: the stem only says which manifests to look for. Two phases
+    so that every oid read goes through ONE batched `git cat-file` -- phase 1
+    resolves which revisions to compare, phase 2 reads them all at once.
     """
     if script_blobs is None:
         return
     wanted = []
     specs = []
-    for finding, stint in pairs:
+    for finding, stint, stem in pairs:
         script = stint["item"].get("script")
         added = parse_iso(stint["added_at"])
-        when = prior_own_run(by_stem, script_stem(script), added)
+        when = prior_own_run(by_stem, stem, added)
         if when is None or not script:
             continue
         then_sha = script_blobs.commit_at(script, when, stint["added_sha"])
@@ -603,10 +685,21 @@ def annotate_already_ran(pairs, by_stem, script_blobs):
             "%Y-%m-%dT%H:%M:%SZ")
 
 
+def _stint_stem(stint, driver_stems):
+    """The manifest stem this stint's driver writes, resolved at the
+    stint's own add commit -- or the filename stem when no resolver is
+    supplied (the module tests' synthetic stints)."""
+    script = stint["item"].get("script")
+    if driver_stems is None:
+        return script_stem(script)
+    return driver_stems.stem(script, stint["added_sha"])
+
+
 def find_burns(stints, successors, evidence, window_minutes, grace_minutes,
-               cutover, script_blobs=None):
-    findings = []
-    annotated = []
+               cutover, script_blobs=None, driver_stems=None):
+    # Pass 1: the cheap legs, which need no blob reads. Only survivors are
+    # resolved to their EXPERIMENT_TYPE, in one batched read below.
+    candidates = []
     for stint in stints:
         # L1 -- operator add
         if not stint["added_by_operator"]:
@@ -622,8 +715,23 @@ def find_burns(stints, successors, evidence, window_minutes, grace_minutes,
         # FP3 -- post-cutover only
         if cutover is not None and removed < cutover:
             continue
-        # L3 -- nothing ran, scoped to THIS stint (FP2 + FP4)
-        stem = script_stem(stint["item"].get("script"))
+        candidates.append((stint, added, removed, minutes))
+
+    if driver_stems is not None:
+        heirs_wanted = {qid for stint, _, _, _ in candidates
+                        for qid, _ in successors.get(stint["queue_id"], [])}
+        driver_stems.prefetch(
+            [(stint["added_sha"], stint["item"].get("script"))
+             for stint, _, _, _ in candidates]
+            + [(stint["added_sha"], stint["item"].get("script"))
+               for stint in stints if stint["queue_id"] in heirs_wanted])
+
+    findings = []
+    annotated = []
+    for stint, added, removed, minutes in candidates:
+        # L3 -- nothing ran, scoped to THIS stint (FP2 + FP4). Keyed on the
+        # stem the driver WRITES (its EXPERIMENT_TYPE), not its filename.
+        stem = _stint_stem(stint, driver_stems)
         grace = dt.timedelta(minutes=grace_minutes)
         if evidence.ran_between(stem, added, removed + grace):
             continue
@@ -649,7 +757,7 @@ def find_burns(stints, successors, evidence, window_minutes, grace_minutes,
         heirs = successors.get(stint["queue_id"], [])
         recovered = [
             qid for qid, _ in heirs
-            if evidence.ran_ever(_successor_stem(stints, qid))
+            if evidence.ran_ever(_successor_stem(stints, qid, driver_stems))
         ]
         rerun_later = evidence.ran_after(stem, removed + grace)
         if rerun_later:
@@ -683,16 +791,16 @@ def find_burns(stints, successors, evidence, window_minutes, grace_minutes,
             "already_ran_identical_script_at": None,
         }
         findings.append(finding)
-        annotated.append((finding, stint))
+        annotated.append((finding, stint, stem))
     annotate_already_ran(annotated, getattr(evidence, "by_stem", {}),
                          script_blobs)
     return findings
 
 
-def _successor_stem(stints, qid):
+def _successor_stem(stints, qid, driver_stems=None):
     for stint in stints:
         if stint["queue_id"] == qid:
-            return script_stem(stint["item"].get("script"))
+            return _stint_stem(stint, driver_stems)
     return None
 
 
@@ -705,7 +813,7 @@ def audit(repo=DEFAULT_REPO, evidence_dir=DEFAULT_EVIDENCE,
     cutover = None if all_history else parse_iso(PHASE3_CUTOVER)
     return find_burns(stints, successors, EvidenceIndex(evidence_dir),
                       window_minutes, grace_minutes, cutover,
-                      ScriptBlobs(repo))
+                      ScriptBlobs(repo), DriverStems(repo))
 
 
 # --------------------------------------------------------------------------

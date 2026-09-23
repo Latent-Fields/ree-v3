@@ -643,13 +643,36 @@ ITEM_OPTIONAL = [
 # reinvented, kept as a local regex copy (not an import) so this file never
 # depends on ree-v3/scripts at commit time.
 #
-# KNOWN BLIND SPOT, same shape as the auditor's own FP2/FP4 notes: a driver
-# whose EXPERIMENT_TYPE constant does not match its filename's queue-id
-# prefix (e.g. experiments/v3_exq_1055_....py filing manifests as
-# "sd098_..." with no "v3_exq_1055_" prefix at all -- confirmed on the real
-# corpus, 2026-09-18 run) is invisible to this scan. That is a pre-existing
-# driver-authoring bug, not a regression introduced here, and is filed as
-# separate follow-on rather than fixed in this guard.
+# NAMING, closed 2026-09-23 (chip-20260923-experiment-type-naming-blind-spot).
+# A manifest is named after the driver's EXPERIMENT_TYPE constant, not its
+# filename, and the stem-id regex below only recovers the right queue id when
+# the two share the "v[34]_exq_<n>_" prefix. Measured 2026-09-23, 5 of the
+# 1444 drivers with a literal EXPERIMENT_TYPE do not, in two ways:
+#   INVISIBLE  v3_exq_1055_... writes sd098_ghost_goal_readtime_rerank_...
+#              (likewise 1018, 111, 118): no id prefix at all, so the regex
+#              never attributes the run to anyone. V3-EXQ-1055 PASSed
+#              2026-09-18, was blindly re-added 2026-09-20 (ree-v3
+#              1a09a045c8), and even the repaired scan did not see it.
+#   WRONG-ID   v3_exq_059_arc016_... writes v3_exq_060_arc016_... (changed in
+#              ree-v3 7fa84ce), so the regex attributes 059's runs to
+#              V3-EXQ-060 -- an id that was never queued.
+# So the per-item guard in validate() keys a manifest to a queue id through
+# the DRIVER, not the manifest name: a manifest belongs to the queue id in the
+# filename of the driver that writes it. Two additions, both per queued item
+# and both reading only what validate() already reads (no directory walk of
+# experiments/ on the ordinary path -- a full EXPERIMENT_TYPE parse of all
+# ~1500 drivers measured 0.13-0.48 s against this hook's ~0.18 s total):
+#   (1) the item's own driver (its filename id == the item's queue_id) is
+#       resolved to its EXPERIMENT_TYPE, and manifests under THAT stem count;
+#   (2) a regex-attributed stem with no same-named driver file is checked
+#       against the drivers that write a NON-filename stem, and dropped when
+#       one with a different id owns it. That lookup parses every driver, so
+#       it runs lazily -- only when a queued item already has such a hit,
+#       which is to say only on the path that is about to block a commit.
+# `_scan_completed_queue_ids()` itself stays name-keyed on purpose: several
+# tests stub it with `lambda: {}`, and experiment_runner.py consumes its bare
+# id set, where no queue item is in hand. The runner's copy of this blind spot
+# is NOT closed by this change.
 
 _REE_ASSEMBLY_EVIDENCE_DIR_CANDIDATES = [
     QUEUE_FILE.parent.parent / "REE_assembly" / "evidence" / "experiments",
@@ -662,6 +685,65 @@ _REE_ASSEMBLY_EVIDENCE_DIR_CANDIDATES = [
 _EVIDENCE_TIMESTAMP_RE = re.compile(r"_(\d{8}T\d{6}Z)")
 # The queue-id prefix of a conforming stem: v3_exq_728a_... / v4_exq_001_...
 _EVIDENCE_STEM_ID_RE = re.compile(r"^(v[34])_exq_(\d+[a-z]*)_", re.IGNORECASE)
+
+# A module-level string-literal EXPERIMENT_TYPE assignment, bare or
+# parenthesised (the multi-line `EXPERIMENT_TYPE = (\n    "..."\n)` form is in
+# use). Anything else -- f-string, concatenation, tuple, computed value --
+# does not match, and the caller falls back to the filename stem. Must stay
+# byte-identical to scripts/audit_burned_queue_entries.py's
+# EXPERIMENT_TYPE_RE; duplicated rather than imported, for the reason above.
+_EXPERIMENT_TYPE_RE = re.compile(
+    r"^EXPERIMENT_TYPE[ \t]*(?::[ \t]*str[ \t]*)?=[ \t]*"
+    r"(?:\(\s*(?P<q1>[\"'])(?P<v1>[A-Za-z0-9_.\-]+)(?P=q1)\s*\)"
+    r"|(?P<q2>[\"'])(?P<v2>[A-Za-z0-9_.\-]+)(?P=q2))[ \t]*(?:#[^\n]*)?$",
+    re.M)
+
+
+def _experiment_type_of(source: str) -> "str | None":
+    """The literal EXPERIMENT_TYPE a driver assigns (last one wins, as at
+    import time), or None."""
+    if not source:
+        return None
+    value = None
+    for match in _EXPERIMENT_TYPE_RE.finditer(source):
+        value = match.group("v1") or match.group("v2")
+    return value
+
+
+def _driver_queue_id(script: str) -> "str | None":
+    """experiments/v3_exq_1055_foo.py -> "V3-EXQ-1055"; None if the filename
+    does not carry a queue id."""
+    match = _EVIDENCE_STEM_ID_RE.match(Path(script).name)
+    if not match:
+        return None
+    return "%s-EXQ-%s" % (match.group(1).upper(), match.group(2))
+
+
+def _misnamed_driver_owners(experiments_dir: Path) -> dict[str, set[str]]:
+    """manifest stem -> queue ids, for every driver whose literal
+    EXPERIMENT_TYPE differs from its own filename stem.
+
+    Parses every driver, so it is only ever called lazily (see the NAMING
+    note above). A driver whose EXPERIMENT_TYPE equals its filename stem is
+    omitted: the caller resolves that case from the filename alone.
+    """
+    owners: dict[str, set[str]] = {}
+    try:
+        paths = sorted(experiments_dir.glob("v[34]_exq_*.py"))
+    except OSError:
+        return owners
+    for path in paths:
+        qid = _driver_queue_id(path.name)
+        if qid is None:
+            continue
+        try:
+            source = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        et = _experiment_type_of(source)
+        if et and et != path.stem:
+            owners.setdefault(et, set()).add(qid)
+    return owners
 
 
 def _find_evidence_dir() -> Path | None:
@@ -702,25 +784,92 @@ def _scan_completed_queue_ids() -> dict[str, list[tuple[str, str, str]]]:
     "the queue is clean"; `validate()` below does this and warns instead of
     staying silent.
     """
-    evidence_dir = _find_evidence_dir()
-    if evidence_dir is None:
-        return {}
     out: dict[str, list[tuple[str, str, str]]] = {}
-    try:
-        names = sorted(p.name for p in evidence_dir.iterdir())
-    except OSError:
-        return {}
-    for name in names:
-        match = _EVIDENCE_TIMESTAMP_RE.search(name)
-        if not match:
-            continue
-        id_match = _EVIDENCE_STEM_ID_RE.match(name)
+    for stem, records in sorted(_scan_evidence_manifest_stems().items()):
+        id_match = _EVIDENCE_STEM_ID_RE.match(stem)
         if not id_match:
             continue
         gen, number = id_match.group(1).lower(), id_match.group(2)
         qid = "%s-EXQ-%s" % (gen.upper(), number)
-        out.setdefault(qid, []).append((name, "?", match.group(1)))
+        out.setdefault(qid, []).extend(records)
+    for records in out.values():
+        records.sort()
     return out
+
+
+def _scan_evidence_manifest_stems() -> dict[str, list[tuple[str, str, str]]]:
+    """manifest stem -> list of (source_filename, "?", timestamp), from ONE
+    listing of REE_assembly/evidence/experiments.
+
+    The stem is everything before the first "_<UTC timestamp>", i.e. the
+    EXPERIMENT_TYPE the writing driver set -- the key the per-item guard in
+    validate() looks a driver up by. Same empty-dict-on-unavailable contract
+    as `_scan_completed_queue_ids()`.
+    """
+    evidence_dir = _find_evidence_dir()
+    if evidence_dir is None:
+        return {}
+    try:
+        names = sorted(p.name for p in evidence_dir.iterdir())
+    except OSError:
+        return {}
+    out: dict[str, list[tuple[str, str, str]]] = {}
+    for name in names:
+        match = _EVIDENCE_TIMESTAMP_RE.search(name)
+        if not match:
+            continue
+        out.setdefault(name[:match.start()], []).append(
+            (name, "?", match.group(1)))
+    return out
+
+
+def _completion_records_for_item(
+    queue_id: str,
+    script_val: object,
+    source: "str | None",
+    completed_scan: dict[str, list[tuple[str, str, str]]],
+    manifest_stems: dict[str, list[tuple[str, str, str]]],
+    experiments_dir: Path,
+    misnamed_owners,
+) -> list[tuple[str, str, str]]:
+    """Completion manifests that belong to THIS queued item.
+
+    A manifest belongs to the queue id in the filename of the driver that
+    wrote it (see the NAMING note above), so:
+      (1) the item's own driver -- its filename id is this queue_id -- is
+          resolved to its EXPERIMENT_TYPE and manifests under that stem
+          count, however the stem is spelled;
+      (2) the name-keyed hits from `_scan_completed_queue_ids()` count,
+          EXCEPT a stem with no same-named driver file that some driver with
+          a DIFFERENT id is known to write (the 059 -> "v3_exq_060_..."
+          cross-attribution).
+    A stem no driver claims (deleted driver, pre-convention name) keeps its
+    name-keyed attribution: nothing better is known, and dropping it would
+    fail open on exactly the old runs this guard exists to remember.
+
+    `misnamed_owners` is a zero-arg callable returning
+    `_misnamed_driver_owners(...)`, memoised by the caller, so the full
+    driver parse happens at most once per validate() and only when (2) meets
+    an unexplained stem. Rule (1) deliberately does not apply to an item that
+    runs ANOTHER id's driver (a letter suffix reusing its parent's file,
+    FP4): that driver's past manifests are the parent's runs, not this one's.
+    """
+    records: dict[str, tuple[str, str, str]] = {}
+    if (isinstance(script_val, str) and source
+            and _driver_queue_id(script_val) == queue_id):
+        et = _experiment_type_of(source)
+        if et:
+            for rec in manifest_stems.get(et, ()):
+                records[rec[0]] = rec
+    for rec in completed_scan.get(queue_id, ()):
+        match = _EVIDENCE_TIMESTAMP_RE.search(rec[0])
+        stem = rec[0][:match.start()] if match else rec[0]
+        if not (experiments_dir / (stem + ".py")).is_file():
+            owners = misnamed_owners().get(stem)
+            if owners and queue_id not in owners:
+                continue
+        records[rec[0]] = rec
+    return [records[name] for name in sorted(records)]
 
 
 # ------------------------------------------------------------------
@@ -1317,6 +1466,16 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
     # --- 3. Per-item validation ---
     seen_ids: dict[str, int] = {}
     completed_scan = _scan_completed_queue_ids()
+    # Burned-ID guard, per item: manifests keyed to a queue id through the
+    # DRIVER that writes them, not the manifest name (NAMING note above).
+    _manifest_stems = _scan_evidence_manifest_stems()
+    _experiments_dir = queue_path.parent / "experiments"
+    _owners_memo: list = []
+
+    def _misnamed_owners() -> dict[str, set[str]]:
+        if not _owners_memo:
+            _owners_memo.append(_misnamed_driver_owners(_experiments_dir))
+        return _owners_memo[0]
 
     # Cannot-determine CATEGORY for the burned-ID guard's denominator (see
     # the guard's own module comment above for the incident this repairs).
@@ -1581,6 +1740,7 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
         # because the untracked script existed on disk locally; every cloud worker
         # crashed at startup). git ls-files is the authoritative check.
         script_val = item.get("script")
+        item_source: "str | None" = None
         if isinstance(script_val, str):
             script_path = queue_path.parent / script_val
             if not script_path.exists():
@@ -1600,6 +1760,30 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
                     source = script_path.read_text(encoding="utf-8", errors="ignore")
                 except OSError:
                     source = ""
+                item_source = source
+
+                # A driver whose EXPERIMENT_TYPE drops its filename's
+                # "v[34]_exq_<n>_" prefix files its manifests where no
+                # name-keyed reader looks for them (NAMING note above;
+                # V3-EXQ-1055). WARN, not error: the guard now resolves
+                # EXPERIMENT_TYPE itself, and renaming an EXISTING driver's
+                # EXPERIMENT_TYPE would orphan the manifests it already wrote.
+                # This is to stop NEW drivers being written that way.
+                _name_id = _EVIDENCE_STEM_ID_RE.match(script_path.name)
+                _et = _experiment_type_of(source)
+                if (_name_id and _et
+                        and not _et.lower().startswith(_name_id.group(0).lower())):
+                    _LAST_WARNINGS.append(
+                        f"{prefix}: script {script_val} sets EXPERIMENT_TYPE "
+                        f"= {_et!r}, which does not start with its filename's "
+                        f"{_name_id.group(0)!r} prefix. Its manifests will be "
+                        f"filed as '{_et}_<timestamp>_v3' and are invisible to "
+                        f"every tool that keys evidence by queue id from the "
+                        f"manifest name (V3-EXQ-1055 was re-added blind this "
+                        f"way). For a NEW driver, prefix EXPERIMENT_TYPE with "
+                        f"{_name_id.group(0)!r}; do NOT rename one that has "
+                        f"already run -- that orphans its existing manifests."
+                    )
                 writes_manifest = (
                     "json.dump(" in source and "evidence/experiments" in source
                 )
@@ -1646,10 +1830,15 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
                     errors.append(f"{prefix}: script {script_val} {_seed_finding}")
 
         # Silent re-queue guard: queue_id must not already have a manifest in
-        # REE_assembly/evidence/experiments, unless force_rerun=true.
-        if isinstance(queue_id, str) and queue_id in completed_scan:
-            if item.get("force_rerun") is not True:
-                records = completed_scan[queue_id]
+        # REE_assembly/evidence/experiments, unless force_rerun=true. The
+        # manifests are resolved through the item's driver, not only by name
+        # (see _completion_records_for_item and the NAMING note above).
+        if isinstance(queue_id, str) and item.get("force_rerun") is not True:
+            records = _completion_records_for_item(
+                queue_id, script_val, item_source, completed_scan,
+                _manifest_stems, _experiments_dir, _misnamed_owners,
+            )
+            if records:
                 rec_strs = "; ".join(
                     f"{mfile} (result {result}, {cat})" for mfile, result, cat in records
                 )

@@ -55,6 +55,20 @@ Branches pinned:
   C7  the "resolved but zero matches despite a non-trivial candidate pool"
       tier-3 defence fires its own distinct warning (a parsing/regex drift
       degrading silently back to "empty means clean" a second way).
+  C8  NAMING, INVISIBLE (added 2026-09-23, chip-20260923-experiment-type-
+      naming-blind-spot): a driver whose EXPERIMENT_TYPE has no
+      "v3_exq_<n>_" prefix -- the V3-EXQ-1055 shape -- is resolved through
+      the queue item's `script`, so re-queuing its id is blocked. FAILS on the
+      pre-fix guard (measured: no error at all). C8b/C8c are the controls: a
+      letter suffix reusing its parent's misnamed driver is NOT blocked (FP4),
+      and force_rerun still wins.
+  C9  NAMING, WRONG-ID: a driver whose EXPERIMENT_TYPE carries ANOTHER id's
+      prefix -- the 059 -> "v3_exq_060_..." shape -- no longer blocks that
+      other id, and does block its own. FAILS on the pre-fix guard (measured:
+      it blocks the wrong id and misses the right one).
+  C10 the queue-time WARN for a new misnamed driver, plus its negative
+      control; and the parity pin between this file's regex and the
+      auditor's copy.
 
 THE BLIND-SPOT MEASUREMENT this module exists to report (see also the
 module-level comment in validate_queue.py's guard section): running C3/C4
@@ -255,6 +269,131 @@ def test_c7_resolved_but_zero_matches_warns_distinctly(tmp_path, monkeypatch):
     assert any("ZERO matched" in w for w in warnings), (
         f"expected the resolved-but-empty tier-3 warning, got: {warnings}"
     )
+
+
+# ---- C8-C10 -- NAMING: resolve the driver's EXPERIMENT_TYPE ----------------
+
+def _naming_fixture(tmp_path, monkeypatch, drivers, manifests):
+    """A self-contained queue dir + evidence dir. `drivers` maps a filename
+    under experiments/ to the EXPERIMENT_TYPE it assigns; `manifests` lists
+    the stems that have a timestamped flat manifest."""
+    exp = tmp_path / "experiments"
+    exp.mkdir()
+    for name, et in drivers.items():
+        (exp / name).write_text('"""fixture"""\nEXPERIMENT_TYPE = "%s"\n' % et)
+    ev = tmp_path / "evidence_experiments"
+    ev.mkdir()
+    for stem in manifests:
+        (ev / ("%s_20260101T000000Z_v3.json" % stem)).write_text("{}")
+    monkeypatch.setattr(
+        validate_queue, "_REE_ASSEMBLY_EVIDENCE_DIR_CANDIDATES", [ev])
+    monkeypatch.setattr(validate_queue, "_is_tracked", lambda *a, **k: True)
+
+
+def _burn_errors(tmp_path, items):
+    errors = validate_queue.validate(_write_queue(tmp_path, items))
+    return [e for e in errors if "completion manifest" in e]
+
+
+def test_c8_misnamed_driver_run_blocks_its_own_id(tmp_path, monkeypatch):
+    _naming_fixture(
+        tmp_path, monkeypatch,
+        drivers={"v3_exq_4242_probe.py": "zz_misnamed_probe"},
+        manifests=["zz_misnamed_probe"])
+    burns = _burn_errors(tmp_path, [_minimal_queue_item(
+        "V3-EXQ-4242", script="experiments/v3_exq_4242_probe.py")])
+    assert len(burns) == 1, (
+        "a run filed under the driver's EXPERIMENT_TYPE is this id's run; "
+        f"re-queuing it must block. got: {burns}")
+    assert "zz_misnamed_probe_20260101T000000Z_v3.json" in burns[0]
+
+
+def test_c8b_letter_suffix_reusing_parent_driver_is_not_blocked(
+    tmp_path, monkeypatch
+):
+    """FP4: 4242a reusing 4242's driver is a NEW run of a (perhaps rewired)
+    driver; the parent's past manifests are the parent's, not 4242a's."""
+    _naming_fixture(
+        tmp_path, monkeypatch,
+        drivers={"v3_exq_4242_probe.py": "zz_misnamed_probe"},
+        manifests=["zz_misnamed_probe"])
+    assert _burn_errors(tmp_path, [_minimal_queue_item(
+        "V3-EXQ-4242a", script="experiments/v3_exq_4242_probe.py")]) == []
+
+
+def test_c8c_force_rerun_still_wins(tmp_path, monkeypatch):
+    _naming_fixture(
+        tmp_path, monkeypatch,
+        drivers={"v3_exq_4242_probe.py": "zz_misnamed_probe"},
+        manifests=["zz_misnamed_probe"])
+    assert _burn_errors(tmp_path, [_minimal_queue_item(
+        "V3-EXQ-4242", script="experiments/v3_exq_4242_probe.py",
+        force_rerun=True)]) == []
+
+
+def test_c9_wrong_id_prefix_is_attributed_to_the_writing_driver(
+    tmp_path, monkeypatch
+):
+    """059 writes "v3_exq_060_..." (ree-v3 7fa84ce). Its runs are 059's."""
+    _naming_fixture(
+        tmp_path, monkeypatch,
+        drivers={"v3_exq_4240_gate.py": "v3_exq_4241_gate",
+                 "v3_exq_4241_other.py": "v3_exq_4241_other"},
+        manifests=["v3_exq_4241_gate"])
+    assert _burn_errors(tmp_path, [_minimal_queue_item(
+        "V3-EXQ-4241", script="experiments/v3_exq_4241_other.py")]) == [], (
+        "4241 never ran; the v3_exq_4241_gate manifest was written by the "
+        "4240 driver and must not be attributed to 4241")
+    burns = _burn_errors(tmp_path, [_minimal_queue_item(
+        "V3-EXQ-4240", script="experiments/v3_exq_4240_gate.py")])
+    assert len(burns) == 1 and "v3_exq_4241_gate_" in burns[0], (
+        f"4240's own run must block re-queuing 4240. got: {burns}")
+
+
+def test_c9b_unclaimed_stem_keeps_its_name_attribution(tmp_path, monkeypatch):
+    """A manifest whose driver is gone (no file writes that stem) keeps the
+    name-keyed attribution -- dropping it would forget old runs."""
+    _naming_fixture(tmp_path, monkeypatch, drivers={},
+                    manifests=["v3_exq_4243_deleted_driver"])
+    assert len(_burn_errors(tmp_path, [_minimal_queue_item("V3-EXQ-4243")])) == 1
+
+
+def test_c10_new_misnamed_driver_warns_at_queue_time(tmp_path, monkeypatch):
+    _naming_fixture(
+        tmp_path, monkeypatch,
+        drivers={"v3_exq_4244_probe.py": "zz_unprefixed",
+                 "v3_exq_4245_fine.py": "v3_exq_4245_fine"},
+        manifests=[])
+    validate_queue.validate(_write_queue(tmp_path, [
+        _minimal_queue_item("V3-EXQ-4244",
+                            script="experiments/v3_exq_4244_probe.py"),
+        _minimal_queue_item("V3-EXQ-4245",
+                            script="experiments/v3_exq_4245_fine.py"),
+    ]))
+    naming = [w for w in validate_queue._LAST_WARNINGS
+              if "does not start with its filename" in w]
+    assert len(naming) == 1 and "V3-EXQ-4244" in naming[0], naming
+
+
+def test_c10b_experiment_type_regex_matches_the_auditor_copy():
+    """The two copies are duplicated on purpose (this file must not import
+    from ree-v3/scripts at commit time), so they are pinned equal instead."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "audit_burned_queue_entries",
+        REPO_ROOT / "scripts" / "audit_burned_queue_entries.py")
+    auditor = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(auditor)
+    assert validate_queue._EXPERIMENT_TYPE_RE.pattern == \
+        auditor.EXPERIMENT_TYPE_RE.pattern
+    assert validate_queue._EXPERIMENT_TYPE_RE.flags == \
+        auditor.EXPERIMENT_TYPE_RE.flags
+    driver = (REPO_ROOT / "experiments"
+              / "v3_exq_1055_sd098_ghost_goal_readtime_rerank.py")
+    if driver.is_file():
+        assert validate_queue._experiment_type_of(driver.read_text()) == \
+            "sd098_ghost_goal_readtime_rerank"
 
 
 if __name__ == "__main__":
