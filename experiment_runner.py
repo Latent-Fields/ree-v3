@@ -3953,52 +3953,174 @@ def should_skip_as_completed(item: dict, completed_ids: set) -> bool:
     return queue_id in completed_ids
 
 
-def merge_peer_status(status_path: Path) -> set:
-    """Merge all per-machine runner_status files into the monolithic runner_status.json.
+class PeerStatusResult:
+    """Structural result of a cross-machine completed-queue-id scan.
 
-    Reads every *.json file in the runner_status/ directory (one per machine),
-    deduplicates by queue_id (preferring non-ERROR over ERROR for the same ID),
-    and writes the combined completed list to the monolithic runner_status.json.
+    Kept as an explicit type (not a bare set) so "the cross-machine source
+    could not be read this pass" is a value that survives refactoring and
+    reaches any JSON/telemetry the runner emits -- a print statement does
+    not (see the module comment above merge_peer_status for the incident
+    this repairs; CLAUDE.md "General Rules" -- negative instruments).
 
-    Returns the set of all queue_ids present across all machines, so the caller
-    can absorb them into completed_ids and prevent re-running peer experiments.
+    queue_ids : every queue_id visible from whichever source(s) resolved.
+    available : True only when the LIVE cross-machine source (the evidence-
+        manifest scan) itself resolved. False does NOT mean queue_ids is
+        empty by coincidence -- it means this pass could not establish a
+        real cross-machine denominator, so an empty queue_ids here must
+        never be read as "confirmed no peer has completed anything".
+    source    : which source(s) supplied queue_ids, for telemetry/audit --
+        "evidence_manifest", "peer_status_dir", "both", or "none".
+    """
 
-    Never raises -- logs warnings and returns empty set on any error.
+    __slots__ = ("queue_ids", "available", "source")
+
+    def __init__(self, queue_ids: set, available: bool, source: str):
+        self.queue_ids = queue_ids
+        self.available = available
+        self.source = source
+
+    def __repr__(self) -> str:  # pragma: no cover -- debug convenience only
+        return (f"PeerStatusResult(queue_ids={len(self.queue_ids)}, "
+                f"available={self.available}, source={self.source!r})")
+
+
+def merge_peer_status(status_path: Path) -> "PeerStatusResult":
+    """Merge cross-machine completed-queue-id sources; report what was found.
+
+    TWO distinct sources feed the returned queue_ids, and they are NOT
+    equally trustworthy:
+
+    1. Per-machine runner_status/*.json files under status_path.parent --
+       the ORIGINAL cross-machine channel (one file per machine, synced via
+       git). Retired 2026-09-06 (REE_assembly 6320b7f3fad, "retire the
+       frozen telemetry dirs"; CLAUDE.md A-93): sync_daemon no longer
+       materialises any OTHER machine's file into this directory. The
+       directory itself still exists locally (find_default_status_path()
+       recreates it every runner startup, since its parent evidence/
+       experiments/ is always present) and this machine still writes its
+       OWN file here -- so `status_dir.is_dir()` stays True and the glob
+       below silently degenerates into "this machine's own history" (which
+       completed_ids already has via existing_completed) rather than ever
+       raising or returning empty for an obviously-missing reason. That is
+       exactly the shape that let this guard's cross-machine half go inert
+       undetected: a live-looking, non-empty directory that no longer
+       carries the information the function's own docstring promises
+       ("prevent re-running peer experiments"). Kept only for the legacy
+       monolithic-file write below (serve.py's read_merged_runner_status
+       fallback); never trusted alone as evidence that no peer has
+       completed this id.
+
+    2. REE_assembly/evidence/experiments manifest filenames -- the LIVE
+       cross-machine source. Reused from validate_queue.py's
+       `_scan_completed_queue_ids()` / `_completed_queue_ids_available()`
+       (ree-v3 08f981336b, chip-20260922-validate-queue-burned-id-guard-
+       inert) rather than reimplemented: both files live in this same
+       ree-v3/ checkout, and experiment_runner.py already imports
+       validate_queue.validate elsewhere (see the two `from validate_queue
+       import validate` call sites), so this is in-repo reuse, not the
+       cross-repo coupling that sibling fix deliberately avoided by keeping
+       its regex a local copy.
+
+    FAIL-OPEN BY DESIGN, WITH A RECORDED TRACE -- this call sits in the
+    runner's dispatch path (called every pass, including between every
+    experiment), not a per-commit hook. A hard refusal to dispatch whenever
+    source 2 is momentarily unreadable (evidence dir not yet mounted on a
+    fresh cloud worker, a transient NFS/rsync hiccup, mid-write) would turn
+    a soft degradation into a fleet-wide dispatch halt -- worse than the
+    rare missed duplicate this guard exists to catch, and exactly the kind
+    of wedge CLAUDE.md's stale-claim section warns against ("absence of
+    telemetry is not abandonment"; the analogous move here would be
+    "absence of the dedup source is not proof of no duplicates" being
+    mishandled as a fleet-wide stop rather than a recorded caveat). So this
+    function never blocks: it always returns whatever queue_ids the
+    available source(s) produced. What it adds beyond the pre-fix behaviour
+    is `available`/`source` on the return value -- callers persist those
+    into the per-machine `status` dict, which write_status() serialises to
+    disk and coordinator_client.report_status() forwards to the coordinator
+    every status write. That makes a degraded pass ATTRIBUTABLE after the
+    fact (which machine, which pass, whether the denominator it dispatched
+    against was real) instead of silently indistinguishable from a clean
+    one -- the middle path between blind fail-open and a fleet-wedging
+    fail-closed.
+
+    Never raises -- logs warnings and degrades source-by-source on error.
     """
     status_dir = status_path.parent          # .../runner_status/
     monolithic = status_dir.parent / "runner_status.json"  # .../evidence/experiments/runner_status.json
 
-    if not status_dir.is_dir():
-        return set()
-
     all_completed: list = []
     seen_ids: set = set()
+    peer_dir_had_entries = False
 
-    for f in sorted(status_dir.glob("*.json")):
-        try:
-            data = json.loads(f.read_text())
-        except Exception as e:
-            print(f"[runner] status sync: could not read {f.name}: {e}", flush=True)
-            continue
-        for entry in data.get("completed", []):
-            qid = entry.get("queue_id", "")
-            if not qid:
+    if status_dir.is_dir():
+        for f in sorted(status_dir.glob("*.json")):
+            try:
+                data = json.loads(f.read_text())
+            except Exception as e:
+                print(f"[runner] status sync: could not read {f.name}: {e}", flush=True)
                 continue
-            if qid not in seen_ids:
-                seen_ids.add(qid)
-                all_completed.append(entry)
-            elif entry.get("result") != "ERROR":
-                # Prefer non-ERROR over ERROR for the same experiment
-                for i, x in enumerate(all_completed):
-                    if x.get("queue_id") == qid and x.get("result") == "ERROR":
-                        all_completed[i] = entry
-                        break
+            for entry in data.get("completed", []):
+                qid = entry.get("queue_id", "")
+                if not qid:
+                    continue
+                peer_dir_had_entries = True
+                if qid not in seen_ids:
+                    seen_ids.add(qid)
+                    all_completed.append(entry)
+                elif entry.get("result") != "ERROR":
+                    # Prefer non-ERROR over ERROR for the same experiment
+                    for i, x in enumerate(all_completed):
+                        if x.get("queue_id") == qid and x.get("result") == "ERROR":
+                            all_completed[i] = entry
+                            break
+
+    # Source 2 (live): the evidence-manifest scan. Imported locally, same
+    # convention as the two existing `from validate_queue import validate`
+    # call sites in this file -- validate_queue.py always ships alongside
+    # experiment_runner.py in this checkout, so there is no load-order or
+    # cross-repo risk in importing it here.
+    evidence_available = False
+    evidence_ids: set = set()
+    try:
+        from validate_queue import (
+            _completed_queue_ids_available as _vq_available,
+            _scan_completed_queue_ids as _vq_scan,
+        )
+        evidence_available = bool(_vq_available())
+        if evidence_available:
+            evidence_ids = set(_vq_scan().keys())
+    except Exception as e:
+        print(f"[runner] status sync: evidence-manifest scan failed: {e}", flush=True)
+
+    seen_ids |= evidence_ids
+
+    if evidence_available and peer_dir_had_entries:
+        source = "both"
+    elif evidence_available:
+        source = "evidence_manifest"
+    elif peer_dir_had_entries:
+        source = "peer_status_dir"
+    else:
+        source = "none"
+
+    if not evidence_available:
+        print(
+            "[runner] peer-status guard: COULD NOT DETERMINE cross-machine "
+            "completed queue ids this pass (evidence-manifest source "
+            "unavailable). This is NOT the same as \"no peer has completed "
+            "anything\" -- a duplicate dispatched during this pass is not "
+            "guaranteed to be caught. Recorded on the status file as "
+            "peer_dedup_available=false for later audit.",
+            flush=True,
+        )
+
+    result = PeerStatusResult(seen_ids, evidence_available, source)
 
     if not all_completed:
-        return seen_ids
+        return result
 
     if _phase3_hub_local_ree_assembly_writes_gated():
-        return seen_ids
+        return result
 
     try:
         existing = json.loads(monolithic.read_text()) if monolithic.exists() else {}
@@ -4016,12 +4138,12 @@ def merge_peer_status(status_path: Path) -> set:
 
     new_count = len(all_completed)
     if new_count != old_count:
-        n_files = len(list(status_dir.glob("*.json")))
+        n_files = len(list(status_dir.glob("*.json"))) if status_dir.is_dir() else 0
         print(f"[runner] status sync: {new_count} completed entries merged from "
               f"{n_files} machine file(s) -> runner_status.json "
               f"({new_count - old_count:+d})", flush=True)
 
-    return seen_ids
+    return result
 
 
 def load_queue() -> dict:
@@ -5034,7 +5156,12 @@ def main():
 
     # Merge all per-machine status files into monolithic runner_status.json (always,
     # not just in auto-sync mode) so the explorer has an up-to-date combined view.
-    _peer_ids = merge_peer_status(status_path)
+    # Also captures whether the LIVE cross-machine dedup source resolved this
+    # pass (PeerStatusResult.available) -- recorded into `status` once it
+    # exists below, so a degraded pass is attributable in the status JSON /
+    # coordinator telemetry rather than silently indistinguishable from clean.
+    _peer_status = merge_peer_status(status_path)
+    _peer_ids = _peer_status.queue_ids
 
     PID_FILE.write_text(str(os.getpid()))
 
@@ -5210,6 +5337,8 @@ def main():
 
     status = build_initial_status(queue_data, script_timing)
     status["completed"] = existing_completed
+    status["peer_dedup_available"] = _peer_status.available
+    status["peer_dedup_source"] = _peer_status.source
     write_status(status, status_path)
 
     if args.dry_run:
@@ -6008,7 +6137,14 @@ def main():
 
         # Re-merge peer status after pull so monolithic file stays current and
         # completed_ids absorbs anything another machine finished since last pass.
-        completed_ids |= merge_peer_status(status_path)
+        # Record availability into `status` each pass too (see the startup call
+        # site and PeerStatusResult's docstring) -- a pass that dispatches while
+        # degraded must be attributable in the status JSON / coordinator
+        # telemetry, not just the print above.
+        _peer_status = merge_peer_status(status_path)
+        completed_ids |= _peer_status.queue_ids
+        status["peer_dedup_available"] = _peer_status.available
+        status["peer_dedup_source"] = _peer_status.source
 
         queue_data = load_queue()
         calibration = queue_data.get("calibration", {})
