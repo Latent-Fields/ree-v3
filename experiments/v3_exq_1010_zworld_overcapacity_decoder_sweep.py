@@ -391,6 +391,32 @@ verified against the source before acting; six APPLIED, two DISCLOSED.
      a diverged top rung would report `non_degenerate: False` for a verdict that came cleanly
      off another rung. FIX: those criteria are now owned by the CONSUMER rung.
 
+=== POST-RUN AMENDMENT: DIVERGED RUNGS ARE EXCLUDED FROM THE MAX (GFLAG-0286, 2026-09-23) ===
+
+The verdict statistic is a MAX over rungs, and the first version took that max over EVERY row,
+with no filter on the per-rung `diverged` flag -- so a rung whose fit never beat uniform logits
+could still win the max and, near AGREEMENT_BAR, carry a seed over it: a FALSE CLEAR, i.e. a
+false H-F-eliminated. SD-106's design doc names this script as its acceptance re-measurement, so
+that false clear would have read as an SD-106 success. Now:
+  * every max over rungs in this driver (verdict, Guard 2's train agreement, the anchor's best,
+    the untrained negative control) skips rows whose `decoder_training.diverged` is True
+    (`_best_over_rungs(..., exclude_diverged=True)`); diverged rows are still recorded;
+  * a seed where EVERY OFF rung diverged has no verdict statistic at all. It is reported as
+    `off_best_status: "cannot_determine_all_rungs_diverged"` and routes the run to
+    `substrate_not_ready_requeue` (criterion `C_off_some_rung_fitted_every_seed`) -- it is NEVER
+    counted as a non-clearing seed, which would have pushed the grid toward H-F-confirmed.
+Changes nothing already recorded: the 2026-09-09 run, V3-EXQ-1023 and V3-EXQ-1023a had zero
+diverged rows. The helper's DEFAULT stays unfiltered (`exclude_diverged=False`) because
+V3-EXQ-1023 imports it and V3-EXQ-1023a's docstring records it as unfiltered; only this driver
+opts in.
+red-team (fable, amendment only): CLEAR. Two notes, both APPLIED: the all-diverged check now
+runs BEFORE `verdict_ready` (an all-diverged ladder also fails the consumer rung's reproduction
+band, which would otherwise shadow this more specific reason), and the criterion is named
+`C_off_some_rung_fitted_every_seed` (it passes with ONE fitted rung, not a fitted ladder).
+One lead DISMISSED: a NaN-loss rung is not flagged diverged (`nan >= ce` is False), but it
+cannot produce a false clear -- a clear also needs AGREEMENT_ELEVATION_MIN over the trivial
+predictor, which a constant-output rung cannot reach.
+
 Additionally, `validate_experiments.py` caught a false-cache-HIT hazard the red-team did not:
 GRAD_CLIP_NORM and SATURATION_FRACTION are readout-affecting constants that were absent from the
 declared `config_slice` of a cross-driver-reusable fingerprint. Both are now declared.
@@ -1175,15 +1201,30 @@ def run_cell(arm_id: str, seed: int, data: Dict[str, Any], feats: Dict[str, Any]
 # --------------------------------------------------------------------------------------
 # ADJUDICATION
 # --------------------------------------------------------------------------------------
+def _row_diverged(r: Dict[str, Any]) -> bool:
+    """True only when the rung's decoder fit is recorded as diverged (final CE at or above the
+    uniform-logit value). A missing flag is NOT treated as diverged."""
+    return bool((r.get("decoder_training") or {}).get("diverged") is True)
+
+
 def _best_over_rungs(rows: List[Dict[str, Any]], track: str, seed: int,
-                     key: str = "oracle_action_agreement") -> Tuple[Optional[float],
-                                                                    Optional[str]]:
+                     key: str = "oracle_action_agreement",
+                     exclude_diverged: bool = False) -> Tuple[Optional[float],
+                                                              Optional[str]]:
     """The verdict statistic: the MAXIMUM over capacity rungs, with the rung that produced it.
     A max, not the largest rung -- an over-parameterised decoder may overfit and fall, and 'at
-    any capacity' is a claim about the best the ladder achieves."""
+    any capacity' is a claim about the best the ladder achieves.
+
+    `exclude_diverged=True` (GFLAG-0286) skips rungs whose fit diverged: their readout is an
+    optimiser artifact, not a capacity measurement, so it must not be able to WIN the max. This
+    driver always passes True. The default stays False because V3-EXQ-1023 imports this helper
+    and V3-EXQ-1023a documents it as unfiltered. When every rung at the track/seed diverged the
+    result is (None, None) -- call `_rung_fit_census` to tell that apart from "no rows"."""
     best, best_rung = None, None
     for r in rows:
         if r.get("track") != track or int(r.get("seed", -1)) != int(seed):
+            continue
+        if exclude_diverged and _row_diverged(r):
             continue
         v = r.get(key)
         if v is None:
@@ -1191,6 +1232,25 @@ def _best_over_rungs(rows: List[Dict[str, Any]], track: str, seed: int,
         if best is None or float(v) > best:
             best, best_rung = float(v), r.get("capacity_rung")
     return best, best_rung
+
+
+def _rung_fit_census(rows: List[Dict[str, Any]], track: str, seed: int) -> Dict[str, Any]:
+    """How many rungs at this track/seed FITTED vs DIVERGED, so an empty max is never silent.
+
+    `status` is "ok" (>= 1 fitted rung), "cannot_determine_all_rungs_diverged" (every rung
+    diverged -- no verdict statistic exists), or "no_rows" (the track did not run)."""
+    mine = [r for r in rows
+            if r.get("track") == track and int(r.get("seed", -1)) == int(seed)]
+    div = sorted(str(r.get("capacity_rung")) for r in mine if _row_diverged(r))
+    n_fitted = len(mine) - len(div)
+    if not mine:
+        status = "no_rows"
+    elif n_fitted == 0:
+        status = "cannot_determine_all_rungs_diverged"
+    else:
+        status = "ok"
+    return {"n_rungs": len(mine), "n_fitted": n_fitted, "n_diverged": len(div),
+            "diverged_rungs": div, "status": status}
 
 
 def _cell(rows: List[Dict[str, Any]], arm_id: str, seed: int) -> Optional[Dict[str, Any]]:
@@ -1202,7 +1262,7 @@ def _cell(rows: List[Dict[str, Any]], arm_id: str, seed: int) -> Optional[Dict[s
 
 def _adjudicate(gate_green: bool, seeds_sufficient: bool, verdict_ready: bool,
                 anchor_sound: bool, can_memorise: bool, n_seeds_clearing: int,
-                majority: int) -> Tuple[str, str]:
+                majority: int, *, off_ladder_fitted: bool) -> Tuple[str, str]:
     """The pre-registered verdict grid. Every branch is informative; see the docstring's null
     table. Order matters: seed sufficiency, then the instrument gate, then the readiness of the
     arms the verdict is actually read off, then the two guards -- ALL of them before the content
@@ -1213,6 +1273,13 @@ def _adjudicate(gate_green: bool, seeds_sufficient: bool, verdict_ready: bool,
     if not gate_green:
         return ("substrate_not_ready_requeue",
                 "instrument gate not green; no capacity reading is interpretable")
+    # Checked BEFORE verdict_ready: an all-diverged OFF ladder also fails the consumer
+    # rung's reproduction band, and the more specific cause must be the one reported.
+    if not off_ladder_fitted:
+        return ("substrate_not_ready_requeue",
+                "every OFF-track rung DIVERGED on at least one seed, so that seed has no verdict "
+                "statistic (diverged rungs are excluded from the max, GFLAG-0286). It is NOT a "
+                "non-clearing seed and must not count toward H-F-confirmed. NOT a content finding")
     if not verdict_ready:
         return ("substrate_not_ready_requeue",
                 "the arms the verdict is read off are not all green -- an encoder-health "
@@ -1275,7 +1342,8 @@ _SELF_TEST_ROWS = [
 def _run_self_test() -> int:
     fails = 0
     for gate, sok, vready, anchor, mem, nclear, maj, expect in _SELF_TEST_ROWS:
-        label, _why = _adjudicate(gate, sok, vready, anchor, mem, nclear, maj)
+        label, _why = _adjudicate(gate, sok, vready, anchor, mem, nclear, maj,
+                                  off_ladder_fitted=True)
         ok = (label == expect)
         fails += (0 if ok else 1)
         print("  [self-test] %s gate=%s seeds=%s vready=%s anchor=%s mem=%s nclear=%d -> %s "
@@ -1288,17 +1356,52 @@ def _run_self_test() -> int:
         for anchor in (True, False):
             for mem in (True, False):
                 for nclear in range(0, 4):
-                    label, _ = _adjudicate(True, True, vready, anchor, mem, nclear, 2)
+                    label, _ = _adjudicate(True, True, vready, anchor, mem, nclear, 2,
+                                           off_ladder_fitted=True)
                     if (not vready or not anchor or not mem) and label.startswith("H-F-"):
                         print("  [self-test] FAIL guard-bypass: vready=%s anchor=%s mem=%s "
                               "nclear=%d -> %s" % (vready, anchor, mem, nclear, label),
                               flush=True)
                         fails += 1
     # (2) The content verdict is monotone in the clearing count.
-    labels = [_adjudicate(True, True, True, True, True, n, 2)[0] for n in range(0, 4)]
+    labels = [_adjudicate(True, True, True, True, True, n, 2, off_ladder_fitted=True)[0]
+              for n in range(0, 4)]
     if labels != ["H-F-confirmed", "H-F-confirmed", "H-F-eliminated", "H-F-eliminated"]:
         print("  [self-test] FAIL monotonicity: %s" % labels, flush=True)
         fails += 1
+    # (2b) GFLAG-0286: an all-diverged OFF ladder on any seed NEVER yields a content verdict,
+    #      at any clearing count, even with every other gate and guard green.
+    for nclear in range(0, 4):
+        label, _ = _adjudicate(True, True, True, True, True, nclear, 2, off_ladder_fitted=False)
+        if label != "substrate_not_ready_requeue":
+            print("  [self-test] FAIL all-diverged ladder bypass: nclear=%d -> %s"
+                  % (nclear, label), flush=True)
+            fails += 1
+    # (2c) GFLAG-0286: a diverged rung cannot WIN the max; all-diverged is reported, not max'd.
+    _dt = lambda d: {"diverged": d}  # noqa: E731
+    _rows = [
+        {"track": TRACK_OFF, "seed": 1, "capacity_rung": "mlp128",
+         "oracle_action_agreement": 0.70, "decoder_training": _dt(False)},
+        {"track": TRACK_OFF, "seed": 1, "capacity_rung": "deep2048x4",
+         "oracle_action_agreement": 0.90, "decoder_training": _dt(True)},
+        {"track": TRACK_OFF, "seed": 2, "capacity_rung": "mlp128",
+         "oracle_action_agreement": 0.90, "decoder_training": _dt(True)},
+    ]
+    _got = [_best_over_rungs(_rows, TRACK_OFF, 1, exclude_diverged=True),
+            _best_over_rungs(_rows, TRACK_OFF, 1),
+            _best_over_rungs(_rows, TRACK_OFF, 2, exclude_diverged=True),
+            _rung_fit_census(_rows, TRACK_OFF, 2)["status"],
+            _rung_fit_census(_rows, TRACK_OFF, 1)["status"],
+            _rung_fit_census(_rows, TRACK_OFF, 3)["status"]]
+    _want = [(0.70, "mlp128"), (0.90, "deep2048x4"), (None, None),
+             "cannot_determine_all_rungs_diverged", "ok", "no_rows"]
+    if _got != _want:
+        print("  [self-test] FAIL diverged-rung exclusion: got %s want %s" % (_got, _want),
+              flush=True)
+        fails += 1
+    else:
+        print("  [self-test] ok  diverged rung excluded from the max; all-diverged -> "
+              "cannot_determine", flush=True)
     # (3) Every ladder rung is constructible at both a plausible input width and both head
     #     widths, and the consumer rung really is x734's class at its own hidden width.
     for rung in RUNG_IDS:
@@ -1473,8 +1576,16 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
     # ---- the verdict statistic + the two guards ----------------------------------------
     per_seed_verdict: List[Dict[str, Any]] = []
     for s in seeds:
-        off_best, off_best_rung = _best_over_rungs(other_rows, TRACK_OFF, s)
-        pca_best, pca_best_rung = _best_over_rungs(other_rows, TRACK_PCA, s)
+        off_best, off_best_rung = _best_over_rungs(other_rows, TRACK_OFF, s,
+                                                   exclude_diverged=True)
+        pca_best, pca_best_rung = _best_over_rungs(other_rows, TRACK_PCA, s,
+                                                   exclude_diverged=True)
+        unt_best, unt_best_rung = _best_over_rungs(other_rows, TRACK_UNT, s,
+                                                   exclude_diverged=True)
+        off_train_best, off_train_best_rung = _best_over_rungs(
+            other_rows, TRACK_OFF, s, key="oracle_action_agreement_train",
+            exclude_diverged=True)
+        off_census = _rung_fit_census(other_rows, TRACK_OFF, s)
         off_c = _cell(other_rows, _arm_id(TRACK_OFF, CONSUMER_RUNG), s)
         pca_c = _cell(other_rows, _arm_id(TRACK_PCA, CONSUMER_RUNG), s)
         off_max = _cell(other_rows, _arm_id(TRACK_OFF, MAX_CAPACITY_RUNG), s)
@@ -1501,6 +1612,13 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
             "seed": int(s),
             "off_best_agreement": off_best,
             "off_best_rung": off_best_rung,
+            # GFLAG-0286: the max above excludes diverged rungs. "ok" = at least one OFF rung
+            # fitted; "cannot_determine_all_rungs_diverged" = none did, so there is NO verdict
+            # statistic for this seed (the run routes to substrate_not_ready_requeue).
+            "off_best_status": off_census["status"],
+            "off_rung_fit_census": off_census,
+            "anchor_rung_fit_census": _rung_fit_census(other_rows, TRACK_PCA, s),
+            "untrained_rung_fit_census": _rung_fit_census(other_rows, TRACK_UNT, s),
             "off_best_elevation": off_elev,
             "off_clears_bar_and_elevation": clears,
             "off_consumer_rung_agreement": (off_c or {}).get("oracle_action_agreement"),
@@ -1508,10 +1626,8 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
                 (off_max or {}).get("oracle_action_agreement_train")),
             # GUARD 2's statistic: the best TRAIN agreement the ladder reaches on this seed,
             # over ALL rungs -- see the precondition's description for why not the top rung.
-            "off_best_train_agreement": _best_over_rungs(
-                other_rows, TRACK_OFF, s, key="oracle_action_agreement_train")[0],
-            "off_best_train_rung": _best_over_rungs(
-                other_rows, TRACK_OFF, s, key="oracle_action_agreement_train")[1],
+            "off_best_train_agreement": off_train_best,
+            "off_best_train_rung": off_train_best_rung,
             "off_train_agreement_by_rung": {
                 str(r.get("capacity_rung")): r.get("oracle_action_agreement_train")
                 for r in other_rows
@@ -1548,17 +1664,15 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
             # untrained latent at 0.699/0.681/0.704 against the trained OFF latent's
             # 0.672/0.674/0.661 -- ABOVE it on every seed -- so "OFF clears at high capacity"
             # would otherwise be indistinguishable from "any 250->32 bottleneck does".
-            "untrained_best_agreement": _best_over_rungs(other_rows, TRACK_UNT, s)[0],
-            "untrained_best_rung": _best_over_rungs(other_rows, TRACK_UNT, s)[1],
+            "untrained_best_agreement": unt_best,
+            "untrained_best_rung": unt_best_rung,
             "untrained_agreement_by_rung": {
                 str(r.get("capacity_rung")): r.get("oracle_action_agreement")
                 for r in other_rows
                 if r.get("track") == TRACK_UNT and int(r.get("seed", -1)) == int(s)},
             "off_minus_untrained_best": (
-                (float(_best_over_rungs(other_rows, TRACK_OFF, s)[0])
-                 - float(_best_over_rungs(other_rows, TRACK_UNT, s)[0]))
-                if (_best_over_rungs(other_rows, TRACK_OFF, s)[0] is not None
-                    and _best_over_rungs(other_rows, TRACK_UNT, s)[0] is not None) else None),
+                (float(off_best) - float(unt_best))
+                if (off_best is not None and unt_best is not None) else None),
             "sample_saturation": next(
                 (r.get("sample_saturation_witness") for r in other_rows
                  if r.get("track") == TRACK_OFF and int(r.get("seed", -1)) == int(s)
@@ -1566,6 +1680,11 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
         })
 
     n_seeds_clearing = sum(1 for v in per_seed_verdict if v["off_clears_bar_and_elevation"])
+    # GFLAG-0286: a seed whose every OFF rung diverged has no verdict statistic. It must block
+    # the content verdict, never quietly count as a non-clearing seed.
+    off_all_diverged_seeds = [int(v["seed"]) for v in per_seed_verdict
+                              if v["off_best_status"] == "cannot_determine_all_rungs_diverged"]
+    off_ladder_fitted = not off_all_diverged_seeds
 
     # WORST CELL, not the mean -- `met` is a worst-case claim and the indexer recomputes it.
     # `cell_id` is supplied so the offending seed is NAMED rather than reported as null.
@@ -1645,13 +1764,20 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
     verdict_red_arms = [a for a in verdict_arms if a not in green]
 
     label, why = _adjudicate(gate_green, seeds_sufficient, verdict_ready, anchor_sound,
-                             can_memorise, n_seeds_clearing, majority)
+                             can_memorise, n_seeds_clearing, majority,
+                             off_ladder_fitted=off_ladder_fitted)
     outcome = "PASS" if (gate_green and seeds_sufficient and verdict_ready and anchor_sound
-                         and can_memorise and label.startswith("H-F-")) else "FAIL"
+                         and can_memorise and off_ladder_fitted
+                         and label.startswith("H-F-")) else "FAIL"
 
     criteria = [
         {"name": "C_instrument_gate_green", "load_bearing": False, "passed": bool(gate_green)},
         {"name": "C_verdict_arms_ready", "load_bearing": True, "passed": bool(verdict_ready)},
+        {"name": "C_off_some_rung_fitted_every_seed", "load_bearing": True,
+         "passed": bool(off_ladder_fitted),
+         "measured": int(len(off_all_diverged_seeds)), "threshold": 0,
+         "comparator": "<=",
+         "note": "seeds whose EVERY OFF rung diverged (no verdict statistic); GFLAG-0286"},
         {"name": "C_guard1_anchor_protocol_sound", "load_bearing": True,
          "passed": bool(anchor_sound)},
         {"name": "C_guard2_overcapacity_memorises", "load_bearing": True,
@@ -1670,6 +1796,7 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
             ARM_RAW: ["C_instrument_gate_green"],
             _arm_id(TRACK_PCA, CONSUMER_RUNG): ["C_guard1_anchor_protocol_sound"],
             _arm_id(TRACK_OFF, CONSUMER_RUNG): ["C_verdict_arms_ready",
+                                                "C_off_some_rung_fitted_every_seed",
                                                 "C_guard2_overcapacity_memorises",
                                                 "C_hf_adjudicated",
                                                 "C_off_clears_at_some_capacity"],
@@ -1684,7 +1811,8 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
         "hypothesis_leg": HYPOTHESIS_LEG,
         "hypothesis_verdict": (label if label.startswith("H-F-") else "no_verdict"),
         "combination_rule": ("outcome PASS iff the instrument gate is green AND both guards "
-                             "hold AND the H-F leg reaches a verdict. The SCIENCE is in "
+                             "hold AND every seed has at least one fitted (non-diverged) OFF "
+                             "rung AND the H-F leg reaches a verdict. The SCIENCE is in "
                              "hypothesis_verdict, not in PASS/FAIL: both H-F-confirmed and "
                              "H-F-eliminated are PASS, and each routes a different build."),
         "preconditions": list(per_arm_gate.get("adjudication_preconditions") or [])
@@ -1693,7 +1821,10 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
         "seeds_sufficient": bool(seeds_sufficient),
         "n_seeds_clearing_at_some_capacity": int(n_seeds_clearing),
         "seed_majority": majority,
-        "verdict_statistic": "best_agreement_over_capacity (max over rungs, per track per seed)",
+        "verdict_statistic": ("best_agreement_over_capacity (max over NON-DIVERGED rungs, per "
+                              "track per seed; GFLAG-0286)"),
+        "off_some_rung_fitted_every_seed": bool(off_ladder_fitted),
+        "off_all_rungs_diverged_seeds": list(off_all_diverged_seeds),
     }
 
     # NOTE: run_id / timestamp_utc / architecture_epoch / queue_id are stamped in __main__ and
@@ -1744,6 +1875,10 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
             "diverged_rungs": sorted({
                 "%s/%s" % (r.get("track"), r.get("capacity_rung")) for r in other_rows
                 if (r.get("decoder_training") or {}).get("diverged")}),
+            # GFLAG-0286: diverged rungs are EXCLUDED from every max over rungs (they are still
+            # recorded above); a seed with no fitted OFF rung blocks the verdict.
+            "diverged_rungs_excluded_from_max": True,
+            "off_all_rungs_diverged_seeds": list(off_all_diverged_seeds),
             "collapsed_witness_rungs": sorted({
                 "%s/%s" % (r.get("track"), r.get("capacity_rung")) for r in other_rows
                 if r.get("nonlinear_decode_collapsed")}),
@@ -1756,8 +1891,8 @@ def run_experiment(seeds: List[int], dry_run: bool = False) -> Dict[str, Any]:
             "overcapacity_best_train_agreement_worst_cell": mem_worst_seed,
             "memorise_floor": float(MEMORISE_FLOOR),
             "can_memorise": bool(can_memorise),
-            "memorise_statistic": ("max over capacity rungs of the OFF track's TRAIN-split "
-                                   "agreement, then the worst seed of that"),
+            "memorise_statistic": ("max over NON-DIVERGED capacity rungs of the OFF track's "
+                                   "TRAIN-split agreement, then the worst seed of that"),
             "off_consumer_rung_min_seed": repro_worst,
             "off_consumer_rung_min_cell": repro_worst_seed,
             "off_consumer_rung_max_seed": repro_high,
