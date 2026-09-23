@@ -65,6 +65,21 @@
       "episodes_per_run": 100,
       "experiment_type": "v3_exq_1012c_e3_commensurability_eligibility_stage_validation",
       "seeds": 4
+    },
+    {
+      "queue_id": "V3-EXQ-1080",
+      "title": "Contamination-footgun prevalence probe: 4 exposed runs x STOCK/OPTOUT with termination telemetry (GFLAG-0304 option B)",
+      "experiment_type": "v3_exq_1080_contamination_truncation_prevalence_probe",
+      "script": "experiments/v3_exq_1080_contamination_truncation_prevalence_probe.py",
+      "claim_ids": [],
+      "priority": 20,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 180,
+      "episodes_per_run": 100,
+      "seeds": 1,
+      "conditions": 8,
+      "note": "Diagnostic, claim-free (claim_ids []; audited_claim_ids = the 13 GFLAG-0304 indexer-scored claims). User-ruled GFLAG-0304 option B (2026-09-23), chip chip-20260923-contamination-prevalence-probe. Re-runs the OWN grid loops of V3-EXQ-669c (MECH-329/MECH-189), 939a (MECH-303), 904 (ARC-070), 888 (MECH-074/074a/074b) at original full scale, twice each: ARM_STOCK as written vs ARM_OPTOUT with hazard_free_contamination_gate=True forced via a class-level CausalGridWorld wrap (binds only num_hazards==0 envs); arms paired by each target's own arm_cell RNG reset. Pre-registered: materially truncated if >=10% of STOCK DV-window units die (break-on-done: hazard-free episode; 939a: P1/P2 walk, warmup reported separately); verdict-sensitive if outcome/direction/per-claim/label differs between arms; both-arms-degenerate target -> cannot_determine. Route on n_sensitive: 0 -> no re-runs owed (label distinguishes truncation present), 1 -> that target's direct claims, >=2 -> all 13. Family claims (MECH-074d, SD-077, SD-079) never cleared; MECH-106/INV-054/MECH-427 not covered. Fidelity caveat: current substrate; historical non-reproduction listed separately for /governance. GOV-REUSE-1: checked the 4 original manifests (888 20260804T075257Z, 669c 20260722T214724Z, 904 20260808T201150Z, 939a 20260821T235047Z) for done_cause/episode_termination/agent_health -- absent in all, readout not recoverable -> run. 2.5c: SD-PP-B5 (corrupting, paths incl. causal_grid_world.py) overlaps module-level only; its severity_rationale scopes the blast radius to use_world_interventional=True, set by none of the 4 targets (grep 0/0/0/0) -> not binding. 2.5d claim-free trace: EVENT done_cause (env-emitted SD-094), DV dv_death_frac + target verdict, INSTRUMENT class wrap; positive control (random walker, 669c nursery) 20/20 die stock, 0/20 gated -> both rails reachable. Smoke: 3 dry runs, final PASS (weakref episode-loss bug found in smoke 1, fixed). red-team (fable): CONTESTED, 8 findings (F1-F8), all fixed pre-run, none dismissed; low note on gated control rail dismissed with reason (docstring). Queued under --allow-overlap (user-approved) over autopsy pause locks on the queue file: distinct append-only entry."
     }
   ]
 }
