@@ -589,59 +589,137 @@ ITEM_OPTIONAL = [
 
 
 # ------------------------------------------------------------------
-# Per-machine runner_status scan (silent re-queue guard)
+# Completed-queue-id scan (silent re-queue guard)
 # ------------------------------------------------------------------
 # Historical incidents (canonical: EXQ-126 on 2026-04-20/21) showed that a
 # previously-run queue_id can be re-added to the queue and silently re-executed
-# when its original completion record is not present in the local per-machine
-# status file -- e.g. the completion was recorded under a prior hostname
-# (Mac -> DLAPTOP-4.local), or on a different machine whose status file is
-# offline. The runner only checks the local per-machine file + any peer files
-# it can see at startup. If none of those contain the queue_id, dedup silently
-# passes and the experiment runs again.
+# when its original completion record is not visible to whatever is doing the
+# dedup check. The runner's own dedup only checks the local per-machine file +
+# any peer files it can see at startup; if none of those contain the queue_id,
+# dedup silently passes and the experiment runs again.
 #
-# This guard scans every per-machine runner_status file in REE_assembly and
-# raises a validation error on any queue_id that already has a completion
-# record, unless the queue item carries force_rerun: true. New letter/number
-# suffix IDs (EXQ-126a, EXQ-127) are the normal path; force_rerun is the
-# explicit escape hatch for the rare case where re-using the same ID is
-# intentional (e.g. the prior record is from a superseded contamination epoch).
+# This guard raises a validation error on any queue_id that already has a
+# completion record, unless the queue item carries force_rerun: true. New
+# letter/number suffix IDs (EXQ-126a, EXQ-127) are the normal path;
+# force_rerun is the explicit escape hatch for the rare case where re-using
+# the same ID is intentional (e.g. the prior record is from a superseded
+# contamination epoch).
+#
+# SOURCE, 2026-09 rewrite -- the ORIGINAL denominator was the per-machine
+# REE_assembly/evidence/experiments/runner_status/ directory. That directory
+# was deliberately DELETED on 2026-09-06 (REE_assembly 6320b7f3fad, "retire
+# the frozen telemetry dirs"; CLAUDE.md A-93) as part of retiring the git
+# heartbeat plane -- correctly, per that decision, but nothing noticed this
+# guard depended on it. From that date `_find_status_dir()` returned None and
+# the guard's denominator was silently EMPTY: `_scan_completed_queue_ids()`
+# returning `{}` is structurally identical whether nothing is burned or the
+# source cannot be read at all, so the guard passed every commit for 16 days
+# with no signal that it had stopped checking anything
+# (chip-20260922-validate-queue-burned-id-guard-inert; confirmed on the real
+# corpus by V3-EXQ-1055, which re-landed an already-PASSed id on 2026-09-20
+# and would have been blocked had this guard had a live source).
+#
+# The telemetry dirs are retired by user decision and MUST NOT be revived
+# (CLAUDE.md "Closed on measurement -- do not re-propose", item 7; A-93). The
+# coordinator DB (`/shadow/status`, or the hub's `coordinator.db` `results`
+# table) is the authoritative live source for run outcomes, but it needs
+# WireGuard connectivity + a bearer token and is unsuitable for a per-commit
+# PreToolUse hook that must stay fast and must not wedge a commit when the
+# network is down. `REE_assembly/evidence/experiments/runner_status.json`
+# (the FILE, singular) is explicitly frozen/stale since 2026-06-09 (its own
+# `_frozen` field says so) and must not be used either.
+#
+# What IS live, local, git-tracked (so every machine that has pulled
+# REE_assembly carries it), fast (a single directory listing, no per-file
+# reads), and DB-provenanced (these manifests are written by the coordinator's
+# phase3 result writer FROM the DB): the manifest filenames themselves under
+# REE_assembly/evidence/experiments/. A completed run's manifest is named
+# "<script stem>_<UTC timestamp>_v3[.json]" (scripts/audit_burned_queue_
+# entries.py's EvidenceIndex relies on the identical convention), and a
+# conforming driver's script stem is "v[34]_exq_<number><letters>_<slug>" --
+# so the queue id is recoverable straight from the filename, without opening
+# it. This is deliberately the SAME mechanism audit_burned_queue_entries.py
+# already uses to answer "did this script ever run", reused here rather than
+# reinvented, kept as a local regex copy (not an import) so this file never
+# depends on ree-v3/scripts at commit time.
+#
+# KNOWN BLIND SPOT, same shape as the auditor's own FP2/FP4 notes: a driver
+# whose EXPERIMENT_TYPE constant does not match its filename's queue-id
+# prefix (e.g. experiments/v3_exq_1055_....py filing manifests as
+# "sd098_..." with no "v3_exq_1055_" prefix at all -- confirmed on the real
+# corpus, 2026-09-18 run) is invisible to this scan. That is a pre-existing
+# driver-authoring bug, not a regression introduced here, and is filed as
+# separate follow-on rather than fixed in this guard.
 
-_REE_ASSEMBLY_STATUS_DIR_CANDIDATES = [
-    QUEUE_FILE.parent.parent / "REE_assembly" / "evidence" / "experiments" / "runner_status",
-    Path.home() / "REE_Working" / "REE_assembly" / "evidence" / "experiments" / "runner_status",
+_REE_ASSEMBLY_EVIDENCE_DIR_CANDIDATES = [
+    QUEUE_FILE.parent.parent / "REE_assembly" / "evidence" / "experiments",
+    Path.home() / "REE_Working" / "REE_assembly" / "evidence" / "experiments",
 ]
 
+# "<stem>_<UTC timestamp>_v3[.json]" -- must stay in sync with
+# scripts/audit_burned_queue_entries.py's TIMESTAMP_RE; not imported (see
+# above) so duplicated deliberately rather than coupled across repos.
+_EVIDENCE_TIMESTAMP_RE = re.compile(r"_(\d{8}T\d{6}Z)")
+# The queue-id prefix of a conforming stem: v3_exq_728a_... / v4_exq_001_...
+_EVIDENCE_STEM_ID_RE = re.compile(r"^(v[34])_exq_(\d+[a-z]*)_", re.IGNORECASE)
 
-def _find_status_dir() -> Path | None:
-    for cand in _REE_ASSEMBLY_STATUS_DIR_CANDIDATES:
+
+def _find_evidence_dir() -> Path | None:
+    for cand in _REE_ASSEMBLY_EVIDENCE_DIR_CANDIDATES:
         if cand.is_dir():
             return cand
     return None
 
 
-def _scan_completed_queue_ids() -> dict[str, list[tuple[str, str, str]]]:
-    """Scan per-machine runner_status files for completed queue_ids.
+def _completed_queue_ids_available() -> bool:
+    """Cannot-determine CATEGORY for the burned-ID guard's denominator.
 
-    Returns a dict mapping queue_id -> list of (machine_file, result, completed_at).
-    Returns an empty dict (fail-soft) if the status dir is missing or unreadable.
+    Kept as a SEPARATE function from `_scan_completed_queue_ids()` (rather
+    than folded into its return value) on purpose: several existing tests
+    monkeypatch `_scan_completed_queue_ids` directly with `lambda: {}` to
+    keep this guard out of their way, and that must keep meaning exactly
+    what it always meant (no burns to report) without also having to
+    monkeypatch an availability flag they were never testing. Callers that
+    need to tell "confirmed clean" from "could not check" call this
+    function too -- see CLAUDE.md "Negative instruments".
     """
-    status_dir = _find_status_dir()
-    if status_dir is None:
+    return _find_evidence_dir() is not None
+
+
+def _scan_completed_queue_ids() -> dict[str, list[tuple[str, str, str]]]:
+    """Scan REE_assembly/evidence/experiments manifest filenames for
+    completed queue_ids.
+
+    Returns a dict mapping queue_id -> list of (source_filename, "?",
+    timestamp-from-filename). The "?" (unknown) result field is honest
+    about what a filename-only scan can tell you -- reading every
+    manifest's content to recover the real outcome would cost a file read
+    per one of ~2500+ entries on every commit, which this guard cannot
+    afford (see cost note in ree-v3/CLAUDE.md's "Running the test suite").
+    Returns an empty dict when the evidence directory cannot be found -- but
+    that is NOT proof nothing is burned. Callers must check
+    `_completed_queue_ids_available()` before reading an empty result as
+    "the queue is clean"; `validate()` below does this and warns instead of
+    staying silent.
+    """
+    evidence_dir = _find_evidence_dir()
+    if evidence_dir is None:
         return {}
     out: dict[str, list[tuple[str, str, str]]] = {}
-    for f in sorted(status_dir.glob("*.json")):
-        try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-        except Exception:
+    try:
+        names = sorted(p.name for p in evidence_dir.iterdir())
+    except OSError:
+        return {}
+    for name in names:
+        match = _EVIDENCE_TIMESTAMP_RE.search(name)
+        if not match:
             continue
-        for entry in data.get("completed", []) or []:
-            qid = entry.get("queue_id", "")
-            if not qid:
-                continue
-            out.setdefault(qid, []).append(
-                (f.name, entry.get("result", "?"), entry.get("completed_at", ""))
-            )
+        id_match = _EVIDENCE_STEM_ID_RE.match(name)
+        if not id_match:
+            continue
+        gen, number = id_match.group(1).lower(), id_match.group(2)
+        qid = "%s-EXQ-%s" % (gen.upper(), number)
+        out.setdefault(qid, []).append((name, "?", match.group(1)))
     return out
 
 
@@ -1240,6 +1318,53 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
     seen_ids: dict[str, int] = {}
     completed_scan = _scan_completed_queue_ids()
 
+    # Cannot-determine CATEGORY for the burned-ID guard's denominator (see
+    # the guard's own module comment above for the incident this repairs).
+    # Deliberately a WARNING, not an error: this hook runs on every `git
+    # commit` and a source outage (evidence dir not yet pulled, unreadable,
+    # briefly mid-write) must fail OPEN here rather than block every commit
+    # on this machine -- a wedged commit hook is worse than a guard that
+    # misses one pass (CLAUDE.md "General Rules" -- negative instruments).
+    # A caller that needs the opposite (fail CLOSED on "could not compute")
+    # -- e.g. a future strict/CI-only invocation -- must call
+    # `_completed_queue_ids_available()` itself rather than infer it from an
+    # empty `completed_scan`, which is exactly the ambiguity that let this
+    # guard run inert and undetected for 16 days.
+    if not _completed_queue_ids_available():
+        _LAST_WARNINGS.append(
+            "burned-ID guard: COULD NOT DETERMINE completed queue ids -- no "
+            "evidence directory found at any of "
+            + ", ".join(str(c) for c in _REE_ASSEMBLY_EVIDENCE_DIR_CANDIDATES)
+            + ". The silent re-queue guard (queue_id already has a "
+            "completion record) did NOT run this pass. This is NOT the "
+            "same as \"no burned ids found\" -- treat any re-queued id as "
+            "unverified until the evidence tree is reachable again."
+        )
+    elif not completed_scan:
+        # Tier-3 defence (CLAUDE.md negative-instrument remedy): the source
+        # resolved but the parse came back empty despite a non-trivial
+        # candidate pool -- that combination is itself suspicious (a regex
+        # or naming-convention drift silently degrading back to the same
+        # "empty means clean" failure mode this guard was just repaired
+        # against, just via a parsing miss instead of a missing directory).
+        try:
+            _n_candidates = sum(
+                1 for p in _find_evidence_dir().iterdir()  # type: ignore[union-attr]
+                if _EVIDENCE_TIMESTAMP_RE.search(p.name)
+            )
+        except OSError:
+            _n_candidates = -1
+        if _n_candidates:
+            _LAST_WARNINGS.append(
+                "burned-ID guard: evidence dir resolved and %d timestamped "
+                "manifest filename(s) were scanned, but ZERO matched the "
+                "queue-id pattern -- the guard's denominator is 0, which is "
+                "unusual on a live corpus and may mean the naming "
+                "convention drifted. Verify with "
+                "scripts/audit_burned_queue_entries.py before trusting a "
+                "clean run." % _n_candidates
+            )
+
     # Re-derive brake backstop (MOVE-3): scan substrate_ceiling/non_contributory
     # autopsies once, but only when at least one item carries a claim tag (avoids the
     # ~150-file scan on a claimless queue). Read ree-v3/CLAUDE.md once for the
@@ -1520,16 +1645,16 @@ def validate(queue_path: Path = QUEUE_FILE) -> list[str]:
                 if _seed_finding:
                     errors.append(f"{prefix}: script {script_val} {_seed_finding}")
 
-        # Silent re-queue guard: queue_id must not already have a completion
-        # record in any per-machine runner_status file, unless force_rerun=true.
+        # Silent re-queue guard: queue_id must not already have a manifest in
+        # REE_assembly/evidence/experiments, unless force_rerun=true.
         if isinstance(queue_id, str) and queue_id in completed_scan:
             if item.get("force_rerun") is not True:
                 records = completed_scan[queue_id]
                 rec_strs = "; ".join(
-                    f"{mfile} ({result} at {cat})" for mfile, result, cat in records
+                    f"{mfile} (result {result}, {cat})" for mfile, result, cat in records
                 )
                 errors.append(
-                    f"{prefix}: queue_id already has a completion record in "
+                    f"{prefix}: queue_id already has a completion manifest in "
                     f"{rec_strs}. The runner WILL silently skip or re-run under a "
                     f"lost-completion edge case. Use a new letter/number suffix "
                     f"(EXQ-126a, EXQ-127, ...), or set 'force_rerun': true to "
