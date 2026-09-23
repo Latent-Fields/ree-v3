@@ -348,18 +348,59 @@ CANARY_V3_EXQ_1073: Dict[str, Any] = {
     "battery_ratio": [0.760, 0.901, 0.881],
     # 1 - MSE_model / MSE_identity on the same frozen battery (MECH-573).
     "skill_vs_identity": [-0.071, 0.227, -0.007],
+    # Per-seed identity_predictor_mse, needed to rebuild a faithful battery.
+    # V3-EXQ-1063/1073 measured identity_predictor_mse ~1e-5 on this env; the
+    # exact per-seed values are held here so the replay is reproducible.
+    "identity_mse": [1.305e-05, 1.705e-05, 1.480e-05],
     # Every seed must classify action_blind: ratio <= 1 on 3/3, and skill > 0 on
     # only 1/3. The gate must NOT return "ready" for any of them.
     "expected_status": ["action_blind", "action_blind", "action_blind"],
 }
 
 
-def check_canary(tol: float = 1e-9) -> Dict[str, Any]:
-    """Replay V3-EXQ-1073's measured values through the gate's OWN decision logic.
+def _synthetic_battery(identity_mse: float, skill: float, ratio: float,
+                       n: int = 64, dim: int = 8, adim: int = 4):
+    """Construct (head, original, counterfactual) whose REAL measurement through
+    this module reproduces a given (identity_mse, skill, ratio).
 
-    A gate that has silently broken -- a flipped comparison, a reciprocal ratio, a
-    skill formula inverted -- will classify these known values differently. This
-    reproduces the classification only; it cannot re-measure the run.
+    Exists so `check_canary` can drive `readiness_verdict` itself rather than
+    re-checking two constants against two other constants. A canary that
+    re-implements the decision it is supposed to guard cannot notice that
+    decision breaking -- CLAUDE.md, "a guard that supplies the thing it asserts
+    is not a guard".
+
+    Algebra: z0 = 0, z1 = u with mean(u^2) = identity_mse; a constant-output head
+    predicts v = u * (1 - sqrt(1 - skill)), so
+        model_mse = mean((v - u)^2) = identity_mse * (1 - skill)
+    and the counterfactual battery's target w = v + c with c^2 = model_mse * ratio,
+    so mse_cf / mse_original = ratio exactly.
+    """
+    model_mse = identity_mse * (1.0 - skill)
+    u_scale = math.sqrt(identity_mse)
+    v_scale = u_scale * (1.0 - math.sqrt(max(1.0 - skill, 0.0)))
+    z0 = torch.zeros(n, dim)
+    u = torch.full((n, dim), u_scale)
+    v = torch.full((n, dim), v_scale)
+    c = math.sqrt(max(model_mse * ratio, 0.0))
+    w = v + c
+    idx = torch.arange(n) % adim
+    acts = torch.nn.functional.one_hot(idx, adim).float()
+
+    class _ConstHead(torch.nn.Module):
+        def forward(self, z, a):
+            return v[: z.shape[0]]
+
+    return _ConstHead(), (z0, acts, u), (z0, acts, w)
+
+
+def check_canary(tol: float = 1e-3) -> Dict[str, Any]:
+    """Replay V3-EXQ-1073's measured values THROUGH readiness_verdict itself.
+
+    For each pinned seed a synthetic battery is built that really does measure
+    that seed's (identity_mse, skill, ratio), and the module's own
+    `readiness_verdict` is then run on it. A flipped comparison, a reciprocal
+    ratio or an inverted skill formula changes the classification here, because
+    the shipped code path -- not a copy of it -- produces it.
 
     Returns a dict with "ok" plus per-seed detail. Never raises.
     """
@@ -368,16 +409,30 @@ def check_canary(tol: float = 1e-9) -> Dict[str, Any]:
     z = zip(CANARY_V3_EXQ_1073["seeds"],
             CANARY_V3_EXQ_1073["battery_ratio"],
             CANARY_V3_EXQ_1073["skill_vs_identity"],
+            CANARY_V3_EXQ_1073["identity_mse"],
             CANARY_V3_EXQ_1073["expected_status"])
-    for seed, ratio, skill, expected in z:
-        blind = (not (ratio > RATIO_FLOOR)) or (not (skill > SKILL_FLOOR))
-        got = "action_blind" if blind else "ready"
-        match = (got == expected)
+    for seed, ratio, skill, id_mse, expected in z:
+        try:
+            head, orig, cf = _synthetic_battery(id_mse, skill, ratio)
+            v = readiness_verdict(head, orig[0], orig[1], orig[2],
+                                  counterfactual_battery=cf)
+            got = v.status
+            # the synthetic battery must really carry the pinned numbers, or the
+            # classification below is about something else
+            faithful = (v.ratio is not None and abs(v.ratio - ratio) <= tol
+                        and v.skill is not None and abs(v.skill - skill) <= tol)
+        except Exception as exc:                     # never raise out of a canary
+            got, faithful, v = "error:%s" % type(exc).__name__, False, None
+        match = (got == expected) and faithful
         ok = ok and match
         results.append({"seed": seed, "ratio": ratio, "skill": skill,
+                        "measured_ratio": None if v is None else v.ratio,
+                        "measured_skill": None if v is None else v.skill,
+                        "faithful": faithful,
                         "expected": expected, "got": got, "match": match})
     return {"ok": ok, "tol": tol, "n_seeds": len(results), "seeds": results,
-            "source": CANARY_V3_EXQ_1073["source"]}
+            "source": CANARY_V3_EXQ_1073["source"],
+            "drives": "readiness_verdict (shipped path), not a re-implementation"}
 
 
 def format_verdict(v: ActionSensitivityVerdict, label: str = "") -> str:

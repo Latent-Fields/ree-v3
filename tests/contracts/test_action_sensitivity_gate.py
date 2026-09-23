@@ -328,3 +328,67 @@ def test_world_forward_unchanged_when_feature_off():
     z = torch.randn(8, 8)
     a = torch.nn.functional.one_hot(torch.arange(8) % 4, 4).float()
     assert torch.equal(e2a.world_forward(z, a), e2b.world_forward(z, a))
+
+
+# --------------------------------------------------------------------------- #
+# The canary must DRIVE the shipped path, not re-check constants against        #
+# constants. Added 2026-09-22 after a red-team pass found the original          #
+# check_canary re-implemented the comparison and therefore could not fail.      #
+# --------------------------------------------------------------------------- #
+def test_canary_drives_the_shipped_verdict_path():
+    res = check_canary()
+    assert res["ok"], res
+    assert "readiness_verdict" in res["drives"]
+    for s in res["seeds"]:
+        assert s["faithful"], (
+            "the synthetic battery must really carry the pinned numbers, or the "
+            "classification is about something else: %r" % s)
+        assert s["measured_ratio"] == pytest.approx(s["ratio"], abs=1e-3)
+        assert s["measured_skill"] == pytest.approx(s["skill"], abs=1e-3)
+
+
+def test_blind_spot_canary_catches_a_reciprocal_ratio():
+    """Measure the blind spot: construct the defect, assert the guard FAILS."""
+    import experiments._lib.action_sensitivity_gate as g
+    original = g.battery_pair_ratio
+    try:
+        def flipped(head, orig, cf):
+            r, a, b = original(head, orig, cf)
+            return ((1.0 / r) if r not in (None, 0) else r), a, b
+        g.battery_pair_ratio = flipped
+        assert g.check_canary()["ok"] is False, (
+            "a reciprocal-ratio defect must fail the canary; if it does not, the "
+            "canary is re-checking constants rather than driving the real path")
+    finally:
+        g.battery_pair_ratio = original
+    assert g.check_canary()["ok"] is True, "canary must recover after the patch"
+
+
+def test_blind_spot_canary_catches_an_inverted_skill_formula():
+    import experiments._lib.action_sensitivity_gate as g
+    original = g.skill_vs_identity
+    try:
+        g.skill_vs_identity = lambda m, i: None if not i else (m / i) - 1.0
+        assert g.check_canary()["ok"] is False
+    finally:
+        g.skill_vs_identity = original
+    assert g.check_canary()["ok"] is True
+
+
+def test_both_conjuncts_are_live_on_the_pinned_set():
+    """Seed 123 is the ONE pinned seed where ratio and skill disagree (skill
+    +0.227 > 0 but ratio 0.901 < 1), so it is what proves the conjunction is
+    load-bearing rather than one bar carrying both."""
+    from experiments._lib.action_sensitivity_gate import _synthetic_battery
+    head, orig, cf = _synthetic_battery(1.705e-05, 0.227, 0.901)
+    assert readiness_verdict(head, *orig, counterfactual_battery=cf
+                             ).status == "action_blind"
+    assert readiness_verdict(head, *orig, counterfactual_battery=cf,
+                             ratio_floor=-1e9).status == "ready", (
+        "removing the ratio bar must flip seed 123; if it does not, the ratio "
+        "conjunct is inert on the pinned set and the canary cannot guard it")
+
+
+def test_canary_identity_mse_corpus_is_non_vacuous():
+    assert len(CANARY_V3_EXQ_1073["identity_mse"]) == 3
+    assert all(0.0 < v < 1e-3 for v in CANARY_V3_EXQ_1073["identity_mse"])
