@@ -842,8 +842,87 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
         first queued 1025 -- so a single stale-tree push can contribute two
         findings at once. Raising it is a real decision about what this
         assertion is for; do not do it merely to get to green.
+
+        PIN UPDATE 2026-09-23: V3-EXQ-1055 joined the LOST set, taking the
+        corpus to 21 distinct ids, and THE CAP IS RAISED 20 -> 21 -- its
+        FIRST raise since e0110ad. That was a user decision, made on the
+        evidence below (rec-20260923-027d4e8f; chip-20260922-validate-
+        queue-burned-id-guard-inert, "SECOND DEFECT"), not a move to get to
+        green. Mechanically genuine, all four legs. Timeline, all UTC:
+          2026-09-17 20:26:22Z  driver committed (ree-v3 4748ead); its
+                     queue entry staged as an UNTRACKED sidecar,
+                     experiments/.v3_exq_1055_queue_entry.READY_TO_LAND.json.
+          2026-09-18 18:16:48Z  stint 1 opens -- operator add, ree-v3
+                     694911d ("land the queue entry ... landed by
+                     orchestrate-20260918-1812").
+          2026-09-18 18:23:37Z  ree-worker-3 writes the manifest: OUTCOME
+                     PASS, evidence_direction supports, SD-098,
+                     substrate_commit fb2503830 (snapshot 18:20:59Z).
+          2026-09-18 18:26:06Z  phase3-queue snapshot 412c099 -- a NORMAL
+                     completion sweep. Stint 1 closes correctly.
+          2026-09-20 14:13:11Z  ree-v3 1a09a045c8 RE-ADDS it.      <-- BURN
+          2026-09-20 14:16:37Z  phase3-queue snapshot 99e57c58c8 sweeps it,
+                     3.43 min later; no manifest, prior_stints=1.
+        The re-adding session's commit message names its own two errors: it
+        found the staged READY_TO_LAND sidecar still on disk and read it as
+        "never landed", and it checked "the queue or runner_status.json" for
+        a prior 1055 -- but runner_status/ was RETIRED on 2026-09-06 (A-93),
+        so that check was structurally unable to find anything. Same family
+        as 895/929/956/1025 (a blind re-add of a terminal id); new cause (a
+        stale staging sidecar plus a dead denominator).
+
+        Why each recovery route is silent -- checked, not assumed:
+          supersedes  nothing anywhere declares `supersedes: V3-EXQ-1055`;
+          same-stem   the run's manifest is filed under
+                      sd098_ghost_goal_readtime_rerank_..., NOT under the
+                      driver's stem (see below), so ran_ever is False for
+                      the driver stem at ANY time, before or after;
+          renumber    the slug sd098_ghost_goal_readtime_rerank exists under
+                      no other exq number.
+        NO SCIENCE WAS LOST: the PASS run is ~44 hours before the burn.
+
+        A NEW PARTITION BUCKET, (d), because 1055 fits none of the three.
+        Not (a): it ran. Not (b): the advisory is silent. Not (c) either,
+        although it looks close -- (c) asserts ran_ever(<driver stem>), and
+        that is False here. The advisory's silence also has a different
+        cause from 1025's: the driver blob has NOT changed since 4748ead, so
+        blob identity would pass. What hides the run is NAMING. The driver
+        sets EXPERIMENT_TYPE = "sd098_ghost_goal_readtime_rerank" with no
+        "v3_exq_1055_" prefix, so its manifests carry a stem that neither
+        this auditor's stem match nor validate_queue.py's burned-ID scan
+        ever looks for. Measured 2026-09-23: 5 of the 1433 drivers with a
+        literal EXPERIMENT_TYPE are misnamed this way (the other recent one
+        is v3_exq_1018_..., which writes claim_probe_mech_222). Bucket (d)
+        asserts that the MISNAMED stem ran, so that it cannot silently decay
+        into (a). Once the auditor resolves a driver to its EXPERIMENT_TYPE
+        (filed as follow-on), 1055 belongs in (b); that move is expected
+        drift, and this pin should fail when it happens.
+
+        WHY THE CAP MOVES, AND WHY ONLY BY ONE. The 2026-09-17 adjudication
+        set the test: the cap exists to catch FALSE POSITIVES, and genuine
+        growth is not what it guards. 1055 is genuine and adjudicated, and
+        it adds zero FPs. So the bound follows the adjudicated corpus by
+        exactly one and gives no headroom: the next finding of any kind
+        still fires, and still needs to be adjudicated.
+
+        A CORRECTION to the framing this was first raised under. It was
+        tempting to call 1055 "one-time, now fixed", on the grounds that the
+        burned-ID guard was inert from 2026-09-06 (its runner_status/
+        denominator was deleted) until ree-v3 08f981336b repaired it on
+        2026-09-23. THAT IS FALSE FOR THIS ID. Measured against the repaired
+        guard, `_scan_completed_queue_ids()` still does NOT contain
+        V3-EXQ-1055 -- the naming blind spot hides it from the guard too,
+        and 08f981336b's own comment names it as a known blind spot. So the
+        repair would NOT have refused 1a09a045c8. What it does fix is the
+        GENERAL case: the ~1428 correctly named drivers are visible to the
+        guard again. The residual path that produced this exact finding --
+        a misnamed driver plus a blind re-add -- is still open until the
+        naming follow-on lands.
         """
-        self.assertLessEqual(len(self.ids), 20,
+        # 21 since 2026-09-23 (V3-EXQ-1055, adjudicated genuine; see PIN
+        # UPDATE 2026-09-23). Tracks the adjudicated corpus exactly -- no
+        # headroom -- so the NEXT finding of any kind still fires.
+        self.assertLessEqual(len(self.ids), 21,
                              "detector has started producing noise")
 
         lost = sorted({f["queue_id"] for f in self.findings
@@ -854,6 +933,11 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
                             # because the driver was edited (prose-only) in
                             # between. Re-added on a REBASED-AWAY-SHA
                             # misreading -- see PIN UPDATE 2026-09-17.
+            "V3-EXQ-1055",  # own number ran PASS at 2026-09-18T18:23:37Z,
+                            # ~44h BEFORE the stint; manifest filed under a
+                            # MISNAMED stem (sd098_...), invisible to the
+                            # advisory. Re-added off a stale READY_TO_LAND
+                            # sidecar -- see PIN UPDATE 2026-09-23.
             "V3-EXQ-569a",
             "V3-EXQ-683",
             "V3-EXQ-686",
@@ -922,11 +1006,43 @@ class BurnDetectorKnownTruthTest(unittest.TestCase):
                     "manifest is gone that premise is dead and this entry "
                     "belongs in bucket (a), not here" % queue_id)
 
+        # BUCKET (d), NEW 2026-09-23: ran under its OWN number, but the
+        # driver's EXPERIMENT_TYPE lacks its "v3_exq_<n>_" prefix, so the
+        # manifest is filed under a stem the detector never looks up. Kept
+        # apart from (c) because (c) asserts that the DRIVER stem ran, and
+        # here it did not -- the MISNAMED stem did. Pinned against that
+        # stem, so this bucket cannot silently decay into (a). When the
+        # auditor learns to resolve EXPERIMENT_TYPE, 1055 should move to (b)
+        # and this pin should fail: expected drift, to be re-adjudicated.
+        naming_invisible_but_ran = {
+            "V3-EXQ-1055": "sd098_ghost_goal_readtime_rerank",
+        }
+        for queue_id, manifest_stem in naming_invisible_but_ran.items():
+            with self.subTest(queue_id=queue_id):
+                self.assertNotIn(queue_id, already_ran,
+                                 "%s: the advisory cannot see a manifest "
+                                 "filed under a misnamed stem" % queue_id)
+                script = [f["script"] for f in self.findings
+                          if f["queue_id"] == queue_id][0]
+                driver_stem = os.path.basename(script)[:-len(".py")]
+                index = audit.EvidenceIndex(str(EVIDENCE_DIR))
+                self.assertFalse(
+                    index.ran_ever(driver_stem),
+                    "%s's driver stem now resolves to a manifest -- the "
+                    "naming blind spot is closed, so re-adjudicate it into "
+                    "bucket (b)" % queue_id)
+                self.assertTrue(
+                    index.ran_ever(manifest_stem),
+                    "%s is pinned as 'ran under a misnamed stem'; if that "
+                    "manifest is gone the premise is dead and this entry "
+                    "belongs in bucket (a), not here" % queue_id)
+
         # The partition must be EXHAUSTIVE over the LOST set -- otherwise a
         # future entry could join `lost` above and be adjudicated by nobody.
         self.assertEqual(
             sorted(set(lost_already_ran) | set(never_ran)
-                   | set(advisory_silent_but_ran)),
+                   | set(advisory_silent_but_ran)
+                   | set(naming_invisible_but_ran)),
             lost,
             "every LOST entry must sit in exactly one adjudicated bucket")
 
