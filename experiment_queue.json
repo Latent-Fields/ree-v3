@@ -27,6 +27,21 @@
       "experiment_type": "v3_exq_1067_mech266_squash_vs_clamp_cap_sweep",
       "predecessor": "V3-EXQ-934",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-1012c",
+      "title": "E3 channel-commensurability rung-3 validation at the ELIGIBILITY stage (per-channel knockout authority ratio vs OFF/ORACLE shadows) -- GFLAG-0297, substrate validation",
+      "script": "experiments/v3_exq_1012c_e3_commensurability_eligibility_stage_validation.py",
+      "experiment_type": "v3_exq_1012c_e3_commensurability_eligibility_stage_validation",
+      "priority": 8,
+      "machine_affinity": "any",
+      "estimated_minutes": 180,
+      "claim_id": "MECH-439",
+      "status": "pending",
+      "episodes_per_run": 100,
+      "seeds": 4,
+      "conditions": 2,
+      "note": "GFLAG-0297 successor: E3 channel-commensurability rung-3 (f_dominance_conversion_ceiling / SD-E3-CHANNEL-COMMENSURABILITY) validated at the ELIGIBILITY stage -- NOT a MECH-439 test (non_contributory + evidence_direction_note + per-claim on every branch). WHY: V3-EXQ-1012a measured the PRIMARY-argmin flip rate with no gradable reference; V3-EXQ-1012b (label-permutation placebo) refused. Design record REE_assembly evidence/planning/gflag0297_mech439_rung3_null_design.md shows every primary-stage null is identity / knob-set / off-question, and 571c's landed manifest (same regime) shows shortlist active 100%, size 5-16 of k=32, final_commit_by_primary_frac 0.005-0.146 -- the operator reaches the executed action only via the RANGE-denominated margin-eligible set. DV: per live channel, tick-mean Jaccard distance between E(S) and E(S with that channel knocked out), over content ticks; R = min/max. Same-tick shadows ON (live), OFF (monopoly anchor, reported never gated), ORACLE (tick-local SD; decomposition anchor). C1 per regime: R_ON >= 0.25 in >= 3/4 seeds (MC anchor: 0.25 ~ 5x realised dominance). Can FAIL gate-green: sparse-LOW channel shape R~0.21 at perfect SD equalisation; sparse-HIGH at r>=3; channel >=5x its EMA. PRIOR stated: PASS expected under Gaussian/sparse-HIGH at r~1. Instrument gates: I1 residual live-vs-reconstructed (smoke max rel 1.06e-7), I1b replay self-check, I1c genuine OFF-replay cross-check, I2 float32 eligible-size match rate (smoke 0/28 mismatch). Verdict partition: instrument > per-regime {not_ready, moot, commensurate, ema_lag, shape_range}; PASS iff both regimes commensurate. | Step 2.4 GOV-REUSE-1: no manifest records per-tick per-candidate per-channel terms (571c/1012a per-cell aggregates only) -> run. | Step 2.5b brake: MECH-439 braked for hypothesis re-tests; this is substrate validation on the measurement axis (the route the brake points to), as 1012a -> not braked, no ceiling hit added. | Step 2.5c: no open corrupting entry on the stage under test; runs under contextmemory-write-path-addressing-degeneracy (e1_deep.py ContextMemory.write, live, fix default-off) as a KNOWN LIMITATION -- upstream input, and the regime the conversion falsifiers run in (as 1012a/571c). Open degrading entries on exercised paths recorded, not blocking. | GFLAG-0072: support_preserving_min_first_action_classes kept at lineage 2 (P2 modulatory authority armed) -- the P1 ceiling binds class-entropy DVs, not candidate-level eligibility; raising it would break regime identity with 571c/1012a. | Substrate: SD-E3-CHANNEL-COMMENSURABILITY IMPLEMENTED ree-v3 c47b885; live-probed (knob reaches agent.e3.config; raw per-candidate terms captured per score_trajectory call; residual 1e-7). | Ethics: all-false/allow. | Smoke: dry-run PASS both cells (R_ON 0.56/0.82, R_OFF 0.00/0.04, R_ORACLE 0.79/0.75; all instrument gates 0 failures); validate_experiments --strict OK. | red-team (fable, run on the design spec before authoring): CONTESTED, 6 findings, all dispositioned: F1 identity instrument gate -> residual gate + replay self-check + OFF cross-check; F2 float32 cutoff -> torch-float32 reconstruction + rate gate; F3 grid -> partition with precedence; F4 PASS prior stated, shared content-tick set, shape + r_c(t) reported; F5 starved OFF gap corrected (4-25x), P1 kept at 2; F6 I3 recorded only. Step 3.5 review found one more: whole-run AND of arm gates -> per-regime not_ready class. | MECH-439's direction does not move on this record."
     }
   ]
 }
