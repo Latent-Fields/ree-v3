@@ -28,9 +28,12 @@ coordinator/deploy/fleet_integrity_baseline.json
 # never commit. Untracked-and-not-ignored wedges phase3_queue_writer's
 # clean-tree refusal.
 coordinator/writer_health.json
-# /understand per-machine structural-fingerprints cache written by
-# scripts/mcp-tools/build-fingerprints.mjs at the end of Phase 7. Per-clone
-# scratch that churns on every regeneration; must NOT be tracked. See the
-# nightly-documentation-update scheduled task (Step 2, item 3). Sibling
-# knowledge-graph.json + meta.json ARE the consumable graph and stay tracked.
-.ua/fingerprints.json
+# Understand-Anything (/understand) working directory. The WHOLE of .ua/ is
+# per-clone output: the nightly-documentation-update scheduled task regenerates
+# knowledge-graph.json + meta.json in place every night, so while they were
+# tracked they sat dirty in the shared checkout for up to 6 days a week, got
+# swept into `git pull --rebase --autostash` stashes (2026-07-19, 2026-09-23)
+# and blocked auto-pulls (2026-09-04). The consumable weekly snapshot is
+# committed at docs/understand/ instead -- a path the plugin never writes --
+# see docs/understand/README.md.
+.ua/
