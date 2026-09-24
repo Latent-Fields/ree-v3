@@ -27,25 +27,6 @@
       "experiment_type": "v3_exq_1067_mech266_squash_vs_clamp_cap_sweep",
       "predecessor": "V3-EXQ-934",
       "seeds": 3
-    },
-    {
-      "queue_id": "V3-EXQ-1085",
-      "title": "MECH-365 provenance-gate boundary lesion: REM forward replay -> MECH-217 writer, gate vs drop-at-consolidation vs sham vs source canary (evidence, audit-strength)",
-      "script": "experiments/v3_exq_1085_mech365_provenance_gate_boundary_lesion.py",
-      "priority": 30,
-      "machine_affinity": "any",
-      "estimated_minutes": 3,
-      "claim_id": "MECH-365",
-      "backlog_id": null,
-      "note": "MECH-365 falsifier (WWA merged REE_assembly e6424df604; design evidence/planning/mech365_wwa_and_lesion_design_20260924.md). EVIDENCE, claim_ids [MECH-365] ONLY -- declared AUDIT-STRENGTH (like INV-011): C1a/C1b/C3 are structurally determined once the replay() label is stamped and honoured and C2 is near-guaranteed given P3; the informative content is the source-side canary A4 and the recorded magnitudes. NOT MECH-545's five-way contract-lesion assay (one relation, one boundary, no random-projection floor, no acute/adapted split) and NOT MECH-271 (one destination). Substrate: default-OFF knobs landed ree-v3 de12c2c (rem_route_forward_replay_to_consolidation, mech365_provenance_lesion, mech365_suppress_replay_provenance_stamp; replay() now tagged). Arms: R0_unrouted / A1_gate_intact / A2_boundary_lesion (drop_at_consolidation) / A3_sham (sham_real_only) / A4_canary (stamp suppressed) x seeds 42-46, 6 wake-sleep cycles, V3-EXQ-842 harness. PASS = P1..P5 AND C1a (M_img(A1)==0) AND C1b (D R0vsA1<=1e-6) AND C2 (D_img(A2) > max(3*SD(D_A3),0.05)) AND C3 (D_A3<=0.01); S4 selectivity recorded, not gated (structural). STEP 2.4: no prior MECH-365 run; V3-EXQ-842 (MECH-217) has no forward-routing/label manipulation -> not recoverable, run. STEP 2.5c: corrupting SD-PP-B5 overlaps only via universally-imported config.py/causal_grid_world.py; its defect is the use_world_interventional margin loss (default False, not enabled here) and the DV is valence write mass, not world-forward skill -> proceed, noted. Degrading SD-MECH267-CEM-SELECTION-FIX touches hippocampal/module.py (CEM selection, not exercised: scripted policy). DV-SYMMETRY: C1a/C2 read accepted write MASS and relative L1 over per-center wanting (not argmax/rank/set-aggregate of interchangeable units); each arm's manipulation changes which writes are accepted, so none is invariant under its DV's symmetry (permutation of centers is fixed by matched positions, P5). Pre-queue full-scale probe (5x5, no manifest): PASS; A1 0 imagined accepted (900 refused/seed), map bit-identical to R0; D_img(A2) 1.76-318; A4 == A2 exactly; D_A3 0. Contamination SELF-AMPLIFIES through the MECH-217 kernel-weighted terminus READ (D_realamp 0.5-541, seed 43 outlier) -- recorded descriptively, cycle-1 M_img recorded. red-team (fable): pass 1 BLOCKING (C4 selectivity tautological given C1+P3; D pooled real-writer amplification; C1 bit-identity failure routed to weakens) -> fixed (S4 demoted to structural audit, C2 on D_img, C1 split with C1b->instrument_invalid, P5 by position); pass 2 CLEAR (2 notes applied). Smoke (dry-run 1 seed x 3 cycles) PASS. Session governance-20260924-mech365.",
-      "status": "pending",
-      "claim_ids": [
-        "MECH-365"
-      ],
-      "conditions": 5,
-      "episodes_per_run": 6,
-      "experiment_type": "v3_exq_1085_mech365_provenance_gate_boundary_lesion",
-      "seeds": 5
     }
   ]
 }
