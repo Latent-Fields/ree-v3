@@ -47,8 +47,8 @@ It cannot weaken the claim. `ready` on f_dominance_conversion_ceiling STAYS fals
 field-head validation and SD-e1 var-bar re-registration are untouched); this run promotes
 nothing on its own.
 
-THE ARM CONTRAST (matched seeds, 2 residue regimes x 4 arms x 4 seeds = 32 cells)
----------------------------------------------------------------------------------
+THE ARM CONTRAST (matched seeds, residue-FED regime only, 4 arms x 4 seeds = 16 cells)
+--------------------------------------------------------------------------------------
 Arms are 689i's four-arm contrast re-seated in the 936/571c/1012a/1012c regime (the
 `_lib/baselines/mech439_f_variance_share.py` canonical OFF path, margin shortlist mode),
 with the treatment lever swapped from the MECH-448 demotion to the commensurability
@@ -64,9 +64,9 @@ operator, which is what the governance release scopes to.
   ARM_ON (PRIMARY)    e2wf source, operator ON -- the lever under test; the only arm that
                       carries the eligibility-stage knockout instrument.
 
-x {fed, starved}: agent.update_residue called every env step, or never. 571c showed WHICH
-channel monopolises depends on this protocol, and MECH-439's own CONFIRMING text
-pre-registers the fed-vs-starved contrast as part of the control set.
+Residue regime: FED only -- `agent.update_residue` is called every env step. The starved
+half of MECH-439's registered fed-vs-starved contrast is OUT by user decision; see "THE
+STARVED REGIME IS OUT" below for why it cannot carry this DV and what that costs.
 
 ACCEPTANCE (claim_ids=[MECH-439]). Verdict chain, in order -- instrument and control
 validity precede everything, so a broken instrument can never reach a claim verdict:
@@ -76,7 +76,8 @@ validity precede everything, so a broken instrument can never reach a claim verd
   C_READINESS (per arm)  (gating)    -> substrate_not_ready_requeue
   C2_ELIGIBILITY_COMMENSURATE        -> eligibility_not_commensurate_requeue
   C1_CONVERSION          (verdict)   -> conversion_ceiling_persists_under_commensurate_eligibility
-  else                               -> commensurate_eligibility_converts (supports)
+  C1b_OPERATOR_ATTRIBUTION (verdict) -> conversion_not_attributable_to_operator
+  else (C1 AND C1b)                  -> commensurate_eligibility_converts (supports)
 
 THE GFLAG-0072 CLASS-ENTROPY CEILING -- PREMISE RE-MEASURED, NOT ASSUMED
 ------------------------------------------------------------------------
@@ -107,8 +108,9 @@ oversight:
 
 DV-SYMMETRY INVARIANCE (one line per arm, per /queue-experiment Step 3)
 -----------------------------------------------------------------------
-DV: committed-action-class entropy -- a set-aggregate (Shannon entropy) over the sequence
-of first-action classes of the SELECTED candidate, one sample per genuine fresh selection.
+DV: committed-action-class entropy (Miller-Madow corrected; see RED-TEAM FIX 2) -- a
+set-aggregate over the sequence of first-action classes of the SELECTED candidate, one
+sample per genuine fresh selection, banked to a FIXED n per cell.
 Its symmetry group is (a) any transform of the score vector that preserves the argmin, (b)
 permutation of the observation sequence, (c) relabelling of classes.
   * ARM_ON: the operator applies a PER-CHANNEL, non-uniform divisor (each channel's own
@@ -160,67 +162,86 @@ deliberately inert in this lineage and reads 0 content ticks.
 
 ASCII-only output (repo rule).
 
-RED-TEAM (Step 4.5), Fable 5.1, cross-model: **BLOCKING**. NOT QUEUED. See the section
-immediately below.
+RED-TEAM (Step 4.5), Fable 5.1, cross-model: BLOCKING on the first pass -> user decision ->
+re-scoped and re-reviewed. See "THE STARVED REGIME" and "RED-TEAM FIXES" below, and the
+queue entry note for the final verdict.
 
-THIS DRIVER IS NOT QUEUED -- BLOCKING RED-TEAM FINDING, CONFIRMED AT SOURCE
----------------------------------------------------------------------------
-F1 (BLOCKING): **the residue-STARVED regime can never reach a COMMITTED selection, so the
-committed-action-class DV does not read a committed selection there at all.** The chain,
-verified in source and then numerically, not taken on the reviewer's word:
+THE STARVED REGIME IS OUT -- USER DECISION A, 2026-09-24 (rec-20260924-5b0f9daa)
+--------------------------------------------------------------------------------
+This driver originally ran {residue-fed, residue-starved} x 4 arms x 4 seeds = 32 cells.
+The Step 4.5 red-team returned BLOCKING on the starved half, and the finding was confirmed
+at source and then numerically before anything was acted on:
 
   * `update_running_variance` has exactly ONE caller in all of `ree_core`:
     `e3_selector.py:4686`, inside `post_action_update`.
-  * `post_action_update` has exactly ONE caller: `agent.py:11070`, which is inside
-    `REEAgent.update_residue` (def at `agent.py:11041`; the next method def is
-    `record_transition` at `agent.py:11240`).
-  * The STARVED protocol is defined by never calling `update_residue` -- that IS the
-    manipulation (571c/1012a/1012c inherit the same protocol).
-  * So `_running_variance` stays pinned at `precision_init = 0.5` (`config.py:1137`)
-    against `commitment_threshold = 0.40` (`config.py:1135`). Measured on a freshly
-    constructed lineage agent: rv 0.5, threshold 0.4, `rv < threshold` -> **False**.
-  * `e3_selector.py:956` documents this exact shape in the substrate's own words: "a
+  * `post_action_update` has exactly ONE caller: `agent.py:11070`, inside
+    `REEAgent.update_residue` (def `agent.py:11041`; next method def `record_transition` at
+    `agent.py:11240`).
+  * The STARVED protocol IS "never call `update_residue`" -- that is the manipulation, and
+    571c / 1012a / 1012c all inherit it.
+  * So `_running_variance` stays pinned at `precision_init` 0.5 (`config.py:1137`) against
+    `commitment_threshold` 0.40 (`config.py:1135`). MEASURED on a freshly constructed
+    lineage agent: rv 0.5, threshold 0.4, `rv < threshold` -> False. No starved tick is
+    ever COMMITTED.
+  * `e3_selector.py:956` documents exactly this shape in the substrate's own words ("a
     driver that never calls post_action_update leaves rv pinned at precision_init forever
-    (v3_exq_925a documents exactly this)".
+    (v3_exq_925a documents exactly this)") -- the fact was already recorded in ree-v3 and
+    had simply never been joined up with MECH-439's control text.
+  * Consequence: MECH-439's registered matched-noise control is the Factor B gap-scaled
+    stochastic commit, which is reachable ONLY on the committed branch. In a starved arm it
+    is inert, so the matched-noise and collapsed-proposer controls differ by RNG stream
+    alone and `C_NOISE_LIFTS` there is a coin flip -- which, AND-ed across regimes, would
+    have vacated all 32 cells including a clean fed result. This driver's own smoke had
+    corroborated it independently: all four STARVED arms returned an identical committed-
+    class entropy of 0.6931 over 2 classes.
 
-Consequences, all of which bear on what this run could conclude:
-  (a) Factor B (the matched-noise manipulation) is reached only on the committed branch, so
-      ARM_STARVED_MATCHED_NOISE and ARM_STARVED_PROPOSER_CTRL differ by RNG stream alone.
-      `C_NOISE_LIFTS_starved` then has no signal to detect: it is ~P(3 of 4 iid coin flips).
-  (b) That criterion is AND-ed across regimes (`noise_lifts_all`) and sits THIRD in the
-      verdict chain, so a starved-regime coin flip vacates the whole 32-cell run --
-      including a clean fed-regime result -- and the runs that pass it pass by chance.
-  (c) The fed and starved halves are therefore measuring DIFFERENT SELECTION RULES under one
-      DV name (fed: the committed argmin / Factor B multinomial; starved: the uncommitted
-      tempered multinomial), which the DV-symmetry paragraph above does not describe.
-  (d) This driver's own smoke corroborated it independently before the review: all four
-      STARVED arms returned an identical H = 0.6931 over 2 classes.
+SCOPE LIMIT THIS BUYS, STATED RATHER THAN HIDDEN: MECH-439's `what_would_answer` names "a
+residue-fed vs residue-starved protocol contrast" as part of its CONTROL set, because 571c
+showed WHICH channel monopolises depends on the residue-feeding protocol. This run drops
+that contrast. So a result here is NOT shown to be protocol-independent, and the
+residue-STARVED half of MECH-439's registered control set remains unanswered for any
+committed-action DV. Re-open it only if the RESERVED final-commit-stage replay (confirmed
+failure_autopsy_V3-EXQ-1012c_2026-09-24 sec 7b) is ever built -- that replay reads the
+commit stage directly and would need its own answer to the same problem. The finding is
+registered for governance as GFLAG-0480 (MECH-439's registered fed/starved control contrast
+is DV-CONDITIONAL: sound for eligibility-stage and variance-share DVs, so V3-EXQ-1012c's
+PASS is unaffected; not sound for the claim's own committed-action-class DV).
 
-This is NOT a defect in the operator, the instrument or the fed regime -- the fed half and
-the eligibility-stage instrument both behaved correctly in smoke (ARM_FED_ON R_ON 0.4405 vs
-R_OFF 0.0000, operator engaged, 0/0/0 instrument failures). It is a defect in the pre-
-registered CONTROL SET: MECH-439's own `what_would_answer` names "a residue-fed vs
-residue-starved protocol contrast" as part of the control set, and that contrast is
-unusable for the claim's own committed-action-class DV on this substrate.
+RED-TEAM FIXES APPLIED AS INSTRUMENT CHANGES (same decision; neither alters the hypothesis,
+an arm's meaning, or which claim the evidence attaches to)
+--------------------------------------------------------------------------------------
+FIX 1 (F2) -- C1 alone could not attribute a lift to the OPERATOR. ARM_ON differs from both
+controls in `candidate_summary_source` (e2wf vs proposer) AS WELL AS the operator, and the
+e2wf source is ARC-065 GAP-A's own designed conversion mechanism, so "the summary source
+converted" is a live alternative, not a hypothetical one. Added `C1b_operator_attribution`:
+ARM_ON strictly above its own operator-OFF twin ARM_OFF, paired by seed, on >= 3 of 4
+seeds. ARM_OFF is byte-identical to ARM_ON except for the operator, so this is the
+single-variable contrast. PASS now requires C1 AND C1b; C1 true with C1b false self-routes
+`conversion_not_attributable_to_operator` / non_contributory, which is a real outcome rather
+than a silently weaker claim. The CONTROLS' summary source is deliberately NOT equalised --
+being proposer-sourced is precisely what makes ARM_PROPOSER_CTRL the collapsed-channel
+floor, so equalising it would destroy the control rather than fix the confound.
 
-Every available repair -- dropping the starved regime, scoping it out of `C_NOISE_LIFTS`,
-calling `update_residue` with a null harm signal so rv tracks without feeding residue, or
-adding a commit-fraction readiness gate that self-routes starved to not-ready -- CHANGES
-WHAT GETS MEASURED, and none is specified by the chip, the pre-flight, the 1012c autopsy or
-the governance 2026-09-24 release. Under the standing consent rule that is a user decision,
-so this session STOPPED rather than choosing one. Decision chip:
-`chip-20260924-mech439-starved-regime-cannot-commit`. Governance flag recording the
-substrate/claim-text finding: GFLAG (raised by this session, see the chip).
+FIX 2 (F5) -- C1 was a zero-margin strict `>` on PLUG-IN entropies at unequal realised n.
+Plug-in Shannon entropy is biased by about -(K-1)/(2n): at K=5 that is 0.033 nats at n=60
+against 0.010 at n=200, an artefact larger than the zero margin. Both halves of 689i/699c's
+split are adopted: (i) FIXED N BY CONSTRUCTION -- each cell records exactly
+`N_FRESH_SELECT_TARGET` committed samples and stops, and the readiness gate refuses a cell
+that could not reach it, so the differential bias between compared cells is ZERO rather
+than corrected; (ii) Miller-Madow closes the residual K_obs term. C1/C1b route on
+`committed_action_class_entropy_mm`; the plug-in value, the per-cell correction, and the
+counterfactual verdict under the uncorrected estimator are all recorded
+(`diagnostics.miller_madow_audit.estimator_changes_verdict`).
 
-Other red-team findings, recorded but NOT acted on (they are downstream of F1 and several
-would be moot under some repairs): F2 ARM_ON differs from both controls in summary source
-AND operator while no criterion compares ON to OFF; F3 the matched-noise control is
-uniform-over-E rather than gap-scaled on the proposer summary source; F4 a red CONTROL arm
-lands on the "conversion_ceiling_persists" label rather than substrate_not_ready_requeue;
-F5 C1 is a zero-margin strict `>` on plug-in entropies at unequal realised n (689i used
-Miller-Madow for exactly this); F6 `C_CONTROL_DISTINCT` is whole-run, so a starved
-degeneracy silences a valid fed contrast. F2 and F5 are independently actionable and were
-verified as real by reading the cited lines.
+RED-TEAM FINDINGS RECORDED BUT NOT ACTED ON, and why: F3 (the matched-noise control is
+uniform-over-E rather than gap-scaled on the proposer summary source) and F4 (a red CONTROL
+arm lands on the "conversion_ceiling_persists" label rather than substrate_not_ready) were
+raised against the two-regime design; F6 (`C_CONTROL_DISTINCT` is whole-run, so a starved
+degeneracy silences a valid fed contrast) is moot now that the starved regime is out. F4's
+shape survives in reduced form for a red CONTROL arm and is left standing deliberately: the
+label is reported alongside `per_arm_gate`, which names every red arm, and `c1_passed`
+already requires `controls_green`, so a reader cannot take the label without seeing the red
+arm beside it.
 """
 
 from __future__ import annotations
@@ -302,7 +323,11 @@ CRITERIA_THRESHOLD_EXEMPT = (
 )
 
 # --- Pre-registered thresholds (constants, never derived from this run) ------
-MIN_FRESH_SELECTIONS = 60          # 936a/571b decomp-sample floor, reused
+# FIXED-N: a scorable cell must reach the FULL measurement budget, not a lower floor, so
+# every compared cell carries the same n (red-team fix 2, load-bearing half; 689i's
+# MIN_FRESH_SELECT_PER_CELL = N_FRESH_SELECT_TARGET). The .5 makes the gate's `>` and the
+# arm-gate override's `>=` agree on an integer count of exactly N_FRESH_SELECT_TARGET.
+MIN_FRESH_SELECTIONS = 199.5       # i.e. "at least 200"; was a 60-sample floor pre-fix
 N_FRESH_SELECT_TARGET = 200        # 936a's P1 measurement budget
 P1_EPISODE_CAP = 40
 R_BAR = 0.25                       # the ratified eligibility-stage bar (governance 2026-09-24)
@@ -348,7 +373,7 @@ _ZG = ZGoalStreamAccumulator()
 _LAST_AGENT: Dict[str, Any] = {"agent": None}
 _FRESH_SELECT = FreshSelectProbe("exq1095")
 
-REGIMES: Tuple[str, ...] = ("fed", "starved")
+REGIMES: Tuple[str, ...] = ("fed",)   # USER DECISION A 2026-09-24 -- see docstring
 LEVERS: List[Dict[str, Any]] = [
     {"lever": "PROPOSER_CTRL", "label": "proposer_collapsed_channel_baseline_control",
      "summary_source": "proposer", "operator": False, "factor_b": False, "role": "control"},
@@ -603,7 +628,8 @@ def _rel_close(a: float, b: float, scale: float, tol: float) -> bool:
 
 
 def _entropy_from_counts(counts: Counter) -> float:
-    """Shannon entropy (nats) of a class histogram. Byte-identical to 936a's helper."""
+    """PLUG-IN Shannon entropy (nats). Byte-identical to 936a's helper -- kept so the
+    recorded value stays comparable with the 936/936a lineage. NOT what C1/C1b route on."""
     total = sum(counts.values())
     if total <= 0:
         return 0.0
@@ -614,6 +640,31 @@ def _entropy_from_counts(counts: Counter) -> float:
         p = n / total
         h -= p * math.log(p)
     return float(h)
+
+
+def _entropy_miller_madow(counts: Counter) -> float:
+    """Miller-Madow bias-corrected Shannon entropy: H_MM = H_plugin + (K_obs - 1) / (2N).
+
+    RED-TEAM FIX 2 (F5, applied under the user's 2026-09-24 decision). The plug-in estimator
+    is biased by about -(K-1)/(2n), so at K=5 it costs 0.033 nats at n=60 against 0.010 at
+    n=200 -- an artefact larger than the zero margin C1's strict `>` allows, whenever two
+    compared cells realise different n. Two fixes, and the FIRST is the load-bearing one
+    (689i / 699c's split, adopted verbatim):
+      (i) FIXED N BY CONSTRUCTION -- every cell banks exactly N_FRESH_SELECT_TARGET committed
+          samples and stops recording (see run_cell), and the readiness gate refuses a cell
+          that could not reach it, so the differential bias between compared cells is ZERO
+          rather than corrected;
+      (ii) Miller-Madow closes the residual K_obs-driven term. At N=200 it is (K_obs-1)/400,
+           i.e. 0.0025 nats at K_obs=2 up to 0.0100 at K_obs=5.
+    The plug-in value is emitted alongside as `committed_action_class_entropy`, with
+    `miller_madow_correction_nats` beside it and a run-level `miller_madow_audit` recording
+    the counterfactual verdict under the uncorrected estimator.
+    """
+    n = sum(counts.values())
+    if n <= 0:
+        return 0.0
+    k_obs = sum(1 for v in counts.values() if v > 0)
+    return float(_entropy_from_counts(counts) + (k_obs - 1) / (2.0 * n))
 
 
 def _first_action_class(action: torch.Tensor) -> Optional[int]:
@@ -925,7 +976,12 @@ def run_cell(arm: Dict[str, Any], seed: int, p0_episodes: int, p1_episode_cap: i
                     fs.record(fresh_select)
 
                 # --- THE CONVERSION DV: one sample per GENUINE fresh selection ---
-                if is_p1 and fresh_select:
+                # FIXED-N BY CONSTRUCTION (red-team fix 2, load-bearing half): stop
+                # recording at exactly `fresh_target` committed samples, so every scorable
+                # cell carries the SAME n and the plug-in estimator's differential bias
+                # between compared cells is zero rather than corrected. Stepping continues;
+                # only the DV accumulator is capped.
+                if is_p1 and fresh_select and sum(selected_class_counts.values()) < fresh_target:
                     cls = _first_action_class(action)
                     if cls is not None:
                         selected_class_counts[cls] += 1
@@ -1063,7 +1119,8 @@ def run_cell(arm: Dict[str, Any], seed: int, p0_episodes: int, p1_episode_cap: i
         jbar = {x: {c: _mean(j_ticks[x][c]) for c in content_channels} for x in SCORINGS}
         r_vals = {x: _r_from_j(jbar[x]) for x in SCORINGS}
 
-        committed_entropy = _entropy_from_counts(selected_class_counts)
+        committed_entropy_plugin = _entropy_from_counts(selected_class_counts)
+        committed_entropy = _entropy_miller_madow(selected_class_counts)   # ROUTED
         expected_calls = n_ticks_total if feed else 0
         row: Dict[str, Any] = {
             "arm": arm_id,
@@ -1092,8 +1149,12 @@ def run_cell(arm: Dict[str, Any], seed: int, p0_episodes: int, p1_episode_cap: i
             "n_fresh_select": int(fs.n_fresh_select),
             "n_latched": int(fs.n_latched),
 
-            # ===== THE ROUTED DV =====
-            "committed_action_class_entropy": committed_entropy,
+            # ===== THE ROUTED DV (Miller-Madow; plug-in emitted alongside) =====
+            "committed_action_class_entropy_mm": committed_entropy,
+            "committed_action_class_entropy": committed_entropy_plugin,
+            "miller_madow_correction_nats": float(committed_entropy - committed_entropy_plugin),
+            "dv_sample_cap": int(fresh_target),
+            "dv_sample_cap_met": bool(sum(selected_class_counts.values()) >= fresh_target),
             "n_committed_classes": len(selected_class_counts),
             "selected_class_counts": {str(k_): int(v) for k_, v in selected_class_counts.items()},
             "n_committed_samples": int(sum(selected_class_counts.values())),
@@ -1141,7 +1202,7 @@ def run_cell(arm: Dict[str, Any], seed: int, p0_episodes: int, p1_episode_cap: i
     if dry_run:
         print("  [smoke] arm=%s seed=%d H=%.4f classes=%d pool=%.2f fresh=%d scored=%d "
               "R_ON=%s R_OFF=%s engaged=%s resid_fail=%d selfcheck_fail=%d offcheck_fail=%d"
-              % (arm_id, seed, row["committed_action_class_entropy"], row["n_committed_classes"],
+              % (arm_id, seed, row["committed_action_class_entropy_mm"], row["n_committed_classes"],
                  row["pool_first_action_classes_mean"], row["n_fresh_select"], n_scored,
                  ("%.4f" % r_vals["ON"]) if r_vals["ON"] is not None else "None",
                  ("%.4f" % r_vals["OFF"]) if r_vals["OFF"] is not None else "None",
@@ -1240,10 +1301,10 @@ def _regime_reading(rows: List[Dict[str, Any]], regime: str, green: set) -> Dict
     per_seed: List[Dict[str, Any]] = []
     n_converting = 0
     for s in seeds:
-        h_on = float(on[s]["committed_action_class_entropy"])
-        h_ctrl = {lv: (float(ctrls[lv][s]["committed_action_class_entropy"])
+        h_on = float(on[s]["committed_action_class_entropy_mm"])
+        h_ctrl = {lv: (float(ctrls[lv][s]["committed_action_class_entropy_mm"])
                        if s in ctrls[lv] else None) for lv in CONTROL_LEVERS}
-        h_off = float(off[s]["committed_action_class_entropy"]) if s in off else None
+        h_off = float(off[s]["committed_action_class_entropy_mm"]) if s in off else None
         above = all(v is not None and h_on > v for v in h_ctrl.values())
         if above:
             n_converting += 1
@@ -1256,6 +1317,32 @@ def _regime_reading(rows: List[Dict[str, Any]], regime: str, green: set) -> Dict
     controls_green = all(_arm_id(regime, lv) in green for lv in CONTROL_LEVERS)
     c1_passed = bool(n_converting >= SEEDS_REQUIRED and on_arm_green and controls_green)
 
+    # --- C1b: OPERATOR ATTRIBUTION -- ARM_ON vs ARM_OFF, paired by seed ---------
+    # RED-TEAM FIX 1 (F2, applied under the user's 2026-09-24 decision). ARM_ON differs
+    # from BOTH controls in `candidate_summary_source` (e2wf vs proposer) AS WELL AS the
+    # operator, so C1 alone cannot separate "the operator converted" from "the e2wf summary
+    # source converted" -- and the e2wf source is ARC-065 GAP-A's own designed conversion
+    # mechanism, so that alternative is live, not hypothetical. ARM_OFF is byte-identical to
+    # ARM_ON except for the operator, so this paired contrast is the single-variable test.
+    # The controls' summary source is deliberately NOT changed: being proposer-sourced IS
+    # what makes ARM_PROPOSER_CTRL the collapsed-channel floor, so equalising it would
+    # destroy the control's meaning rather than fix the confound (689i's arm geometry).
+    off_green = _arm_id(regime, "OFF") in green
+    n_on_above_off = 0
+    attribution_per_seed: List[Dict[str, Any]] = []
+    for s in seeds:
+        h_on = float(on[s]["committed_action_class_entropy_mm"])
+        h_off_s = float(off[s]["committed_action_class_entropy_mm"]) if s in off else None
+        above_off = h_off_s is not None and h_on > h_off_s
+        if above_off:
+            n_on_above_off += 1
+        attribution_per_seed.append({
+            "seed": s, "H_on": h_on, "H_off": h_off_s,
+            "strict_above_off": bool(above_off),
+            "margin_vs_off": (h_on - h_off_s) if h_off_s is not None else None,
+        })
+    c1b_passed = bool(n_on_above_off >= SEEDS_REQUIRED and on_arm_green and off_green)
+
     # --- C_NOISE_LIFTS: the matched-noise control must verifiably lift -----------
     n_noise_lifts = 0
     noise_per_seed: List[Dict[str, Any]] = []
@@ -1265,8 +1352,8 @@ def _regime_reading(rows: List[Dict[str, Any]], regime: str, green: set) -> Dict
         if a is None or b is None:
             noise_per_seed.append({"seed": s, "H_noise": None, "H_proposer": None, "lifts": False})
             continue
-        ha = float(a["committed_action_class_entropy"])
-        hb = float(b["committed_action_class_entropy"])
+        ha = float(a["committed_action_class_entropy_mm"])
+        hb = float(b["committed_action_class_entropy_mm"])
         lifts = ha > hb
         if lifts:
             n_noise_lifts += 1
@@ -1292,9 +1379,13 @@ def _regime_reading(rows: List[Dict[str, Any]], regime: str, green: set) -> Dict
         "c1_passed": c1_passed,
         "n_seeds_converting": int(n_converting),
         "conversion_per_seed": per_seed,
-        "H_on_mean": _mean([float(on[s]["committed_action_class_entropy"]) for s in seeds]),
-        "H_off_mean": _mean([float(off[s]["committed_action_class_entropy"]) for s in seeds if s in off]),
-        "H_control_means": {lv: _mean([float(ctrls[lv][s]["committed_action_class_entropy"])
+        "c1b_passed": c1b_passed,
+        "n_seeds_on_above_off": int(n_on_above_off),
+        "attribution_per_seed": attribution_per_seed,
+        "off_arm_green": bool(off_green),
+        "H_on_mean": _mean([float(on[s]["committed_action_class_entropy_mm"]) for s in seeds]),
+        "H_off_mean": _mean([float(off[s]["committed_action_class_entropy_mm"]) for s in seeds if s in off]),
+        "H_control_means": {lv: _mean([float(ctrls[lv][s]["committed_action_class_entropy_mm"])
                                        for s in seeds if s in ctrls[lv]]) for lv in CONTROL_LEVERS},
         "noise_control_lifts": noise_lifts,
         "n_seeds_noise_lifts": int(n_noise_lifts),
@@ -1353,6 +1444,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     c2_all = all(readings[r]["c2_passed"] for r in REGIMES)
     c1_all = all(readings[r]["c1_passed"] for r in REGIMES)
     c1_any = any(readings[r]["c1_passed"] for r in REGIMES)
+    c1b_all = all(readings[r]["c1b_passed"] for r in REGIMES)
 
     # --- Verdict chain: instrument and control validity precede any claim verdict ---
     if not instrument_ok:
@@ -1365,8 +1457,15 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         outcome, label, direction = "FAIL", "substrate_not_ready_requeue", "non_contributory"
     elif not c2_all:
         outcome, label, direction = "FAIL", "eligibility_not_commensurate_requeue", "non_contributory"
-    elif c1_all:
+    elif c1_all and c1b_all:
         outcome, label, direction = "PASS", "commensurate_eligibility_converts", "supports"
+    elif c1_all and not c1b_all:
+        # C1 cleared the controls but ARM_ON did not beat its own operator-OFF twin: the
+        # lift is not attributable to the operator (most likely the e2wf summary source,
+        # which ARM_ON shares with ARM_OFF and the controls do not). NOT a claim verdict.
+        outcome, label, direction = ("FAIL",
+                                     "conversion_not_attributable_to_operator",
+                                     "non_contributory")
     elif c1_any:
         outcome, label, direction = "FAIL", "mixed_by_regime", "non_contributory"
     else:
@@ -1437,6 +1536,21 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
                       % (R_BAR, SEEDS_REQUIRED, len(rd["seeds"])),
         })
         criteria.append({
+            "name": "C1b_operator_attribution_%s" % regime,
+            "load_bearing": True,
+            "role": "attribution -- isolates the operator from the candidate_summary_source",
+            "passed": bool(rd["c1b_passed"]),
+            "measured": float(rd["n_seeds_on_above_off"]),
+            "threshold": float(SEEDS_REQUIRED),
+            "per_seed_measured": [p["margin_vs_off"] for p in rd["attribution_per_seed"]],
+            "per_seed_threshold": 0.0,
+            "detail": ("ARM_ON committed-class entropy (Miller-Madow) strictly above its own "
+                       "operator-OFF twin ARM_OFF at the same seed, on >= %d of %d seeds. "
+                       "ARM_OFF differs from ARM_ON only in the operator, so this is the "
+                       "single-variable contrast the two controls cannot supply."
+                       % (SEEDS_REQUIRED, len(rd["seeds"]))),
+        })
+        criteria.append({
             "name": "C1_conversion_%s" % regime,
             "load_bearing": True,
             "role": "verdict",
@@ -1460,12 +1574,20 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         criteria_non_degenerate["C1_conversion_%s" % regime] = bool(
             instrument_ok and control_distinct and readings[regime]["noise_control_lifts"]
             and readings[regime]["c2_passed"] and readings[regime]["controls_green"])
+        criteria_non_degenerate["C1b_operator_attribution_%s" % regime] = bool(
+            instrument_ok and readings[regime]["c2_passed"]
+            and readings[regime]["off_arm_green"] and readings[regime]["on_arm_green"])
 
     combination_rule = (
-        "Verdict chain, in order: instrument_clean AND C_CONTROL_DISTINCT AND (C_NOISE_LIFTS "
-        "in both regimes) AND (>=1 arm gate green) AND (C2 in both regimes) must ALL hold "
-        "before any claim direction is assigned; any failure -> non_contributory with the "
-        "corresponding self-route label. Once they hold: C1 true in BOTH regimes -> PASS / "
+        "Verdict chain, in order: instrument_clean AND C_CONTROL_DISTINCT AND C_NOISE_LIFTS "
+        "AND (>=1 arm gate green) AND C2 must ALL hold before any claim direction is "
+        "assigned; any failure -> non_contributory with the corresponding self-route label. "
+        "Then BOTH conversion criteria must hold for 'supports': C1 (ARM_ON above BOTH "
+        "controls -- MECH-439's own registered bar) AND C1b (ARM_ON above its operator-OFF "
+        "twin ARM_OFF -- the attribution contrast, since ARM_ON differs from the controls in "
+        "candidate_summary_source as well as the operator). C1 true with C1b FALSE -> "
+        "conversion_not_attributable_to_operator / non_contributory, NOT a claim verdict. "
+        "Once they hold: C1 true in BOTH regimes -> PASS / "
         "supports (conversion required rebalancing the score-scale monopoly, which is "
         "MECH-439's own conditional -- inherited verbatim from V3-EXQ-936a's registered "
         "combination_rule 'C2 true -> supports'). C1 false in both -> FAIL / "
@@ -1503,10 +1625,44 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "claim_text_restatement": "GFLAG-0471 (open; supersedes GFLAG-0469)",
     }
 
+    # Miller-Madow audit: would the uncorrected plug-in estimator have changed the verdict?
+    def _counterfactual(key: str) -> Dict[str, Any]:
+        out: Dict[str, Any] = {}
+        for regime in REGIMES:
+            on_r = _by(rows, regime, "ON")
+            off_r = _by(rows, regime, "OFF")
+            ctl_r = {lv: _by(rows, regime, lv) for lv in CONTROL_LEVERS}
+            seeds_r = sorted(on_r.keys())
+            n_c = sum(1 for sd in seeds_r
+                      if all(sd in ctl_r[lv] and float(on_r[sd][key]) > float(ctl_r[lv][sd][key])
+                             for lv in CONTROL_LEVERS))
+            n_a = sum(1 for sd in seeds_r
+                      if sd in off_r and float(on_r[sd][key]) > float(off_r[sd][key]))
+            out[regime] = {"n_seeds_converting": n_c, "n_seeds_on_above_off": n_a}
+        return out
+
+    cf_plugin = _counterfactual("committed_action_class_entropy")
+    cf_routed = _counterfactual("committed_action_class_entropy_mm")
+    estimator_changes_verdict = bool(cf_plugin != cf_routed)
+
     diagnostics = {
         "identical_control_pairs": identical_pairs,
+        "miller_madow_audit": {
+            "routed_estimator": "committed_action_class_entropy_mm (Miller-Madow)",
+            "plugin_estimator": "committed_action_class_entropy",
+            "per_cell_correction_nats": {
+                "%s/seed%s" % (r["arm"], r["seed"]): r["miller_madow_correction_nats"]
+                for r in rows},
+            "n_committed_samples_per_cell": {
+                "%s/seed%s" % (r["arm"], r["seed"]): r["n_committed_samples"] for r in rows},
+            "fixed_n_target": N_FRESH_SELECT_TARGET,
+            "all_cells_at_fixed_n": bool(rows and all(r["dv_sample_cap_met"] for r in rows)),
+            "counterfactual_under_plugin": cf_plugin,
+            "counterfactual_under_routed": cf_routed,
+            "estimator_changes_verdict": estimator_changes_verdict,
+        },
         "entropy_headroom_per_arm": per_arm_headroom(
-            rows, value_key="committed_action_class_entropy",
+            rows, value_key="committed_action_class_entropy_mm",
             low=0.0, high=MAX_COMMITTED_CLASS_ENTROPY, arm_key="arm"),
         "per_regime": readings,
         "gflag0072_remeasurement": {
@@ -1531,7 +1687,10 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "control_distinct": control_distinct,
         "n_identical_control_pairs": int(len(identical_pairs)),
         "c1_all_regimes": c1_all,
+        "c1b_all_regimes": c1b_all,
         "c2_all_regimes": c2_all,
+        "estimator_changes_verdict": estimator_changes_verdict,
+        "all_cells_at_fixed_n": bool(rows and all(r["dv_sample_cap_met"] for r in rows)),
         "green_arms": sorted(green),
         "red_arms": sorted(gate.get("red_arms") or []),
     }
@@ -1632,10 +1791,10 @@ if __name__ == "__main__":
     readout: Dict[str, float] = {}
     for regime in REGIMES:
         rd = s["per_regime"][regime]
-        for key in ("n_seeds_converting", "n_seeds_R_ON_at_bar", "n_seeds_noise_lifts",
-                    "H_on_mean", "H_off_mean", "R_ON_median", "c1_passed", "c2_passed",
-                    "noise_control_lifts", "realized_harm_per_step_on",
-                    "realized_harm_per_step_off"):
+        for key in ("n_seeds_converting", "n_seeds_on_above_off", "n_seeds_R_ON_at_bar",
+                    "n_seeds_noise_lifts", "H_on_mean", "H_off_mean", "R_ON_median",
+                    "c1_passed", "c1b_passed", "c2_passed", "noise_control_lifts",
+                    "realized_harm_per_step_on", "realized_harm_per_step_off"):
             v = _flat(rd.get(key))
             if v is not None:
                 readout["%s_%s" % (regime, key)] = v
@@ -1646,7 +1805,8 @@ if __name__ == "__main__":
     for key in ("instrument_ok", "on_off_separated", "control_distinct",
                 "n_identical_control_pairs", "n_residual_failures_total",
                 "n_self_check_failures_total", "n_off_crosscheck_failures_total",
-                "worst_i2_mismatch_rate", "c1_all_regimes", "c2_all_regimes"):
+                "worst_i2_mismatch_rate", "c1_all_regimes", "c1b_all_regimes",
+                "c2_all_regimes", "estimator_changes_verdict", "all_cells_at_fixed_n"):
         v = _flat(s.get(key))
         if v is not None:
             readout[key] = v
@@ -1788,7 +1948,7 @@ if __name__ == "__main__":
         # The manipulation must reach the DV: at least two arms must differ at the same seed.
         by_seed: Dict[int, List[float]] = {}
         for r in result["arm_results"]:
-            by_seed.setdefault(int(r["seed"]), []).append(float(r["committed_action_class_entropy"]))
+            by_seed.setdefault(int(r["seed"]), []).append(float(r["committed_action_class_entropy_mm"]))
         assert any(len(set(v)) > 1 for v in by_seed.values()), \
             "SMOKE FAIL: every arm produced an identical committed-class entropy at every seed"
         print("DRY RUN complete.", flush=True)
