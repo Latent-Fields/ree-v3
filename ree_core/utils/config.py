@@ -5375,6 +5375,19 @@ class REEConfig:
     # tonic_vigor_baseline_mode="ewma". Deliberately slower than
     # tonic_vigor_half_life so the baseline is a long-run reference level.
     tonic_vigor_baseline_half_life: float = 500.0
+    # MECH-320 no-op score-margin DV hook (2026-09-24). When True the agent
+    # passes noop_class=tonic_vigor_noop_class into E3TrajectorySelector.select,
+    # which records the SIGNED action-vs-no-op score margin both PRE-bias
+    # (raw_scores, before the score_bias chain) and POST-bias (the scores the
+    # selection was drawn from). Pure diagnostic: nothing reads it for control,
+    # so selection is bit-identical ON vs OFF. Independent of use_tonic_vigor so
+    # a tonic-vigor-OFF control arm can still record the margin. The PRE-bias
+    # read exists so a criterion is not a read-back of the injected bias:
+    # POST - PRE is the whole modulatory contribution as selection saw it --
+    # (w_action + w_passive) * v_t only with selection authority OFF and vigor
+    # the sole channel; gain * raw_score_range (v_t-INVARIANT) with it ON.
+    # On CausalGridWorldV2 set tonic_vigor_noop_class=4 (stay); 0 is a move.
+    tonic_vigor_record_noop_margin: bool = False
 
     # ----------------------------------------------------------------
     # MECH-341: e3_scoring_preserves_trajectory_class_diversity. Layer-B
@@ -8230,6 +8243,8 @@ class REEConfig:
         # baseline so v_raw can go positive).
         tonic_vigor_baseline_mode: str = "none",
         tonic_vigor_baseline_half_life: float = 500.0,
+        # MECH-320 no-op score-margin DV hook (diagnostic, default OFF).
+        tonic_vigor_record_noop_margin: bool = False,
         # SD-058 / MECH-357: instrumental-avoidance acquisition (ilPFC-analog
         # freeze-suppression + avoidance action pathway + efficacy learning).
         use_instrumental_avoidance: bool = False,
@@ -9777,6 +9792,7 @@ class REEConfig:
         config.tonic_vigor_v_t_floor = tonic_vigor_v_t_floor
         config.tonic_vigor_baseline_mode = tonic_vigor_baseline_mode
         config.tonic_vigor_baseline_half_life = tonic_vigor_baseline_half_life
+        config.tonic_vigor_record_noop_margin = bool(tonic_vigor_record_noop_margin)
 
         # SD-058 / MECH-357: instrumental-avoidance acquisition
         config.use_instrumental_avoidance = use_instrumental_avoidance

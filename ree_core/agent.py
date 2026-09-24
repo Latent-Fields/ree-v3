@@ -9995,6 +9995,11 @@ class REEAgent(nn.Module):
             _e3_select_kwargs["habit_uncertainty"] = _arb_u_habit
             _e3_select_kwargs["habit_uncertainty_source"] = _arb_src
 
+        # MECH-320 no-op score-margin DV (diagnostic). Version-layering guard:
+        # the kwarg is sent ONLY when the flag is on, so the default path never
+        # passes it (same doctrine as the DR-12 / MECH-449 guards above).
+        if getattr(self.config, "tonic_vigor_record_noop_margin", False):
+            _e3_select_kwargs["noop_class"] = int(self.config.tonic_vigor_noop_class)
         result = self.e3.select(
             candidates, effective_temperature,
             **_e3_select_kwargs,
@@ -11111,7 +11116,13 @@ class REEAgent(nn.Module):
         z_harm_a = None
         if self._current_latent is not None and self._current_latent.z_harm_a is not None:
             z_harm_a = self._current_latent.z_harm_a
-        result = self.e3.select(candidates, temperature, z_harm_a=z_harm_a)
+        _awlp_kwargs: Dict[str, Any] = {}
+        if getattr(self.config, "tonic_vigor_record_noop_margin", False):
+            # MECH-320 no-op margin DV: same guard as select_action.
+            _awlp_kwargs["noop_class"] = int(self.config.tonic_vigor_noop_class)
+        result = self.e3.select(
+            candidates, temperature, z_harm_a=z_harm_a, **_awlp_kwargs
+        )
         self._cache_tpj_prediction_for_action(result.selected_action)
         self._last_action = result.selected_action
         # MECH-165: record action for exploration trajectory

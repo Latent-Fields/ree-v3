@@ -506,7 +506,9 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
 - **[MECH-314](docs/substrate/MECH-314-arc-065-child-structured-curiosity.md)** — (ARC-065 child): Structured Curiosity Bonus + 3 Sub-Flavours (2026-05-10) *(~1,650 tok)*
 - **[MECH-314a](docs/substrate/MECH-314a-phase-2-amend-e2-world-forward-novelty.md)** — Phase-2 AMEND: e2.world_forward novelty-candidate-source (V3-EXQ-648 autopsy, 2026-06-07) *(~1,346 tok)*
 - **[MECH-319](docs/substrate/MECH-319-arc-062-gap-k-simulation-mode-rule.md)** — (arc_062 GAP-K): Simulation-Mode Rule-Write Gate (Categorical Replay Tag) (2026-05-10) *(~2,006 tok)*
-- **[MECH-320](docs/substrate/MECH-320-arc-066-child-tonic-vigor-coupling.md)** — (ARC-066 child): Tonic Vigor Coupling Score Bias (mesolimbic-DA-vigor / avg-reward-rate) (2026-05-10) *(~2,209 tok)*
+- **MECH-320** — 2 records, ~3,500 tok total.
+    - [(ARC-066 child): Tonic Vigor Coupling Score Bias (mesolimbic-DA-vigor / avg-reward-rate) (2026-05-10)](docs/substrate/MECH-320-arc-066-child-tonic-vigor-coupling.md) *(~2,209 tok)*
+    - [No-op score-margin DV hook: pre- and post-bias action-vs-no-op margin from E3 select (default off; tonic_vigor_record_noop_margin) (2026-09-24)](docs/substrate/MECH-320-noop-score-margin-dv.md) *(~1,300 tok)*
 - **[MECH-339](docs/substrate/MECH-339-c1-composite-cue-outshining-gate.md)** — C1 Composite Cue + Outshining Gate (2026-05-19) *(~892 tok)*
 - **[MECH-340](docs/substrate/MECH-340-persistence-efficacy-gate.md)** — Persistence / Efficacy Gate (2026-05-21) *(~413 tok)*
 - **MECH-341** — 3 records, ~5,384 tok total.

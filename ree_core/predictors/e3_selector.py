@@ -603,6 +603,18 @@ class E3TrajectorySelector(nn.Module):
         # selected_idx != last_scores.argmin(). A run whose consumers never read
         # this never observes the write (output-neutral, bit-identical).
         self.last_selected_idx: Optional[int] = None
+        # MECH-320 no-op score-margin DV (2026-09-24). Populated by select() ONLY
+        # when a noop_class kwarg is passed; None otherwise. Diagnostic only.
+        # See _record_noop_margin for the field definitions and sign convention.
+        self.last_noop_margin: Optional[Dict[str, Any]] = None
+        self.last_noop_candidate_present: Optional[bool] = None
+        self.last_noop_candidate_margin: Optional[float] = None
+        self.last_noop_candidate_margin_pre: Optional[float] = None
+        # Monotone count of recorded margins, stamped into last_noop_margin as
+        # "select_seq". select() is NOT called on every agent step (committed-
+        # hold ticks return early in REEAgent.select_action), so a per-step
+        # reader must dedupe on this stamp rather than count a held value twice.
+        self._noop_margin_seq: int = 0
         # E3-last-scores-pre-arbitration-staleness repair: the segregated-loop
         # arbitration's own per-eligible-candidate preference (`final`), captured
         # only when use_post_arbitration_last_scores is on so
@@ -3192,6 +3204,7 @@ class E3TrajectorySelector(nn.Module):
         simulation_mode: bool = False,
         habit_uncertainty: Optional[float] = None,
         habit_uncertainty_source: Optional[str] = None,
+        noop_class: Optional[int] = None,
     ) -> SelectionResult:
         """
         Select the best trajectory from candidates.
@@ -4525,6 +4538,20 @@ class E3TrajectorySelector(nn.Module):
         # need it regardless of that diagnostic flag.
         self.last_selected_idx = int(selected_idx)
 
+        # MECH-320 no-op score-margin DV (2026-09-24). Read-only; runs only when
+        # the caller passes noop_class, so the default path never touches it.
+        if noop_class is not None:
+            self._record_noop_margin(
+                candidates, raw_scores, scores.detach(), int(selected_idx),
+                int(noop_class),
+                post_is_selection_basis=(shortlist_idx is None),
+            )
+        else:
+            self.last_noop_margin = None
+            self.last_noop_candidate_present = None
+            self.last_noop_candidate_margin = None
+            self.last_noop_candidate_margin_pre = None
+
         # V3-EXQ-571: record which candidate was selected into decomp dict.
         if self.e3_score_decomp_enabled and self.last_score_decomp:
             self.last_score_decomp["selected_idx"] = selected_idx
@@ -4655,6 +4682,83 @@ class E3TrajectorySelector(nn.Module):
     # ------------------------------------------------------------------ #
     # Post-action update                                                   #
     # ------------------------------------------------------------------ #
+
+    def _record_noop_margin(
+        self,
+        candidates: List[Trajectory],
+        raw_scores: torch.Tensor,
+        post_scores: torch.Tensor,
+        selected_idx: int,
+        noop_class: int,
+        post_is_selection_basis: bool = True,
+    ) -> None:
+        """MECH-320 no-op score-margin DV (diagnostic, no control effect).
+
+        REE scores are lower-is-better. Candidate class = first-step action
+        argmax (the same classing REEAgent uses for the MECH-320 bias).
+
+        candidate margin  = min score over no-op candidates other than the
+                            selected one, MINUS the selected candidate's score.
+                            "How far no-op was from winning." SIGNED: under
+                            multinomial / stratified selection the committed
+                            candidate need not be the argmin, so it can be < 0.
+        action gap        = min no-op score MINUS min action score. Selection-
+                            independent; > 0 means the best action beats the
+                            best no-op.
+        Each is recorded PRE-bias (raw_scores: after SD-081 arbitration, before
+        the score_bias chain) and POST-bias (`scores` = last_scores, after every
+        modulatory term). POST is the ordering selection was drawn from ONLY
+        when post_is_selection_basis is True; when a modulatory shortlist /
+        loop arbitration picked the winner, POST describes an ordering the
+        selection did not use -- filter those ticks.
+
+        POST - PRE is the WHOLE modulatory contribution as selection saw it, not
+        the MECH-320 term alone. It equals (w_action + w_passive) * v_t only with
+        use_modulatory_selection_authority OFF and vigor the sole channel. With
+        authority ON it is rescaled to gain * raw_score_range and is INVARIANT
+        to v_t magnitude (contract N7). Never use a between-arm POST offset as a
+        MECH-320 criterion.
+        """
+        classes = [
+            int(c.actions[:, 0, :].argmax(dim=-1).flatten()[0].item())
+            for c in candidates
+        ]
+        is_noop = [k == noop_class for k in classes]
+        noop_idx = [i for i, f in enumerate(is_noop) if f]
+        act_idx = [i for i, f in enumerate(is_noop) if not f]
+        alt_noop = [i for i in noop_idx if i != selected_idx]
+
+        def _pair(sc: torch.Tensor) -> Tuple[Optional[float], Optional[float]]:
+            s = sc.reshape(-1)
+            cand = (
+                float(s[alt_noop].min().item()) - float(s[selected_idx].item())
+                if alt_noop else None
+            )
+            gap = (
+                float(s[noop_idx].min().item()) - float(s[act_idx].min().item())
+                if noop_idx and act_idx else None
+            )
+            return cand, gap
+
+        cand_pre, gap_pre = _pair(raw_scores)
+        cand_post, gap_post = _pair(post_scores)
+        self.last_noop_candidate_present = bool(alt_noop)
+        self.last_noop_candidate_margin = cand_post
+        self.last_noop_candidate_margin_pre = cand_pre
+        self._noop_margin_seq += 1
+        self.last_noop_margin = {
+            "select_seq": int(self._noop_margin_seq),
+            "post_is_selection_basis": bool(post_is_selection_basis),
+            "noop_class": int(noop_class),
+            "n_candidates": len(candidates),
+            "n_noop": len(noop_idx),
+            "selected_is_noop": bool(is_noop[selected_idx]),
+            "noop_candidate_present": bool(alt_noop),
+            "candidate_margin_pre": cand_pre,
+            "candidate_margin_post": cand_post,
+            "action_gap_pre": gap_pre,
+            "action_gap_post": gap_post,
+        }
 
     def post_action_update(
         self,
