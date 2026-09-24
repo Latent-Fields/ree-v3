@@ -33,6 +33,37 @@ from ree_core.utils.config import E1Config
 from ree_core.latent.stack import LatentState
 
 
+class _BlockUnitNorm(nn.Module):
+    """Parameter-free per-block L2 normalisation: [z_self | z_world] -> each
+    block rescaled to unit norm independently (split at `split`; split <= 0 or
+    >= the last dim normalises the whole vector as one block).
+
+    SD-CM-LIVETAP scale anchor, option (b). Used ONLY as the first stage of
+    ContextMemory.write_addr_tagger when write_tagger_scale_invariant=True, so
+    anything that reaches the tagger -- write(), both addressing losses, and a
+    driver's own H3 read-path coupling that calls write_addr_tagger directly --
+    sees a scale-invariant input. The loss is then constant along each block's
+    radial direction, so its gradient into the encoder has no radial component:
+    inflating z_world can no longer lower it. Normalising the two blocks
+    SEPARATELY (not the concatenation) matters: a single joint norm leaves the
+    z_world/z_self ratio free, which is a radial degree of freedom for z_world.
+    """
+
+    def __init__(self, split: int = 0):
+        super().__init__()
+        self.split = int(split)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        d = x.shape[-1]
+        if self.split <= 0 or self.split >= d:
+            return F.normalize(x, dim=-1)
+        return torch.cat(
+            [F.normalize(x[..., :self.split], dim=-1),
+             F.normalize(x[..., self.split:], dim=-1)],
+            dim=-1,
+        )
+
+
 class ContextMemory(nn.Module):
     """Context memory for E1's long-horizon predictions (unchanged from V2)."""
 
@@ -47,7 +78,10 @@ class ContextMemory(nn.Module):
                  write_gumbel_tau_min: float = 0.1,
                  write_gumbel_anneal_steps: int = 2000,
                  write_gumbel_tagger_hidden: int = 32,
-                 live_encoder_tap: int = 0):
+                 live_encoder_tap: int = 0,
+                 write_tagger_scale_invariant: bool = False,
+                 write_tagger_norm_split: int = 0,
+                 live_scale_anchor_margin: float = 0.0):
         super().__init__()
         self.latent_dim = latent_dim
         self.memory_dim = memory_dim
@@ -141,6 +175,79 @@ class ContextMemory(nn.Module):
             [] if self.live_encoder_tap > 0 else None
         )
 
+        # SD-CM-LIVETAP SCALE ANCHOR, option (b) (2026-09-24; orchestrator
+        # decision on chip-20260924-ctxmem-livetap-anchor-design-decision).
+        #
+        # THE DEFECT. With the tap as the encoder's only gradient source, the
+        # write-side losses are met by INFLATING z_world rather than by
+        # discriminating content: measured H3_LIVE z_world norm 0.37 -> ~140
+        # within ~100 ticks (E1 loss 0.002 -> 16.6), DIV_LIVE 0.37 -> 6.3, the
+        # DETACHED twins flat ~0.41; an SD-070 warmup before the tap phase still
+        # ended 31.8x (DIV) / 96.6x (H3) above DETACHED. Larger input -> larger
+        # tagger logits -> sharper, more separable softmax: scale is the
+        # cheapest way to satisfy both the pairwise-dissimilarity objective and
+        # the H3 read coupling.
+        #
+        # THE FIX. Remove the radial degree of freedom at the tagger boundary
+        # (_BlockUnitNorm above, prepended to write_addr_tagger) instead of
+        # adding a competing penalty -- the warmup pilot showed a competing
+        # objective loses. Scoped to the tagger: self.memory, write_gate,
+        # write_content and read() all still see the raw state, and nothing
+        # outside this class changes. write() uses the same tagger, so addresses
+        # chosen at write time and trained by the losses see the same input.
+        #
+        # Only meaningful with write_selection="gumbel_learned" (the only mode
+        # with a tagger); anything else FAILS CLOSED, since a flag claiming an
+        # anchor that anchors nothing is a negative instrument. Default False:
+        # the tagger is constructed exactly as before (same RNG draws, same
+        # state_dict keys) -- bit-identical. When True, the tagger's
+        # state_dict keys shift by one index (write_addr_tagger.1/.3 instead of
+        # .0/.2), because the norm stage is module 0 and has no parameters.
+        self.write_tagger_scale_invariant = bool(write_tagger_scale_invariant)
+        self.write_tagger_norm_split = int(write_tagger_norm_split)
+        if (self.write_tagger_scale_invariant
+                and self.write_selection != "gumbel_learned"):
+            raise ValueError(
+                "contextmemory_write_tagger_scale_invariant requires "
+                "write_selection='gumbel_learned' (the only mode with a "
+                f"write_addr_tagger), got {self.write_selection!r}"
+            )
+
+        # SD-CM-LIVETAP SCALE ANCHOR, option (c): running-norm HINGE on the
+        # tapped states. Added because (b) ALONE WAS MEASURED NOT TO HOLD the
+        # contract (2026-09-24, tests/contracts/test_contextmemory_live_tap_scale_anchor.py
+        # fixture, 200 tap updates, Adam lr 1e-3, DIV objective): z_world norm
+        # DETACHED 0.41, LIVE unanchored 212 (~500x), LIVE with (b) 2.6 at the
+        # end and 5.7 at peak (6-14x). (b) removes the radial GRADIENT, but a
+        # scale-invariant loss under Adam still drifts the norm upward (each
+        # step is orthogonal to the state and roughly fixed-size, so the norm
+        # random-walks outward). With (b) in place the hinge is not competing
+        # with an inflation incentive -- it only has to absorb that drift, which
+        # is why (b)+(c) is the intended pairing, not (c) alone.
+        #
+        # Reference: per-block ([z_self | z_world], split as above) mean norm of
+        # the FIRST batch take_live_write_states() returns, frozen thereafter
+        # (a reference that kept tracking the live norm would ratchet up with
+        # the very inflation it bounds). Penalty, per block b:
+        #     mean(relu(||x_b|| - margin * ref_b) ** 2) / ref_b ** 2
+        # summed over blocks -- zero inside the band, scale-free outside it.
+        # The CALLER adds it (live_scale_anchor_loss(states)); to keep a driver
+        # from silently forgetting it, take_live_write_states() RAISES if the
+        # previous batch's anchor term was never computed.
+        #
+        # 0.0 disables: no buffer registered, no bookkeeping. Requires the tap.
+        self.live_scale_anchor_margin = float(live_scale_anchor_margin)
+        self._live_scale_anchor_owed = False
+        if self.live_scale_anchor_margin > 0.0:
+            if self.live_encoder_tap <= 0:
+                raise ValueError(
+                    "contextmemory_write_live_scale_anchor_margin > 0 requires "
+                    "the live-encoder tap (contextmemory_write_live_encoder_tap "
+                    "> 0); without it there is nothing to anchor"
+                )
+            self.register_buffer("live_scale_ref", torch.zeros(2))
+            self._live_scale_ref_set = False
+
         # Cumulative per-slot write count + last written index. ALWAYS maintained,
         # in EVERY mode including the legacy default, because instrumentation must
         # never have to RE-DERIVE the selection: V3-EXQ-436f's occupancy tracker
@@ -169,8 +276,15 @@ class ContextMemory(nn.Module):
         # mode, so existing checkpoints for the other two modes load
         # untouched. Same shape as E1DeepPredictor.cue_slot_tagger (SD-016
         # Path 3), which is the read-path mechanism this one is modelled on.
+        # SD-CM-LIVETAP scale anchor: the norm stage is prepended ONLY when the
+        # flag is on, so the default construction is untouched.
+        _tagger_pre = (
+            [_BlockUnitNorm(self.write_tagger_norm_split)]
+            if self.write_tagger_scale_invariant else []
+        )
         self.write_addr_tagger = (
             nn.Sequential(
+                *_tagger_pre,
                 nn.Linear(latent_dim, self.write_gumbel_tagger_hidden),
                 nn.ReLU(),
                 nn.Linear(self.write_gumbel_tagger_hidden, num_slots),
@@ -633,9 +747,50 @@ class ContextMemory(nn.Module):
                 "'sense_only' or 'both', that the agent is not in offline mode, "
                 "and that this is called after at least one sense() tick"
             )
+        if self._live_scale_anchor_owed:
+            raise RuntimeError(
+                "live scale anchor is enabled "
+                "(contextmemory_write_live_scale_anchor_margin > 0) but the "
+                "previous tapped batch's live_scale_anchor_loss(states) was "
+                "never computed -- the tap would train unanchored, which is the "
+                "z_world-inflation defect the anchor exists to prevent"
+            )
         states = torch.cat(self._live_write_states, dim=0)
         self._live_write_states = []
+        if self.live_scale_anchor_margin > 0.0:
+            if not self._live_scale_ref_set:
+                with torch.no_grad():
+                    self.live_scale_ref.copy_(self._block_norms(states).mean(0))
+                self._live_scale_ref_set = True
+            self._live_scale_anchor_owed = True
         return states
+
+    def _block_norms(self, states: torch.Tensor) -> torch.Tensor:
+        """(n, 2) per-row norms of the [:split] and [split:] blocks. split <= 0
+        or >= dim -> both columns are the whole-vector norm."""
+        k = self.write_tagger_norm_split
+        if k <= 0 or k >= states.shape[-1]:
+            n = states.norm(dim=-1)
+            return torch.stack([n, n], dim=-1)
+        return torch.stack(
+            [states[..., :k].norm(dim=-1), states[..., k:].norm(dim=-1)], dim=-1
+        )
+
+    def live_scale_anchor_loss(self, states: torch.Tensor) -> torch.Tensor:
+        """SD-CM-LIVETAP option (c) hinge over a batch from
+        take_live_write_states(); add it to the tap-phase loss. See the
+        constructor comment for the reference and the formula. Discharges the
+        owed-anchor guard. RAISES when the anchor is disabled -- a zero here
+        would read as "anchored and in band" while anchoring nothing."""
+        if self.live_scale_anchor_margin <= 0.0:
+            raise RuntimeError(
+                "live_scale_anchor_loss requires "
+                "contextmemory_write_live_scale_anchor_margin > 0"
+            )
+        self._live_scale_anchor_owed = False
+        ref = self.live_scale_ref.clamp_min(1e-8)
+        excess = F.relu(self._block_norms(states) - self.live_scale_anchor_margin * ref)
+        return (excess.pow(2).mean(0) / ref.pow(2)).sum()
 
     def clear_live_write_states(self) -> None:
         """Drop buffered live states without consuming them -- for an episode
@@ -643,6 +798,8 @@ class ContextMemory(nn.Module):
         optimizer step. No-op when the tap is disabled."""
         if self._live_write_states is not None:
             self._live_write_states = []
+        # A dropped batch was never trained on, so nothing is owed for it.
+        self._live_scale_anchor_owed = False
 
     def compute_write_addressing_loss_live(self) -> torch.Tensor:
         """compute_write_addressing_loss over the LIVE tap instead of a detached
@@ -677,7 +834,13 @@ class ContextMemory(nn.Module):
         sim = probs_norm @ probs_norm.T
         n = states.shape[0]
         mask = 1.0 - torch.eye(n, device=sim.device, dtype=sim.dtype)
-        return (sim * mask).pow(2).sum() / (n * (n - 1))
+        loss = (sim * mask).pow(2).sum() / (n * (n - 1))
+        # SD-CM-LIVETAP option (c): this method consumes the tap itself, so the
+        # caller never holds `states` -- the hinge is added here when enabled
+        # (off: the return is exactly the pre-anchor expression).
+        if self.live_scale_anchor_margin > 0.0:
+            loss = loss + self.live_scale_anchor_loss(states)
+        return loss
 
 
 class E1DeepPredictor(nn.Module):
@@ -731,6 +894,20 @@ class E1DeepPredictor(nn.Module):
             ),
             live_encoder_tap=getattr(
                 self.config, "contextmemory_write_live_encoder_tap", 0
+            ),
+            # SD-CM-LIVETAP scale anchor (option b). Like the tap flag above, not
+            # yet an E1Config field / from_dims kwarg (config.py held by another
+            # session at build time; from_dims silently swallows unknown
+            # kwargs): set cfg.e1.contextmemory_write_tagger_scale_invariant =
+            # True directly. Split at self_dim so z_self and z_world are each
+            # normalised on their own.
+            write_tagger_scale_invariant=getattr(
+                self.config, "contextmemory_write_tagger_scale_invariant", False
+            ),
+            write_tagger_norm_split=self.config.self_dim,
+            # SD-CM-LIVETAP scale anchor option (c); same getattr convention.
+            live_scale_anchor_margin=getattr(
+                self.config, "contextmemory_write_live_scale_anchor_margin", 0.0
             ),
             write_gumbel_tagger_hidden=getattr(
                 self.config, "contextmemory_write_gumbel_tagger_hidden", 32
