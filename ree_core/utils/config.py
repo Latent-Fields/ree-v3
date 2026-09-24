@@ -1320,6 +1320,27 @@ class E3Config:
     # volatility from real environmental volatility. That is why the ratified
     # design carries a sigma = 0 control arm.
     #
+    # MEASURED DEFECTS OF THIS FORM, 2026-09-24 red-team -- READ BEFORE USING IT.
+    # This lever is NOT validated and the branch it lives on is parked, not landed.
+    #   1. rv here is a pure function of (u_t, _wci_symmetric_rv_ref) and NEVER reads
+    #      self._running_variance, so it ERASES every external write to rv at the next
+    #      tick. Both MECH-204 write-sites are external writes, so V3-EXQ-794a's C2
+    #      statistic d_broadcast_under_drift measures EXACTLY 0.0 under this source
+    #      (vs +1.04e-3 under asymmetric_ema) -- a criterion with one reachable value.
+    #      A recursive write-site, rv <- (1-alpha)*rv + alpha*e*exp(u_t), has the same
+    #      steady state g*E[e] and restores it to +1.27e-4, which is only 1.3x over
+    #      794a's own BROADCAST_MOVE_FLOOR. NOT adopted here: which write-site to use
+    #      is part of the pending user decision, not this session's to pick.
+    #   2. It does NOT make the MECH-204 Option A falsifier fire. That statistic is a
+    #      mean over cycles of a SIGNED displacement, and u is stationary and
+    #      mean-reverting, so the mean is zero up to a Jensen gap of ~0.01 against a
+    #      0.25 bar. Measured -0.0026 / -0.0004 at the two ratified doses, 0/360 cells
+    #      firing over a 6-sigma x 6-theta x 10-seed sweep. This is a property of ANY
+    #      stationary drift source, not of this form.
+    # What it DOES deliver is C1: overconfidence_score +0.40 at g = 0.65 against a
+    # +0.10 bar, where the asymmetric EMA reaches +0.05. Full record and the options:
+    # REE_assembly/evidence/planning/mech204_sd076b_ou_redteam_blocking_20260924.md.
+    #
     # DEFAULTS ARE NO-OP: the selector stays "asymmetric_ema", so the OFF path
     # and the existing SD-076 path are both evaluated unchanged and are
     # bit-identical. theta and seed are UNSET SENTINELS that RAISE when the "ou"

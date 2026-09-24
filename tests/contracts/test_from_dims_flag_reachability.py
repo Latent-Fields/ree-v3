@@ -334,6 +334,13 @@ REACHABLE_BY_ALTERNATIVE_IDIOM = {
         "in v3_exq_794a / 850 (x2) / 860 / 864 / 864a plus "
         "tests/contracts/test_sd076_rv_floor_headroom.py"
     ),
+    "waking_confidence_drift_source": (
+        "e3; SD-076b (2026-09-24), same alternative idiom as its sibling above -- "
+        "attribute assignment `cfg.e3.waking_confidence_drift_source = 'ou'` in "
+        "tests/contracts/test_sd076_ou_drift_source.py. No experiment driver sets "
+        "it yet: the validation run is BLOCKED pending a user decision, see "
+        "REE_assembly/evidence/planning/mech204_sd076b_ou_redteam_blocking_20260924.md"
+    ),
     "attribution_mode": (
         "hippocampal.staleness_accumulator; BOTH idioms -- direct sub-config "
         "construction StalenessAccumulatorConfig(attribution_mode=mode) in "

@@ -96,9 +96,33 @@ def _err_seq(n, seed=0, spread=SPREAD_794A):
 
 
 def _selector(**over):
-    """A bare selector exercising only the running-variance path."""
+    """A bare selector exercising only the running-variance path.
+
+    `guard` picks the rv-floor configuration, and the choice is load-bearing:
+
+    * "repaired" (DEFAULT) is the RATIFIED configuration -- scale-relative frac 0.2,
+      softplus-saturating. Every science assertion runs here, because that is the
+      configuration the validation run will use.
+    * "off" removes the bound entirely (floor <= 0 short-circuits `_apply_wci_rv_floor`).
+      Used only where the assertion is about the MULTIPLIER's exactness; the soft floor
+      perturbs it by ~2e-5 at the doses, which is irrelevant to the science and would
+      turn an exactness contract into a tolerance contract for no gain.
+
+    The pre-2026-07-22 ABSOLUTE default (`waking_confidence_rv_floor` 0.01) is NOT
+    available as a default here on purpose: at this substrate's error scale it clamps --
+    see `test_the_legacy_absolute_floor_still_clamps_at_this_error_scale`.
+    """
     cfg = E3Config()
     cfg.use_waking_confidence_inflation = over.pop("armed", True)
+    guard = over.pop("guard", "repaired")
+    if guard == "repaired":
+        cfg.waking_confidence_rv_floor_relative_frac = 0.2
+        cfg.waking_confidence_rv_floor_mode = "soft"
+    elif guard == "off":
+        cfg.waking_confidence_rv_floor = 0.0
+        cfg.waking_confidence_rv_floor_relative_frac = 0.0
+    elif guard != "legacy_absolute":
+        raise AssertionError(f"unknown guard {guard!r}")
     for k, v in over.items():
         setattr(cfg, k, v)
     sel = E3TrajectorySelector.__new__(E3TrajectorySelector)
@@ -194,7 +218,7 @@ def test_asymmetric_ema_path_is_bit_identical_after_the_selector_was_added():
 
 def test_ou_source_at_zero_gain_and_zero_sigma_tracks_the_symmetric_reference():
     """m = 0, sigma = 0 is an exact no-op multiplier: rv must equal the reference."""
-    sel = _ou(g=1.0, sigma=0.0, waking_confidence_ou_seed=-1)  # seed unused when sigma=0
+    sel = _ou(g=1.0, sigma=0.0, waking_confidence_ou_seed=-1, guard="off")
     _drive(sel, _err_seq(1500))
     assert sel._running_variance == pytest.approx(sel._wci_symmetric_rv_ref, rel=1e-12)
 
@@ -209,7 +233,7 @@ def test_sigma_zero_control_arm_is_an_exact_constant_discount(g):
 
     This IS the ratified control arm, so its exactness is a contract, not a detail.
     """
-    sel = _ou(g=g, sigma=0.0, waking_confidence_ou_seed=-1)
+    sel = _ou(g=g, sigma=0.0, waking_confidence_ou_seed=-1, guard="off")
     _drive(sel, _err_seq(3000))
     ratio = sel._running_variance / sel._wci_symmetric_rv_ref
     assert ratio == pytest.approx(g, rel=1e-9)
@@ -236,9 +260,9 @@ def test_displacement_is_independent_of_pe_dispersion():
         return out
 
     old_narrow, old_wide = displacement(
-        lambda: _selector(waking_confidence_inflation_asymmetry=0.8)
+        lambda: _selector(waking_confidence_inflation_asymmetry=0.8, guard="off")
     )
-    new_narrow, new_wide = displacement(lambda: _ou(g=G_HI, sigma=0.0,
+    new_narrow, new_wide = displacement(lambda: _ou(g=G_HI, sigma=0.0, guard="off",
                                                     waking_confidence_ou_seed=-1))
 
     # The old form's displacement is dispersion-bound: widening the stream 9x must move
@@ -401,3 +425,22 @@ def test_rv_floor_still_bounds_the_ou_path_but_does_not_bind_at_the_doses():
                   waking_confidence_rv_floor_mode="hard")
         _drive(sel, _err_seq(3000, seed=8))
         assert sel._running_variance > 0.2 * sel._wci_symmetric_rv_ref * 1.5
+
+
+def test_the_legacy_absolute_floor_still_clamps_at_this_error_scale():
+    """Why every science assertion above runs with the REPAIRED guard, pinned.
+
+    `waking_confidence_rv_floor` still DEFAULTS to the pre-repair absolute 0.01, and the
+    substrate's true error reference is ~0.0037, so the default bound sits ~2.7x ABOVE the
+    operating point and pins rv regardless of the drift source. That is the V3-EXQ-794
+    saturation defect, and it is reproduced here rather than assumed -- it caught this
+    file's own first draft, which used the default and read as an OU source that failed C1.
+    """
+    sel = _ou(g=G_HI, sigma=0.0, waking_confidence_ou_seed=-1, guard="legacy_absolute")
+    _drive(sel, _err_seq(3000))
+    assert sel._running_variance == pytest.approx(0.01, rel=1e-9)
+    # ... and the repaired guard at the same dose does NOT clamp.
+    ok = _ou(g=G_HI, sigma=0.0, waking_confidence_ou_seed=-1)
+    _drive(ok, _err_seq(3000))
+    assert ok._running_variance < 0.01
+    assert ok._running_variance / ok._wci_symmetric_rv_ref == pytest.approx(G_HI, rel=1e-3)
