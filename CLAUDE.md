@@ -523,7 +523,9 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
 - **MECH-448** — 2 records, ~3,620 tok total.
     - [ARC-107: rank-preserving F->eligibility demotion (LEAD lever of the basal-ganglia E3-selector constitution) (2026-06-20)](docs/substrate/MECH-448-arc-107-rank-preserving-f-to.md) *(~2,189 tok)*
     - [AMEND: channel-adaptive (mean-relative) eligibility floor (collapse ~5 per-channel hand-floor dances into one knob) (2026-06-21)](docs/substrate/MECH-448-amend-channel-adaptive-mean-relative.md) *(~1,430 tok)*
-- **[MECH-449](docs/substrate/MECH-449-arc-107-go-no-go-eligibility.md)** — ARC-107: Go/No-Go eligibility constitution (the OPPONENCY leg of the basal-ganglia E3-selector constitution; generalises MECH-260) (2026-06-21) *(~1,904 tok)*
+- **MECH-449** — 2 records, ~2,800 tok total.
+    - [ARC-107: Go/No-Go eligibility constitution (the OPPONENCY leg of the basal-ganglia E3-selector constitution; generalises MECH-260) (2026-06-21)](docs/substrate/MECH-449-arc-107-go-no-go-eligibility.md) *(~1,904 tok)*
+    - [Endogenous safety producer: harm-pathway safety axis, per-seed running-scale calibrated (default off; V3-EXQ-1090) (2026-09-24)](docs/substrate/MECH-449-endogenous-safety-producer.md) *(~900 tok)*
 - **[MECH-450](docs/substrate/MECH-450-arc-108-job-1-step-2-learned-recurrent.md)** — (ARC-108 JOB-1 step-2): learned recurrent-settling step + learned lateral-inhibition W_lat (factor 2 of the learned-gating 2x2; B1 + B3-blend repair) (2026-06-22) *(~2,130 tok)*
 - **[MECH-451](docs/substrate/MECH-451-finer-channel-granularity-e3-selection.md)** — finer-channel-granularity E3 selection-gating (the cheap V3 rung BETWEEN ARC-108's single global w_chan and ARC-110's V4 segregated loops; explode the compressed score_bias blend into separately-learnable per-head channels) (2026-06-24) *(~2,860 tok)*
 - **MECH-457** — 6 records, ~6,671 tok total.

@@ -2676,6 +2676,14 @@ PROBED = {
     # entirely; ON a No-Go signal drops the modulatory-favoured candidate from
     # eligibility (holds under an overwhelming modulatory pull).
     "use_go_nogo_constitution",
+    # MECH-449 endogenous safety producer (2026-09-24). Probed by
+    # tests/contracts/test_mech449_endogenous_safety_producer.py:
+    # test_flag_off_sends_no_safety_axis_on_a_real_rollout (OFF: no "safety"
+    # key reaches e3.select, the running scale is never touched) against
+    # test_flag_on_wires_safety_into_gate_and_accumulates_count (ON: a [K]
+    # safety vector reaches the gate on every select, it fires, and the gate's
+    # in-eligible-set count is accumulated).
+    "use_gng_endogenous_safety",
     # DR-12 (self_model_v4:SELF-4) E2-forward-PE confidence down-weight.
     # Probed by test_dr12_pe_confidence.py
     # test_c2_high_pe_on_primary_best_flips_selection: OFF picks the

@@ -3412,6 +3412,11 @@ class REEAgent(nn.Module):
         # default waking loop wires only the MECH-260 perseveration reuse. None ->
         # bit-identical (the gate is also master-gated by use_go_nogo_constitution).
         self._injected_go_nogo_signals: Optional[Dict[str, Any]] = None
+        # MECH-449 endogenous safety producer (2026-09-24): per-agent (= per-seed)
+        # running harm scale + accumulated fire diagnostics. Read/written only
+        # when E3Config.use_gng_endogenous_safety AND use_go_nogo_constitution
+        # are True; persists across reset() (see reset_gng_safety_state()).
+        self._gng_safety_state: Dict[str, Any] = self._new_gng_safety_state()
         # V3-EXQ-571: per-component bias decomposition (written when e3.e3_score_decomp_enabled)
         self._last_score_bias_decomp: dict = {}
         # ControlVector logging (rec-B four-signal adjudication 2026-06-07):
@@ -4271,6 +4276,124 @@ class REEAgent(nn.Module):
         responsible for matching the current candidate count K.
         """
         self._injected_go_nogo_signals = signals
+
+    @staticmethod
+    def _new_gng_safety_state() -> Dict[str, Any]:
+        return {
+            "ema_mean": 0.0,
+            "ema_var": 0.0,
+            "n_samples": 0,
+            "n_ticks_scored": 0,
+            "n_ticks_no_world_states": 0,
+            "n_candidates_scored": 0,
+            "n_signal_fired": 0,
+            "n_ticks_any_fired": 0,
+            "n_ticks_all_fired": 0,
+            "n_gate_active_ticks": 0,
+            "n_safety_nogo_applied": 0,
+            "last": None,
+        }
+
+    def reset_gng_safety_state(self) -> None:
+        """MECH-449 endogenous safety producer: clear the per-agent running harm
+        scale and the accumulated fire counters (NOT called by reset(); the scale
+        is per-seed, not per-episode)."""
+        self._gng_safety_state = self._new_gng_safety_state()
+
+    def gng_safety_diagnostics(self) -> Dict[str, Any]:
+        """MECH-449 endogenous safety producer: accumulated counters (a copy).
+
+        n_signal_fired counts candidates whose endogenous safety crossed the
+        floor (z >= gng_safety_z_threshold after warmup), over all K candidates.
+        n_safety_nogo_applied sums E3's per-tick go_nogo_n_safety_nogo on ticks
+        where the gate actually ran -- safety-vetoed candidates that were INSIDE
+        the F-built eligible set (the release-condition (b) count). ``last``
+        holds the most recent scored tick's per-candidate harm / z / fired lists
+        and the pre-update running mean / sd.
+        """
+        out = dict(self._gng_safety_state)
+        if out.get("last") is not None:
+            out["last"] = dict(out["last"])
+        return out
+
+    def _endogenous_gng_safety(self, candidates) -> Optional[torch.Tensor]:
+        """MECH-449 endogenous per-candidate safety axis from the harm pathway.
+
+        h_k = mean over candidate k's PREDICTED z_world states (world_states[1:])
+        of E3.harm_eval_head, under torch.no_grad() (no graph through the head).
+        z_k is taken against the running per-agent harm scale BEFORE this tick's
+        values are folded in; safety_k = clamp(floor * z_k / z_thr, 0, 1), so the
+        gate's safety >= gng_safety_floor test fires exactly when z_k >= z_thr.
+        Zero (no veto) until gng_safety_warmup_samples values have been seen.
+        Returns None (axis inert) when any candidate lacks world states.
+        See E3Config.use_gng_endogenous_safety for the calibration rationale.
+        """
+        cfg = self.config.e3
+        st = self._gng_safety_state
+        k = len(candidates)
+        if k < 1:
+            return None
+        with torch.no_grad():
+            vals = []
+            for c in candidates:
+                ws = None
+                if getattr(c, "world_states", None) is not None:
+                    ws = c.get_world_state_sequence()
+                if ws is None:
+                    st["n_ticks_no_world_states"] += 1
+                    return None
+                fut = ws[:, 1:, :] if ws.shape[1] > 1 else ws
+                h = self.e3.harm_eval_head(fut.reshape(-1, fut.shape[-1]))
+                vals.append(h.reshape(-1).mean())
+            harm = torch.stack(vals).detach().float().reshape(-1)
+        mu = float(st["ema_mean"])
+        var = float(st["ema_var"])
+        n = int(st["n_samples"])
+        mu_pre = mu
+        var_pre = var
+        warmup = int(getattr(cfg, "gng_safety_warmup_samples", 200))
+        sd_floor = float(getattr(cfg, "gng_safety_sd_floor", 0.01))
+        z_thr = float(getattr(cfg, "gng_safety_z_threshold", 2.0))
+        floor = float(getattr(cfg, "gng_safety_floor", 0.5))
+        sd = max(math.sqrt(max(var, 0.0)), sd_floor)
+        armed = n >= warmup
+        if armed:
+            z = (harm - mu) / sd
+            safety = (z * (floor / max(z_thr, 1e-12))).clamp(0.0, 1.0)
+            fired = z >= z_thr
+        else:
+            z = torch.zeros_like(harm)
+            safety = torch.zeros_like(harm)
+            fired = torch.zeros_like(harm, dtype=torch.bool)
+        # Fold this tick's values into the running scale (bias-corrected EMA).
+        decay = float(getattr(cfg, "gng_safety_ema_decay", 0.999))
+        for hv in harm.tolist():
+            n += 1
+            rate = max(1.0 - decay, 1.0 / n)
+            d = hv - mu
+            mu = mu + rate * d
+            var = (1.0 - rate) * (var + rate * d * d)
+        st["ema_mean"] = mu
+        st["ema_var"] = var
+        st["n_samples"] = n
+        n_fired = int(fired.sum().item())
+        st["n_ticks_scored"] += 1
+        st["n_candidates_scored"] += k
+        st["n_signal_fired"] += n_fired
+        if n_fired > 0:
+            st["n_ticks_any_fired"] += 1
+        if n_fired == k:
+            st["n_ticks_all_fired"] += 1
+        st["last"] = {
+            "harm": [float(x) for x in harm.tolist()],
+            "z": [float(x) for x in z.tolist()],
+            "fired": [bool(x) for x in fired.tolist()],
+            "armed": bool(armed),
+            "running_mean_pre": float(mu_pre),
+            "running_sd_pre": float(sd),
+            "running_sd_raw_pre": float(math.sqrt(max(float(var_pre), 0.0))),
+        }
+        return safety.to(device=self.device)
 
     def _resolve_harm_suffering_escapability(self) -> float:
         """Resolve the MECH-219 escapability scalar in [0, 1] for the current tick.
@@ -9778,6 +9901,14 @@ class REEAgent(nn.Module):
                 _gng_supp = _gng_bundle.get("suppression", None)
                 if _gng_supp is not None:
                     _gng_signals["perseveration"] = _gng_supp
+            # MECH-449 endogenous safety producer (2026-09-24): the harm pathway
+            # supplies the safety axis on a real (non-synthetic) candidate bank.
+            # Default-False sub-flag -> never runs -> bit-identical OFF. An
+            # injected safety vector below still overrides it.
+            if getattr(self.config.e3, "use_gng_endogenous_safety", False):
+                _gng_safety = self._endogenous_gng_safety(candidates)
+                if _gng_safety is not None:
+                    _gng_signals["safety"] = _gng_safety
             _injected_gng = getattr(self, "_injected_go_nogo_signals", None)
             if _injected_gng:
                 _gng_signals.update(_injected_gng)
@@ -9869,6 +10000,19 @@ class REEAgent(nn.Module):
             **_e3_select_kwargs,
         )
         self._last_e3_selection_result = result
+        # MECH-449 endogenous safety producer: accumulate the gate's per-tick
+        # in-eligible-set safety No-Go count (E3 overwrites it every select;
+        # last_score_diagnostics is a fresh dict per select, so the flag below is
+        # this tick's, never a stale latch).
+        if getattr(self.config.e3, "use_gng_endogenous_safety", False) and getattr(
+            self.config.e3, "use_go_nogo_constitution", False
+        ):
+            _gd = getattr(self.e3, "last_score_diagnostics", None) or {}
+            if _gd.get("go_nogo_constitution_active", False):
+                self._gng_safety_state["n_gate_active_ticks"] += 1
+                self._gng_safety_state["n_safety_nogo_applied"] += int(
+                    _gd.get("go_nogo_n_safety_nogo", 0)
+                )
 
         # Closure-plane commit-ENTRY primitive (rung-6 amend; commitment_closure:GAP-4;
         # failure_autopsy_V3-EXQ-460k/460l 2026-06-22). Option A (user-confirmed): SET the

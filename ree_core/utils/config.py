@@ -2028,6 +2028,52 @@ class E3Config:
     # Fail-open: No-Go keeps at least this many candidates eligible unless they
     # are safety-No-Go'd (safety is never overridden by the fail-open).
     gng_protect_min_eligible: int = 1
+    # MECH-449 ENDOGENOUS SAFETY PRODUCER (2026-09-24, chip-20260918-mech449-
+    # endogenous-safety-veto-producer). Populates the gate's ``safety`` axis from
+    # the harm VALUATION pathway instead of only from an experiment-injected
+    # constructed bank. Per candidate k: h_k = mean over the candidate's
+    # PREDICTED z_world states (world_states[1:]) of E3.harm_eval_head, computed
+    # under torch.no_grad(). CALIBRATION (orchestrator decision Q-MECH449 -> A,
+    # 2026-09-24): h_k is z-scored against a PER-AGENT (= per-seed) running harm
+    # scale -- an exponential moving mean/variance over every scored candidate
+    # value -- read BEFORE this tick's values are folded in:
+    #   z_k = (h_k - mu) / max(sd, gng_safety_sd_floor)
+    # and mapped onto the gate's [0, 1] axis as
+    #   safety_k = clamp(gng_safety_floor * z_k / gng_safety_z_threshold, 0, 1)
+    # so safety_k >= gng_safety_floor exactly when z_k >= gng_safety_z_threshold
+    # (default +2 SD). Raw sigmoid harm (cross-state spread 0.045 mean / 0.133 max,
+    # V3-EXQ-603k) cannot be compared to the absolute 0.5 floor, and within-bank
+    # min-max normalisation fires on every tick by construction (the worst
+    # candidate always reads 1.0); the running scale is the absolute reference
+    # neither of those has. gng_safety_sd_floor is the numerical/specificity
+    # guard: on a FLAT landscape (untrained head, per-candidate spread ~0.002)
+    # the running sd collapses toward 0, and without a floor z-scores of pure
+    # spread would cross +2 SD at a fixed tail rate. The default 0.01 is DERIVED,
+    # not tuned (orchestrator decision Q-MECH449-FLOOR -> A, 2026-09-24): the 0.02
+    # harm-range discriminativeness precondition divided by the +2 SD threshold,
+    # so a veto needs harm >= running mean + 0.02. Measured reason it binds: an
+    # UNTRAINED head is not flat in candidate space (predicted-state drift gave a
+    # running raw sd ~0.005-0.007 on the V3-EXQ-1090 dry run), so a 0.005 floor
+    # would not bind and the +2 SD tail would fire on an uninformative head.
+    # No veto is emitted until
+    # gng_safety_warmup_samples candidate values have been folded in (the scale
+    # is undefined before). The EMA uses a bias-corrected rate
+    # max(1 - gng_safety_ema_decay, 1 / n) so early estimates are cumulative
+    # means. The state PERSISTS across agent.reset() (a per-seed scale, not a
+    # per-episode one); REEAgent.reset_gng_safety_state() clears it. Accumulated
+    # diagnostics: REEAgent.gng_safety_diagnostics() (n_safety_nogo_applied sums
+    # E3's per-tick go_nogo_n_safety_nogo, i.e. safety-vetoed candidates that
+    # were INSIDE the F-built eligible set on ticks where the gate ran).
+    # Requires use_go_nogo_constitution (the assembly block it lives in) and the
+    # rest of the gate's arming chain (use_f_eligibility_demotion or
+    # use_modulatory_shortlist_then_modulate, a live modulatory accumulator,
+    # K >= 2). Injected signals (set_injected_go_nogo_signals) still override.
+    # Default False -> the producer never runs -> bit-identical OFF.
+    use_gng_endogenous_safety: bool = False
+    gng_safety_z_threshold: float = 2.0
+    gng_safety_ema_decay: float = 0.999
+    gng_safety_sd_floor: float = 0.01
+    gng_safety_warmup_samples: int = 200
     # ENVELOPE-WIDTH GATING (V3-EXQ-926a, 2026-08-16): this guard and the
     # MECH-448 envelope above compose into an operating-point constraint that is
     # easy to miss when tuning either one alone. A SOFT No-Go (staleness /
@@ -8766,6 +8812,12 @@ class REEConfig:
         gng_go_threshold: float = 0.5,
         gng_go_max_promote: int = 2,
         gng_protect_min_eligible: int = 1,
+        # MECH-449 endogenous safety producer (2026-09-24). No-op default.
+        use_gng_endogenous_safety: bool = False,
+        gng_safety_z_threshold: float = 2.0,
+        gng_safety_ema_decay: float = 0.999,
+        gng_safety_sd_floor: float = 0.01,
+        gng_safety_warmup_samples: int = 200,
         # DR-12 (self_model_v4:SELF-4, FIRST V4 substrate build, 2026-06-17):
         # E2 forward-PE -> E3 trajectory-scoring confidence down-weight. No-op default.
         use_pe_confidence_weighting: bool = False,
@@ -10451,6 +10503,12 @@ class REEConfig:
         config.e3.gng_go_threshold = gng_go_threshold
         config.e3.gng_go_max_promote = gng_go_max_promote
         config.e3.gng_protect_min_eligible = gng_protect_min_eligible
+        # MECH-449 endogenous safety producer (2026-09-24).
+        config.e3.use_gng_endogenous_safety = use_gng_endogenous_safety
+        config.e3.gng_safety_z_threshold = gng_safety_z_threshold
+        config.e3.gng_safety_ema_decay = gng_safety_ema_decay
+        config.e3.gng_safety_sd_floor = gng_safety_sd_floor
+        config.e3.gng_safety_warmup_samples = gng_safety_warmup_samples
         # DR-12 (self_model_v4:SELF-4, 2026-06-17): E2 forward-PE -> E3 confidence
         # down-weight. The score_trajectory penalty reads these from config.e3.
         config.e3.use_pe_confidence_weighting = use_pe_confidence_weighting

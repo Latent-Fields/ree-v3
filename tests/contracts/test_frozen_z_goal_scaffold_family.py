@@ -199,6 +199,22 @@ member of this family: whatever the goal freezes at, it is identical across ever
 of a given seed, so it cannot explain a between-cell or between-seed difference in
 occupancy grading.
 
+FAMILY GROWTH (2026-09-24). One new member: V3-EXQ-1090
+(`v3_exq_1090_mech449_endogenous_safety_veto_validation.py`), the MECH-449 endogenous
+safety-producer validation (chip-20260918-mech449-endogenous-safety-veto-producer).
+VERDICT: a fixed goal is INTENDED -- no retrofit, pin 34 -> 35. Checked directly: it
+drives each (arm, seed) cell through run_stage0_nursery / run_stage0b_consolidation /
+run_p0 / run_hazard_avoidance / run_p1, then a hand-rolled Stage-H eval loop that calls
+neither `update_z_goal` nor `_set_goal_pipeline_frozen`, and sets neither `goal_weight`
+nor `residue.benefit_terrain_live_producer`. UNLIKE the clone-per-arm members, its two
+arms (ARM_HARM_ON / ARM_HARM_OFF_CONTROL) train SEPARATE curricula, so the frozen goal
+is not arm-symmetric. That does not matter here because no criterion contrasts the arms:
+C1 (safety No-Go applied), C2 (fire rate) and C3 (within-tick paired ground-truth
+hazard difference) are within-arm, and C4 is an absolute ceiling on the control arm's
+fire rate. The frozen goal enters only through F (the E3 goal term) and therefore only
+through which candidates the F envelope admits -- a fixed TARGET recomputed per tick
+against the live z_world, the same containment argument (i) as 934/935/935a.
+
 FAMILY GROWTH (2026-09-22). One new member: V3-EXQ-1067
 (`v3_exq_1067_mech266_squash_vs_clamp_cap_sweep.py`, ree-v3 `c817881` authored,
 `01bfae2` + `a4f9650` red-team passes), the MECH-266/SD-032a squash-vs-clamp cap sweep
@@ -699,7 +715,14 @@ def test_scaffold_hands_off_with_the_goal_consumers_unfrozen():
 # every calibration / ARM_NORM-sweep / ARM_ABS cell from a goal_state-carrying
 # _clone_for_arm copy). A fixed goal is INTENDED. Full derivation in the third FAMILY
 # GROWTH addendum in this file's docstring.
-_FROZEN_FAMILY_SIZE = 34
+#
+# 34 -> 35 (2026-09-24): V3-EXQ-1090, the MECH-449 endogenous safety-producer
+# validation. NOT the clone-per-arm shape: its two arms (harm pathway trained / not)
+# each train their OWN curriculum, so the frozen goal is not arm-symmetric. A fixed goal
+# is INTENDED anyway, because no criterion is a between-arm contrast: C1-C3 are
+# within-arm (C3 within-tick paired against an env ground truth) and C4 is an absolute
+# bound on the control. Full derivation in the FAMILY GROWTH (2026-09-24) addendum.
+_FROZEN_FAMILY_SIZE = 35
 
 
 def test_frozen_z_goal_family_size_is_pinned():
