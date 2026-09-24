@@ -1762,6 +1762,27 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     cf_routed = _counterfactual("committed_action_class_entropy_mm")
     estimator_changes_verdict = bool(cf_plugin != cf_routed)
 
+    # RED-TEAM PASS 2 FIX (F2), recording-only. On the prior (689i) the likeliest exit is
+    # `matched_noise_control_unmeetable`, which is reached BEFORE C1/C1b. C1b does not depend
+    # on the noise control -- it is ARM_ON vs its own operator-OFF twin -- so it is still
+    # validly measured on that exit, and throwing it away is exactly what the fix was added
+    # to prevent. Surface it explicitly instead of leaving a reader to infer from a criteria
+    # list that the run was non_contributory while C1b reads passed=True.
+    c1b_adjudicated = bool(outcome == "PASS" or label in (
+        "conversion_ceiling_persists_under_commensurate_eligibility",
+        "conversion_not_attributable_to_operator"))
+    c1b_measured_not_adjudicated = {
+        "adjudicated": c1b_adjudicated,
+        "note": ("C1b was measured but the run exited on an earlier gate (%s), so it carries "
+                 "no claim direction here. It is the single-variable ON-vs-OFF contrast and "
+                 "is reported so an autopsy need not re-run to recover it." % label)
+                if not c1b_adjudicated else "C1b was adjudicated in this run's verdict.",
+        "per_regime": {r: {"c1b_passed": readings[r]["c1b_passed"],
+                           "n_seeds_on_above_off": readings[r]["n_seeds_on_above_off"],
+                           "attribution_per_seed": readings[r]["attribution_per_seed"]}
+                       for r in REGIMES},
+    }
+
     diagnostics = {
         "identical_control_pairs": identical_pairs,
         "inert_control_pairs": inert_pairs,
@@ -1823,27 +1844,6 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "all_cells_at_fixed_n": bool(rows and all(r["dv_sample_cap_met"] for r in rows)),
         "green_arms": sorted(green),
         "red_arms": sorted(gate.get("red_arms") or []),
-    }
-
-    # RED-TEAM PASS 2 FIX (F2), recording-only. On the prior (689i) the likeliest exit is
-    # `matched_noise_control_unmeetable`, which is reached BEFORE C1/C1b. C1b does not depend
-    # on the noise control -- it is ARM_ON vs its own operator-OFF twin -- so it is still
-    # validly measured on that exit, and throwing it away is exactly what the fix was added
-    # to prevent. Surface it explicitly instead of leaving a reader to infer from a criteria
-    # list that the run was non_contributory while C1b reads passed=True.
-    c1b_adjudicated = bool(outcome == "PASS" or label in (
-        "conversion_ceiling_persists_under_commensurate_eligibility",
-        "conversion_not_attributable_to_operator"))
-    c1b_measured_not_adjudicated = {
-        "adjudicated": c1b_adjudicated,
-        "note": ("C1b was measured but the run exited on an earlier gate (%s), so it carries "
-                 "no claim direction here. It is the single-variable ON-vs-OFF contrast and "
-                 "is reported so an autopsy need not re-run to recover it." % label)
-                if not c1b_adjudicated else "C1b was adjudicated in this run's verdict.",
-        "per_regime": {r: {"c1b_passed": readings[r]["c1b_passed"],
-                           "n_seeds_on_above_off": readings[r]["n_seeds_on_above_off"],
-                           "attribution_per_seed": readings[r]["attribution_per_seed"]}
-                       for r in REGIMES},
     }
 
     outcome_note = (
