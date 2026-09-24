@@ -27,6 +27,25 @@
       "experiment_type": "v3_exq_1067_mech266_squash_vs_clamp_cap_sweep",
       "predecessor": "V3-EXQ-934",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-1083",
+      "title": "SD-081 adaptive-vs-fixed allocation falsifier (model-uncertainty half only): uncertainty arbitration vs matched fixed / shuffled / single-path references under E2 world_transition perturbation",
+      "experiment_type": "v3_exq_1083_sd081_adaptive_vs_fixed_allocation",
+      "script": "experiments/v3_exq_1083_sd081_adaptive_vs_fixed_allocation.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 450,
+      "episodes_per_run": 250,
+      "seeds": 8,
+      "conditions": 1,
+      "claim_id": "SD-081",
+      "claim_ids": [
+        "SD-081"
+      ],
+      "backlog_id": "EVB-1663",
+      "status": "pending",
+      "note": "SD-081 falsifier, MODEL-UNCERTAINTY HALF ONLY (falsifier_scope=model_uncertainty_half_only): adaptive SD-081 arbitration vs matched fixed-mixture, shuffled-w and habit_only/planned_only references, all five arms deep-copied from ONE practised agent per seed (bit-identical weights), on the 4 practised layouts x {intact, perturbed E2 world_transition}. Load-bearing: C1 w tracks u_planned (dw intact-perturbed), C2 committed-selection recruitment DID vs fixed, C3 return benefit vs fixed on cells where the pure pathways separate. THE FAMILIARITY HALF IS NOT TESTED AND STAYS OPEN: probes on seeds outside SEEDS (2026-09-24) showed the SD-025 familiarity tracker's 128-anchor FIFO turns over ~10x in practice (209/216/350/524 allocations per layout), so u_habit ~1.0 on familiar and novel layouts alike when frozen, and tracks recency when live; governance flag raised. Authored by IGW-20260924-241 (EVB-1663, died on HTTP 429 before queueing), finished by orch0924-exq1083. GOV-REUSE-1 (Step 2.4): decisive readout = PA DID adaptive-vs-FIXED under a model perturbation; checked V3-EXQ-811/811a (the only SD-081 runs) -- no fixed-mixture arm, no model manipulation, no committed-selection read -> not recoverable, run. Step 2.5b re-derive brake: 0 counted autopsies on SD-081. Step 2.5c: only corrupting overlap on e3_selector.py is f_dominance_conversion_ceiling, implementation_status wontfix (closed). red-team (fable): CONTESTED, 4 findings -> fixed per orchestrator decisions Q-1083 A + Q-1083b A: F1 familiarity axis untestable -> dropped; P4 gated per seed; F2 C3 over separating cells + steps survived reported; F3 reach-complete C2 failure routes reach_complete_dose_insufficient (mixed); F4 MODEL_PERTURB_REL_SIGMA=2.0 from an out-of-sample dose probe (per-seed AUC u_planned perturbed>intact 0.72/0.70 @0.5, 0.86/0.64 @1.0, 0.91/0.92 @2.0). Smoke: dry-run PASS end to end (2 seeds, validate_experiments --strict OK, validate_recording --strict OK, ep N/28, 2 verdict lines, z_goal no writer defect); dry-run self-routes FAIL/weakens only because SEM_MIN_N=3 > 2 dry-run seeds. Estimate from 811a (641 min for ~3070 eps on ree-worker-1, ~12.5 s/ep): 8 x 250 eps ~ 420-450 min."
     }
   ]
 }
