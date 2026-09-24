@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-09-21 (T01:10Z nightly)
+**Last updated:** 2026-09-24 (T17:34Z nightly)
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -236,6 +236,131 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 `REE_assembly/docs/architecture/self_attribution_per_stream.md`.
 
 ### Experiment Status
+
+- **2026-09-24T17:34Z nightly attestation (scheduled `/update-docs`, bot
+  identity).** ~87h window since the 2026-09-21T01:10Z snapshot -- nightlies
+  for 2026-09-22 and 2026-09-23 did not run (`docs/roadmap.md` had no
+  intervening commits), so this attestation covers a substantive
+  three-and-a-half-day band. Flat `v3_exq_*.json` manifests on disk:
+  **1058** (+16 vs 1042 at 2026-09-21T01:10Z); nested per-run manifests
+  under `evidence/experiments/*/runs/`: **2994** (+16 vs 2978).
+  **Currently queued (`experiment_queue.json` items[]): 3 items** --
+  V3-EXQ-1090 (MECH-449 endogenous-safety-veto validation, priority 50),
+  V3-EXQ-1067 (MECH-266/SD-032a squash-vs-clamp affinity cap sweep with
+  gain-matched control arm, diagnostic, priority 30, carried forward
+  from 2026-09-21), V3-EXQ-1089 (MECH-268 closure-cadence mode register,
+  priority 30). **Pending review (`pending_review.md`, regenerated
+  2026-09-24T10:27:00Z): 1 item** -- V3-EXQ-1085 MECH-365 provenance-gate
+  boundary lesion PASS awaiting Step 8 verify-and-close. Coordinator-DB
+  30-day rolling (per `experiment_error_rate.py` against the hub
+  `ree@91.98.130.117`, span 2026-08-25T14:21:16Z ..
+  2026-09-24T17:23:47Z): **73 PASS / 62 FAIL / 2 ERROR, ERROR rate 1.5%
+  (2 / 137 classified runs)** -- +4 PASS, +4 FAIL, -1 ERROR vs the
+  2026-09-21 rolling window (older ERROR fell out of the 30d rolling
+  span).
+  (a) **Substrate landings in the window**: **MECH-365 provenance-gate
+  boundary** landed (ree-v3 `de12c2c`; V3-EXQ-1085 queued `31733c1253`;
+  governance recorded landing 2026-09-24 `d9be762b638`, claims.yaml
+  implementation note + `substrate_dependencies` landing, `mechanism_changing`
+  false); **MECH-468 anchor relational-dump** substrate registered
+  (`d3595814745`); SD-PP-B5 addendum (option C implemented, red-team
+  BLOCKING, V3-EXQ-1092 NOT queued, `06ca014d5cf`). SD-106 (2026-09-11)
+  remains the most recent major substrate landing.
+  (b) **Three experiments queued in-window** (net queue depth):
+  V3-EXQ-1090 (MECH-449 endogenous-safety-veto validation), V3-EXQ-1089
+  (MECH-268 closure-cadence mode register), V3-EXQ-1085 (MECH-365
+  provenance-gate boundary lesion; ran and PASSed, awaiting Step 8).
+  V3-EXQ-1067 carried forward from the prior window; V3-EXQ-1069,
+  V3-EXQ-1070a, V3-EXQ-1071 drained in-window.
+  (c) **Multiple drivers authored and REFUSED / NOT QUEUED** on red-team
+  BLOCKING or unmeetable pre-registered DVs: V3-EXQ-1092 (SD-PP-B5
+  option C), V3-EXQ-1097 (MECH-287, DV confounded with episode count,
+  `09f90be6c9b`); EXP-0371 blocked on pag-freeze-gate
+  phase-scoped-recommit-readout (`c0a0c36aaa1`); EXP-1283 blocked on
+  precision-weighted-residue-accumulation (`a4840970c8b`); EXP-1388
+  blocked on MECH-288 slow-scale BOCPD rail unreachable
+  (`0962d400fb6`); V3-EXQ-1093 (MECH-428) red-team BLOCKING record +
+  pilot (time-shift null, 884c at-chance likely K=1 artefact, parked
+  pending decision chip, `211e5de34d6`); MECH-025b/EXP-1283 (DV has no
+  precision input, `63b1213c58b`). The refusal gate continues to work as
+  designed.
+  (d) **Very heavy governance-flag activity in-window** -- 82 flag-raise
+  commits touching (non-exhaustive) MECH-024, MECH-025b, MECH-029,
+  MECH-033, MECH-046, MECH-049, MECH-055, MECH-064, MECH-066, MECH-069,
+  MECH-092, MECH-094, MECH-131, MECH-268, MECH-284, MECH-287, MECH-288,
+  MECH-291, MECH-302, MECH-304, MECH-321, MECH-330, MECH-365, MECH-384,
+  MECH-428, MECH-439, MECH-449, MECH-464, MECH-477, MECH-537, MECH-561,
+  MECH-573, ARC-021, ARC-023, ARC-029, ARC-065, INV-063, INV-086,
+  INV-089, Q-004, Q-018, SD-006, SD-008, SD-011, SD-017, SD-024, SD-032a,
+  SD-035, SD-036, SD-050, SD-081, SD-092, SD-PP-B5. Big single sweep:
+  `0d67c362ac6` raised 16 `evidence_discrepancy` flags in one commit
+  against SD-017, SD-035, ARC-065, MECH-094, SD-011, Q-004, Q-018,
+  MECH-033, MECH-304, MECH-302, SD-050, INV-089, MECH-288, MECH-287,
+  MECH-092, MECH-046.
+  (e) **Governance cycle 2026-09-24 landed** (`REE_assembly` master,
+  multiple commits): recorded MECH-365 substrate landing
+  (`d9be762b638`); applied three confirmed GFLAG-0452 cluster autopsies
+  (D1/D2/D3D4, `2e6fe97c4bd`); decision-log entries for GFLAG-0452
+  status moves MECH-302/288/287/092 -> candidate, MECH-033 -> provisional +
+  MECH-365 hold; G6 suffering-derivative-comparator-refractory build
+  entry opt-in default OFF (`6352c8c7fa2`); E1 SD-PP-B9 PE-source
+  alternative re-specified as fast proximity-field input-level PE
+  (GFLAG-0451 B), E2 sd105 ratification stands, E3 MECH-024 residue
+  ring-capacity + neural_field-gate rows build-authorised as opt-in
+  bit-identical knobs (GFLAG-0450 A) (`062274869ac`); D9 MECH-151
+  reconciled to the 09-04 ruling (GFLAG-0133 B's no-channel premise
+  false since ree-v3 `84e211a`) + D10 ARC-023 falsifier tightened
+  (`797901ec696`); GFLAG-0250 D6 driver-skim persisted, SD-PP-B9
+  ready=false, V3-EXQ-1066 ERROR dispositioned no-rerun
+  (`d5eb2804076`).
+  (f) **`/thought-digestion`** ingested three new bundles in-window:
+  dynamic coordination repertoire and monostrategy (`053e53ca3e9`);
+  ground frontier mechanism discovery in automated science literature
+  (`e1ba058baa8`); experimental learning beyond the literature
+  (`0665cf9fe8c`).
+  (g) **SD-PP-B5 reanalysis (2026-09-24)**: OFF head DOES read its
+  action at alpha 0.9 on a live battery (3/3 seeds, zero compute,
+  `44b88074912`).
+  (h) **bt0924-repertoire-ab** monostrategy Type A vs B evidence audit
+  + discriminating assay design landed (`948d58cd3e4`, not queued);
+  probe decomposes V3-EXQ-1061 monostrategy as generation-stage
+  substrate with 31:1 state-invariant pool.
+  (i) **IGW auto-tick**: IGW-20260924-252 spawned for MECH-081
+  literature proposal (`1e6fb5e5bfc`, `c74d7b47ecc`); IGW-20260924-224
+  staged for igw-224 substrate-ready-suffering-deriva (`7a84cb5f837`);
+  multiple ledger sweeps in-window. `igw-workset` steady at 267 items /
+  34 ready / 0 in flight.
+  (j) **MECH-287 refusal** with pre-registered DV confounded with
+  episode count -- V3-EXQ-1097 REFUSED (`09f90be6c9b`); MECH-468
+  substrate registration note (`d3595814745`).
+  (k) **Coordination-plane background** stable: phase3-queue snapshots
+  in-window; igw auto-tick sweeps; steward-sweep stranded no-op ledger
+  row landed (`305e1cdd399`).
+  (l) **Note on Step 4 (ree-v3/CLAUDE.md SD-section sync) SKIPPED**:
+  `ree-v3/CLAUDE.md` is under an active rival claim
+  (`metaworker-science-20260924-mech320-margin-hook-b`, opened
+  2026-09-24T17:10:13Z, currently editing MECH-320 no-op margin hook) --
+  this scheduled task deferred to it per CLAUDE.md concurrency rules
+  and re-opened its claim without that path.
+  This attestation itself is the last content change:
+  `docs/ree-v3-spec.md` §0 date bump + Experiment Status entry, the
+  paired `docs/roadmap.md` snapshot, plus nav/status/goblin re-stamp.
+  **Bottleneck: unchanged in location, dominated by governance queue
+  saturation** -- 82 flag-raise commits in a 87h window against a
+  `/governance` cycle that has to walk each disposition interactively
+  and gate substrate landings on it. The H-observation-interface
+  convergence axis remains open (SD-106
+  IMPLEMENTED-and-partially-validated). MECH-365 provenance-gate
+  boundary substrate landing is the substantive positive step in the
+  window. The refusal / red-team BLOCKING gate is working as designed
+  under substrate that has to be worked around, not through. Green-board
+  target 2026-07-19 now **67 days overdue**. **ETHICS-PERIMETER Phase 0
+  datum** stays on the record (Phases 1-3 deferred; NON-BLOCKING).
+  Public-information-architecture impact: reviewed against
+  `docs/design/public_information_architecture.md` -- no `/api/*`
+  surface, generated visualization, or public export changed; nightly
+  snapshot + spec date bump + Experiment Status entry only; no SD table
+  rows added, moved, or restatused.
 
 - **2026-09-21T01:10Z nightly attestation (scheduled `/update-docs`, bot
   identity).** ~24h window since the 2026-09-20T01:10Z snapshot -- a
