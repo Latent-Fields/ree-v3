@@ -52,6 +52,7 @@ No trainable parameters. Pure float arithmetic.
 
 from __future__ import annotations
 
+from collections import deque
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from ree_core.utils.config import StalenessAccumulatorConfig
@@ -70,6 +71,14 @@ class StalenessAccumulator:
         # Diagnostic counters.
         self._n_integrations: int = 0
         self._n_leak_ticks: int = 0
+        # MECH-468 E: bounded ring buffer of per-anchor attribution edges,
+        # populated inside integrate()'s loop below only when
+        # config.record_edge_log is True. Allocating the (empty) deque
+        # here is unconditional and free; nothing is appended on the OFF
+        # path.
+        self._edge_log: deque = deque(
+            maxlen=int(getattr(config, "edge_log_max_len", 4096))
+        )
 
     # ------------------------------------------------------------------ #
     # Integration                                                        #
@@ -99,6 +108,7 @@ class StalenessAccumulator:
             return
         mode = str(getattr(self.config, "attribution_mode", "equal")).lower()
         clip = float(getattr(self.config, "staleness_clip", 1.0))
+        record_log = bool(getattr(self.config, "record_edge_log", False))
 
         for bcast in broadcasts:
             self._n_integrations += 1
@@ -129,6 +139,23 @@ class StalenessAccumulator:
                 nxt = curr + incr * strength
                 if nxt > clip:
                     nxt = clip
+                if record_log:
+                    # MECH-468 E: log the per-anchor edge BEFORE it folds
+                    # into self._staleness below -- the sum+leak design
+                    # destroys this edge-level credit the tick after this
+                    # runs (get_stats()/snapshot() only ever expose the
+                    # post-fold, post-leak region aggregate), so this loop
+                    # is the only point it is ever recoverable.
+                    self._edge_log.append({
+                        "t": getattr(bcast, "t", None),
+                        "source_scale": getattr(bcast, "source_scale", None),
+                        "source_segment_id_old": getattr(
+                            bcast, "source_segment_id_old", None
+                        ),
+                        "target_anchor_key": anchor.key,
+                        "attribution_weight": float(incr),
+                        "strength": float(strength),
+                    })
                 self._staleness[region_key] = nxt
 
     # ------------------------------------------------------------------ #
@@ -168,6 +195,16 @@ class StalenessAccumulator:
     def snapshot(self) -> Dict[RegionKey, float]:
         """Shallow copy of the current staleness map (diagnostic)."""
         return dict(self._staleness)
+
+    def edge_log(self) -> List[Dict[str, Any]]:
+        """MECH-468 E: bounded ring buffer of per-anchor attribution edges
+        logged inside integrate()'s loop, before folding into
+        self._staleness. Empty unless config.record_edge_log is True.
+        This is the only way to recover per-broadcast, per-anchor credit
+        -- snapshot()/get_stats() expose only the post-leak,
+        post-accumulation region aggregate.
+        """
+        return list(self._edge_log)
 
     def get_stats(self) -> Dict[str, Any]:
         return {
@@ -246,3 +283,8 @@ class StalenessAccumulator:
         self._staleness.clear()
         self._n_integrations = 0
         self._n_leak_ticks = 0
+        # MECH-468 E: region keys (scale, segment_id) recycle per-episode
+        # (same aliasing hazard as AnchorSet.reset()'s dual-trace stores),
+        # so a stale edge-log entry from a prior episode would alias a
+        # new episode's anchors.
+        self._edge_log.clear()

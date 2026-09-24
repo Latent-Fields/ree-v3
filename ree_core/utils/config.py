@@ -2447,6 +2447,18 @@ class AnchorSetConfig:
     #     0.05 is the measured plateau; 0.2+ is actively harmful.
     goal_cue_centering: bool = False
     goal_cue_baseline_alpha: float = 0.05
+    # MECH-468 A/C: per-anchor relational-edge recording (default OFF).
+    # Master switch for AnchorSet.dump_relational_snapshot() (type A --
+    # pairwise z_world proximity over the dual-trace pool) and the
+    # per-BoundaryEvent shared-event log populated inside
+    # consume_boundary_events (type C). Pure recording: no behaviour
+    # change to write_anchor / tick_hysteresis / any selection path.
+    # See mech468_edge_type_inventory_spike.md Section 4.
+    record_relational_snapshot: bool = False
+    # Bound on the type-C shared-event ring buffer (oldest dropped first)
+    # so recording stays bounded even across a long rollout. Only
+    # allocated/consulted when record_relational_snapshot is True.
+    relational_event_log_max_len: int = 2048
 
 
 @dataclass
@@ -2480,6 +2492,21 @@ class StalenessAccumulatorConfig:
     attribution_mode: str = "equal"   # "equal" | "stream_overlap"
     staleness_clip: float = 1.0
     drop_epsilon: float = 1e-6
+    # MECH-468 E: per-anchor attribution-edge recording (default OFF).
+    # When True, integrate() logs {t, source_scale, source_segment_id_old,
+    # target_anchor_key, attribution_weight, strength} for every non-zero
+    # increment INSIDE its accumulation loop, before the increment folds
+    # into self._staleness -- the edge-level credit is destroyed by the
+    # sum+leak design the tick after integrate() runs, so this is the only
+    # point the per-anchor attribution is ever recoverable. Pure recording:
+    # no change to the staleness math itself. Note (spike Section 3, type
+    # E row): under attribution_mode="equal" (the default) this relation
+    # is fully-connected by construction; a non-degenerate E-type read
+    # needs attribution_mode="stream_overlap", a caller choice this flag
+    # does not make for you. See mech468_edge_type_inventory_spike.md.
+    record_edge_log: bool = False
+    # Bound on the type-E ring buffer (oldest dropped first).
+    edge_log_max_len: int = 4096
 
 
 @dataclass
@@ -2582,6 +2609,14 @@ class GhostGoalBankConfig:
     # behaviour bit-identical to the pre-MECH-339 bank.
     use_composite_cue_outshining: bool = False
     context_weight: float = 0.0
+    # MECH-468 D: per-anchor relational-component recording (default OFF).
+    # rank() already computes goal_match / wanting_strength / arousal_tag
+    # per anchor and discards them into component_sums (weighted-aggregate
+    # only); when True, rank() additionally retains the RAW per-anchor
+    # values via get_relational_components(). Pure recording: no change to
+    # ghost_priority, ordering, or any weighted term. See
+    # mech468_edge_type_inventory_spike.md Section 4 (type D).
+    record_relational_components: bool = False
     outshine_pivot: float = 0.5
     arousal_scale: float = 1.0
     # ---- MECH-340 persistence / efficacy gate ----

@@ -189,6 +189,10 @@ class GhostGoalBank:
         # the pre-SD-097 code path.
         self.possibility_topology = possibility_topology
         self._last_diagnostics: Dict[str, Any] = {}
+        # MECH-468 D: raw per-anchor {goal_match, wanting_strength,
+        # arousal_tag} from the last rank() call. Empty unless
+        # config.record_relational_components is True.
+        self._last_relational_components: List[Dict[str, Any]] = []
 
     # ------------------------------------------------------------------ #
     # Public API                                                         #
@@ -213,6 +217,7 @@ class GhostGoalBank:
         cfg = self.config
         if current_z_goal is None:
             self._last_diagnostics = self._empty_diagnostics(reason="no_z_goal")
+            self._last_relational_components = []
             return []
 
         # SD-079: advance the AnchorSet's common-mode baseline on this waking cue
@@ -252,6 +257,8 @@ class GhostGoalBank:
         admitted_directly: List[Tuple[AnchorKey, float]] = []
 
         scored: List[GhostGoalBankEntry] = []
+        record_relational = bool(cfg.record_relational_components)
+        relational_components: List[Dict[str, Any]] = []
         sums = {
             "wanting": 0.0,
             "goal_match": 0.0,
@@ -334,6 +341,17 @@ class GhostGoalBank:
                 ghost_priority=float(priority),
                 components=components,
             ))
+            if record_relational:
+                # MECH-468 D: retain the RAW per-anchor values (as opposed
+                # to the weighted terms already in `components` above, and
+                # the aggregate `sums` below) -- these are exactly what
+                # rank() computes and discards today.
+                relational_components.append({
+                    "anchor_key": anchor.key,
+                    "goal_match": float(goal_match),
+                    "wanting_strength": float(payload.wanting_strength),
+                    "arousal_tag": float(payload.arousal_tag),
+                })
             if topology_on:
                 admitted_directly.append((anchor.key, float(goal_match)))
 
@@ -388,11 +406,28 @@ class GhostGoalBank:
         }
         if relational_diag is not None:
             self._last_diagnostics.update(relational_diag)
+        self._last_relational_components = relational_components
         return scored
 
     def get_diagnostics(self) -> Dict[str, Any]:
         """Last-call summary. Cleared by reset()."""
         return dict(self._last_diagnostics)
+
+    def get_relational_components(self) -> List[Dict[str, Any]]:
+        """MECH-468 D: raw per-anchor {anchor_key, goal_match,
+        wanting_strength, arousal_tag} from the last rank() call. Empty
+        unless config.record_relational_components is True. Distinct
+        from get_diagnostics()'s component_sums, which is the aggregate
+        WEIGHTED composite -- this is the raw per-anchor values that
+        rank() computes and discards by default.
+
+        Covers only the direct-admission loop (anchors clearing
+        goal_match_floor on their own cosine); SD-097 relational-successor
+        entries admitted via _admit_relational_successors are not yet
+        covered (a possible future extension, out of scope for MECH-468's
+        minimal recording change).
+        """
+        return list(self._last_relational_components)
 
     def reset(self) -> None:
         """Per-episode reset of the diagnostics cache.
@@ -403,6 +438,7 @@ class GhostGoalBank:
         the episode boundary.
         """
         self._last_diagnostics = {}
+        self._last_relational_components = []
 
     # ------------------------------------------------------------------ #
     # Internal helpers                                                   #

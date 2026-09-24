@@ -43,6 +43,7 @@ MECH-094 gate:
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -54,6 +55,23 @@ from ree_core.utils.config import AnchorSetConfig
 
 
 AnchorKey = Tuple[str, str, Tuple[str, ...]]
+
+
+def _cosine_proximity(a: torch.Tensor, b: torch.Tensor) -> float:
+    """MECH-468 A: pairwise latent-proximity score between two z_world
+    tensors. Same non-negative cosine recipe as Anchor.goal_match, minus
+    baseline centering -- z_world carries no documented SD-079-style
+    common-mode offset (that finding was measured on z_goal specifically).
+    Returns 0.0 on empty, mismatched-shape, or near-zero vectors.
+    """
+    av = a.detach().reshape(-1).float()
+    bv = b.detach().reshape(-1).float()
+    if av.numel() == 0 or bv.numel() == 0 or av.numel() != bv.numel():
+        return 0.0
+    if av.norm().item() < 1e-9 or bv.norm().item() < 1e-9:
+        return 0.0
+    sim = F.cosine_similarity(av.unsqueeze(0), bv.unsqueeze(0), dim=-1)
+    return max(0.0, float(sim.item()))
 
 
 @dataclass
@@ -217,6 +235,14 @@ class AnchorSet:
         # site and nothing else. Duck-typed (no module-level import) because
         # possibility_topology imports AnchorKey FROM here.
         self.possibility_topology: Optional[Any] = None
+        # MECH-468 C: bounded ring buffer of shared-event co-membership
+        # records, populated inside consume_boundary_events below only
+        # when config.record_relational_snapshot is True. Allocating the
+        # (empty) deque here is unconditional and free; nothing is ever
+        # appended to it on the OFF path.
+        self._relational_event_log: deque = deque(
+            maxlen=int(getattr(config, "relational_event_log_max_len", 2048))
+        )
 
     # ------------------------------------------------------------------ #
     # SD-097: typed possibility topology attachment                       #
@@ -518,19 +544,97 @@ class AnchorSet:
             return []
         installed: List[Anchor] = []
         scales = set(self.config.scales)
+        record_relational = bool(
+            getattr(self.config, "record_relational_snapshot", False)
+        )
         for ev in events:
             if ev.scale not in scales:
                 continue
-            installed.append(
-                self.write_anchor(
-                    scale=ev.scale,
-                    segment_id=ev.segment_id_new,
-                    stream_mixture=stream_mixture,
-                    z_world=z_world,
-                    goal_payload=goal_payload,
-                )
+            anchor = self.write_anchor(
+                scale=ev.scale,
+                segment_id=ev.segment_id_new,
+                stream_mixture=stream_mixture,
+                z_world=z_world,
+                goal_payload=goal_payload,
             )
+            installed.append(anchor)
+            if record_relational:
+                # MECH-468 C: tag this BoundaryEvent with the anchor_key it
+                # installed, while the event object and the installed
+                # anchor are both still in scope (the only point either
+                # is available together).
+                self._relational_event_log.append({
+                    "t": int(ev.t),
+                    "scale": ev.scale,
+                    "segment_id_old": ev.segment_id_old,
+                    "segment_id_new": ev.segment_id_new,
+                    "sources": list(ev.sources),
+                    "anchor_key": anchor.key,
+                })
         return installed
+
+    # ------------------------------------------------------------------ #
+    # MECH-468 A/C: relational-edge recording                            #
+    # ------------------------------------------------------------------ #
+    def dump_relational_snapshot(self, scale: Optional[str] = None) -> Dict[str, Any]:
+        """Read-side relational-edge dump over the dual-trace anchor pool.
+
+        No-op (returns {}) unless config.record_relational_snapshot is
+        True -- pure recording, no behaviour change to write_anchor,
+        tick_hysteresis, or any selection path.
+
+        Returns:
+          {
+            "anchors": [{"anchor_key", "created_at", "last_accessed"}, ...]
+                over all_anchors(scale) -- the full dual-trace pool
+                (active + inactive), matching AnchorSet's broadest
+                existing query helper (all_with_dual_trace()).
+            "proximity_edges": [{"anchor_key_a", "anchor_key_b",
+                "proximity"}, ...] -- type A, one row per unordered pair,
+                proximity = _cosine_proximity(z_world_a, z_world_b). A
+                bounded score matrix, never the raw latents (manifests
+                must stay bounded -- spike Section 4).
+            "shared_event_edges": [{"t", "scale", "segment_id_old",
+                "segment_id_new", "sources", "anchor_key"}, ...] --
+                type C, a copy of the ring buffer populated by
+                consume_boundary_events above (capped at
+                config.relational_event_log_max_len entries, oldest
+                dropped first).
+          }
+
+        Non-degeneracy (the anchor-count / edge-density floor for A, the
+        concurrent-family floor for C -- spike Section 3) is a property
+        of the returned DATA, checked by the caller / contract test, not
+        enforced here: this method is a pure dump, not a gate.
+
+        Cost is O(n^2) in pool size for proximity_edges; pass a scale
+        filter on a large multi-scale pool if that matters to the caller.
+        """
+        if not getattr(self.config, "record_relational_snapshot", False):
+            return {}
+        pool = self.all_anchors(scale=scale)
+        anchors_out = [
+            {
+                "anchor_key": a.key,
+                "created_at": int(a.created_at),
+                "last_accessed": int(a.last_accessed),
+            }
+            for a in pool
+        ]
+        proximity_edges: List[Dict[str, Any]] = []
+        for i in range(len(pool)):
+            for j in range(i + 1, len(pool)):
+                a, b = pool[i], pool[j]
+                proximity_edges.append({
+                    "anchor_key_a": a.key,
+                    "anchor_key_b": b.key,
+                    "proximity": _cosine_proximity(a.z_world, b.z_world),
+                })
+        return {
+            "anchors": anchors_out,
+            "proximity_edges": proximity_edges,
+            "shared_event_edges": list(self._relational_event_log),
+        }
 
     # ------------------------------------------------------------------ #
     # Query helpers                                                      #
@@ -634,6 +738,10 @@ class AnchorSet:
         self._all.clear()
         self._active_per_scale.clear()
         self._tick = 0
+        # MECH-468 C: same aliasing hazard as the anchor stores above --
+        # segment_ids recycle per-episode, so a stale shared-event log
+        # entry from a prior episode would alias a new episode's anchors.
+        self._relational_event_log.clear()
         topo = self.possibility_topology
         if topo is not None and getattr(
             topo.config, "reset_with_anchor_set", False

@@ -255,6 +255,27 @@ REACHABLE_BY_ALTERNATIVE_IDIOM = {
     "include_inactive": "hippocampal.ghost_goal_bank_config; 2 drivers via ctor",
     "mode_conditioning_enabled": "hippocampal; 11 drivers + 2 tests",
     "mode_partitioned_cem": "hippocampal; 1 driver",
+    "record_edge_log": (
+        "hippocampal.staleness_accumulator_config; MECH-468 E per-anchor "
+        "attribution-edge recording flag. Set via direct StalenessAccumulatorConfig(...) "
+        "construction in tests/contracts/test_mech468_relational_dumps.py -- pure "
+        "recording, default off, no driver call site yet (registered "
+        "substrate_queue.json entry mech468-anchor-relational-dump)."
+    ),
+    "record_relational_components": (
+        "hippocampal.ghost_goal_bank_config; MECH-468 D per-anchor relational-"
+        "component recording flag. Set via direct GhostGoalBankConfig(...) "
+        "construction in tests/contracts/test_mech468_relational_dumps.py -- pure "
+        "recording, default off, no driver call site yet (registered "
+        "substrate_queue.json entry mech468-anchor-relational-dump)."
+    ),
+    "record_relational_snapshot": (
+        "hippocampal.anchor_set_config; MECH-468 A/C per-anchor relational-edge "
+        "recording flag. Set via direct AnchorSetConfig(...) construction in "
+        "tests/contracts/test_mech468_relational_dumps.py -- pure recording, "
+        "default off, no driver call site yet (registered substrate_queue.json "
+        "entry mech468-anchor-relational-dump)."
+    ),
     "safety_terrain_enabled": "residue; 3 drivers + 2 tests + 1 ree_core site",
     "unified_latent_mode": "latent; 52 drivers set it directly",
     "use_commit_readiness_gate": "heartbeat; 14 drivers + 2 tests",
