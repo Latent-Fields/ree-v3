@@ -1,4 +1,5 @@
-## f_dominance_conversion_ceiling rung 3 / SD-E3-CHANNEL-COMMENSURABILITY (MECH-439) -- E3 channel-commensurability operator -- IMPLEMENTED (2026-09-07)
+## f_dominance_conversion_ceiling rung 3 / SD-E3-CHANNEL-COMMENSURABILITY (MECH-439) -- E3 channel-commensurability operator -- IMPLEMENTED (2026-09-07); VALIDATED at the eligibility stage (V3-EXQ-1012c PASS 8/8; ratified target, /governance 2026-09-24)
+- STATUS 2026-09-24: VALIDATED at the eligibility stage (V3-EXQ-1012c PASS 8/8; ratified target, /governance 2026-09-24). Scope: 3 of 5 channels (benefit/goal never entered), eligibility stage only (final pick within the eligible set unvalidated), 936 regime under the open contextmemory write-path defect. Validation target: eligibility-stage knockout-authority ratio R_ON >= 0.25 in >= 3/4 seeds per regime with OFF/ORACLE anchors (GFLAG-0297 design, user-ratified). Source: REE_assembly evidence/planning/failure_autopsy_V3-EXQ-1012c_2026-09-24.
 - f_dominance_conversion_ceiling rung 3 / SD-E3-CHANNEL-COMMENSURABILITY (MECH-439) --
   E3 channel-commensurability operator -- IMPLEMENTED 2026-09-07.
   `ree_core/predictors/e3_selector.py` (`score_trajectory`, `select`,
