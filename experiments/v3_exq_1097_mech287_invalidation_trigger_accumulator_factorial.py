@@ -1,66 +1,76 @@
 #!/opt/local/bin/python3
 """
-V3-EXQ-1097 -- MECH-287 four-arm trigger-vs-accumulator invalidation factorial.
+*** DO NOT QUEUE -- REFUSED AT /queue-experiment STEP 4.5 (red-team BLOCKING). ***
+*** No queue entry was created. EXQ id V3-EXQ-1097 was reserved and RELEASED. ***
 
-Claims: MECH-287 (primary), MECH-284 (coupled accumulator half)
+V3-EXQ-1097 (NOT QUEUED) -- MECH-287 four-arm trigger-vs-accumulator factorial.
 
-This is the four-arm dissociation MECH-287's evidence_quality_note names as the
-outstanding promote-to-active gate (historically "V3-EXQ-476"), which has never
-run on the Phase-3 substrate.
+REFUSAL, 2026-09-24, session metaworker-science-20260924-orchb-mech287-invalidation-factorial.
+Red-team (fable, Step 4.5): VERDICT BLOCKING. Four findings verified at source
+by the authoring session; the decisive one is not a defect in this driver but in
+the claim's pre-registered DV as it can be instrumented today:
 
-PURPOSE
--------
-MECH-287 asserts a broadcast "anchor may be wrong" trigger that drives MECH-284
-staleness accumulation over the active anchor set, and thence a MECH-269 anchor
-reset. Its secondary falsifiable is a 2x2 dissociation:
+F1 (CONFIRMED, decisive). MECH-287's DV is "freeze re-commit count per PAG
+release". The only instrument for it is PAGFreezeGate.diagnostics, and
+PAGFreezeGate.reset() (ree_core/pag/freeze_gate.py:145-150) clears _freeze_active
+/ _duration_above_threshold / _ticks_in_freeze / _last_output but NOT _n_commits,
+_n_releases or _n_ticks -- while agent.reset() calls it every episode
+(ree_core/agent.py:4016-4018). The counters are therefore CUMULATIVE across all
+60 warmup + 5 eval episodes, and n_commits - n_releases <= n_episodes, so
+    recommits_per_release - 1 ~= (episodes that ended still frozen) / (PAG releases)
+which is dominated by EPISODE COUNT, not by re-commit behaviour after a release.
+The lineage numbers fit exactly: V3-EXQ-475 recorded 71/6, 70/5, 64/5, and
+71-6 = 70-5 = 65 = 60 warmup + 5 eval episodes (64-5 = 59 <= 65).
+So V3-EXQ-475's "~12.9 re-commits per release" -- quoted in MECH-287's own
+functional_restatement as "~12x re-commits per release" and used as this claim's
+non-degeneracy precondition -- is that same confounded quantity, and every
+threshold derived from it here (LOCK_REGIME_FLOOR 8.0, EFFECT_FLOOR_ABS 4.0,
+MODE_FLIP_RECOMMIT_BUDGET 13) inherits the confound.
 
-    trigger-loss     -> single-event blindness (no broadcasts at all)
-    accumulator-loss -> V3-EXQ-475's phenotype (broadcasts that never integrate)
-    both-lesioned    -> rigid perseveration (the EXQ-471/475 catatonic lock)
-    both-intact      -> the lock is released
+F3 (CONFIRMED empirically, from this driver's own dry-run manifest). The trigger
+and accumulator stats are per-episode: agent.reset() calls
+reset_invalidation_trigger() and reset_staleness_accumulator(), which zero
+_n_broadcast and the staleness map. Reading get_stats() after the eval loop
+therefore reads only the LAST episode. Dry run, D_BOTH_ON seed 1:
+mean_staleness_peak = 0.432491 (per-episode tracker) against staleness_max =
+0.000000 and n_integrations = 0 from the post-loop read.
 
-ARMS (5 cells x 3 seeds; use_vs_commit_release held ON and IDENTICAL in all)
----------------------------------------------------------------------------
-    A_BOTH_OFF   trigger OFF, accumulator OFF, segmenter ON   <- comparator
-    B_TRIG_ONLY  trigger ON,  accumulator OFF, segmenter ON
-    C_ACC_ONLY   trigger OFF, accumulator ON,  segmenter ON
-    D_BOTH_ON    trigger ON,  accumulator ON,  segmenter ON
-    E_SEG_OFF    trigger ON,  accumulator ON,  segmenter OFF  <- verdict-3 control
+F4 (CONFIRMED). C2 and C4 cannot fail under any outcome. With
+use_invalidation_trigger=False, HippocampalModule.invalidation_trigger is never
+constructed (module.py:367-376), so n_broadcast is 0 by construction in arms A
+and C. With the segmenter off, InvalidationTrigger.step returns before any
+increment on an empty boundary list (invalidation_trigger.py:187-188). Both were
+declared load_bearing, inflating the PASS conjunction.
 
-use_staleness_accumulator and use_mech284_hysteresis move together as the single
-"MECH-284 online readout" factor, exactly as the claim's manipulation specifies.
+F5 (CONFIRMED empirically). The per-step freeze_commit edge poll over-counts
+relative to the gate's own counter because select_action returns early on
+non-E3 ticks and the edge flag persists: dry run shows freeze_commit_count 18
+against pag_n_commits 5 in the same cell.
 
-WHY use_vs_commit_release IS ON IN EVERY ARM (user decision, 2026-09-24, Option A)
----------------------------------------------------------------------------------
-MECH-287's DV is behavioural, but its registered flag set contains no read-side
-consumer: the ONLY path from anchor state to behaviour in the agent is the
-commit-release hook (agent.py:7375), gated on use_vs_commit_release, whose own
-docstring (config.py:3121 block) states "with flag off, EXQ-478/480
-wired-but-inert behaviour reproduces". The proposer never consults anchors
-(module.py:2037; its anchor branch is MECH-293 ghost seeding, gated on
-use_mech292_ghost_bank / use_mech293_ghost_probes, both default False and both
-OFF here). With the read-side hook off, every arm is behaviourally identical by
-construction and the run would satisfy MECH-287's FALSIFYING clause as an
-artifact.
+F6 (reported, not independently re-verified here). Broadcasts mark anchors
+inactive directly through the per-region T3 shortcut (module.py:4031-4053), which
+is armed in every arm via use_per_region_vs, so B_TRIG_ONLY already has a
+complete broadcast -> anchor-reset -> commit-release path with MECH-284 absent;
+and arm A is not "no invalidation" (anchors still go inactive via the internal
+tick-delta staleness proxy). A vs D is a change of staleness SOURCE, not of
+presence/absence.
 
-The flag is therefore held ON and IDENTICAL across all five arms, so it cannot
-confound the trigger x accumulator contrast. CONSEQUENCE FOR INTERPRETATION: a
-positive result supports MECH-287 + MECH-284 + the MECH-269/MECH-090 read-side
-release hook JOINTLY, not MECH-287 alone. In-tree precedent for arming it:
-V3-EXQ-490b / 490c / 490e / 490f / 596 / 601.
-Analysis: REE_assembly evidence/planning/mech287_four_arm_factorial_readside_gap_20260924.md
+CONSEQUENCE: this is a claim-level instrument gap, not a driver bug. Fixing it
+requires either new substrate (a phase-scoped / per-episode PAG re-commit
+readout) or re-operationalising MECH-287's DV -- both decisions about WHAT GETS
+MEASURED, which this session is not authorised to make. Raised as a decision
+chip; see the analysis doc.
 
-COMPARATOR CONFIG (pre-flight NAMED CHANGE, orchestrate-20260924-b)
--------------------------------------------------------------------
-Built on V3-EXQ-475's config (SD-036 GABAergic decay + MECH-279 PAG freeze gate
-ON, 60 warmup episodes), NOT V3-EXQ-478's. 475 measured pag_n_commits 71/70/64
-against pag_n_releases 6/5/5 -- ~12.9 re-commits per release, the catatonic-lock
-regime with real dynamic range. 478 ran with no PAG gate, no decay and no warmup
-training; its freeze_recommit_count sat at 1 in all four cells with
-action_class_entropy 0.0 -- a saturated ceiling misread as a floor, and a
-different quantity from this claim's DV.
+Analysis: REE_assembly evidence/planning/mech287_dv_instrument_confound_20260924.md
+Prior analysis (the read-side gap, user decision Option A, applied here):
+REE_assembly evidence/planning/mech287_four_arm_factorial_readside_gap_20260924.md
 
-RED-TEAM: see the Step 4.5 line at the end of this docstring.
+The code below is RETAINED UNRUN as the worked design: five arms, Option A
+(use_vs_commit_release held ON and identical in every arm), comparator on
+V3-EXQ-475's config. It passed validate_experiments.py --strict (1 OK, 0
+warnings) and its --dry-run smoke exits 0 and self-routes
+substrate_not_ready_requeue at toy scale. It must NOT be queued until the DV
+instrument question above is answered.
 
 SLEEP DRIVER: not applicable (no sleep flags set).
 """
@@ -88,15 +98,8 @@ from ree_core.utils.config import REEConfig
 
 from experiment_protocol import emit_outcome
 from experiments._lib.arm_fingerprint import arm_cell
-from experiments._lib.manifest_core import stamp_recording_core
-
-try:
-    from _manifest import write_manifest
-except Exception:  # pragma: no cover
-    def write_manifest(path, manifest):
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w") as fh:
-            json.dump(manifest, fh, indent=2)
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator
+from experiments.pack_writer import write_flat_manifest
 
 
 EXPERIMENT_TYPE = "v3_exq_1097_mech287_invalidation_trigger_accumulator_factorial"
@@ -187,6 +190,8 @@ ARMS: Dict[str, Dict[str, bool]] = {
     "D_BOTH_ON":   dict(trigger=True,  accumulator=True,  segmenter=True),
     "E_SEG_OFF":   dict(trigger=True,  accumulator=True,  segmenter=False),
 }
+_ZG = ZGoalStreamAccumulator()
+
 COMPARATOR_ARM = "A_BOTH_OFF"
 TREATMENT_ARM  = "D_BOTH_ON"
 TRIGGER_LESIONED_ARMS = ("A_BOTH_OFF", "C_ACC_ONLY")
@@ -243,7 +248,17 @@ def arm_config_slice(arm: str) -> Dict:
                  "harm": HARM_DIM, "harm_a": HARM_A_DIM},
         "optim": {"lr_e1": LR_E1, "lr_e2_wf": LR_E2_WF,
                   "lr_e3_harm": LR_E3_HARM, "lr_enc_aux": LR_ENC_AUX,
-                  "batch_size": BATCH_SIZE},
+                  "batch_size": BATCH_SIZE,
+                  "wf_buf_max": WF_BUF_MAX,
+                  "harm_eval_buf_max": HARM_EVAL_BUF_MAX},
+        # Readout-affecting constants the cell's call graph reads. Declared
+        # because this cell emits a CROSS-DRIVER-reusable fingerprint
+        # (include_driver_script_in_hash=False): an under-approximated slice is
+        # a false-cache-HIT bug (arm_reuse_fingerprint_plan.md 7b).
+        "mode_classifier": {"harm_mode_thresh": HARM_MODE_THRESH,
+                            "explore_err_thresh": EXPLORE_ERR_THRESH},
+        "mode_flip_readout": {"release_index": MODE_FLIP_RELEASE_INDEX,
+                              "run_length": MODE_FLIP_RUN},
         "substrate_operating": {
             "use_gabaergic_decay": True,
             "use_pag_freeze_gate": True,
@@ -648,6 +663,7 @@ def run_cell(arm: str, seed: int, warmup_eps: int, eval_eps: int,
         warm = _warmup_train(agent, env, warmup_eps, steps, arm, seed)
         row = _eval_agent(agent, env, eval_eps, steps, arm, seed)
         row.update({f"warmup_{k}": v for k, v in warm.items()})
+        _ZG.observe(agent)   # AFTER stepping -- reads the counters at call time
         cell.stamp(row)
     rpr = row["recommits_per_release"]
     print(f"  arm={arm} seed={seed} pag_commits={row['pag_n_commits']}"
@@ -961,21 +977,25 @@ def run(dry_run: bool = False) -> Dict:
         "substrate_operating": arm_config_slice(COMPARATOR_ARM)["substrate_operating"],
         "dry_run": bool(dry_run),
     }
-    stamp_recording_core(manifest, config=full_config, seeds=seeds,
-                         script_path=Path(__file__), started_at=t0)
-    return manifest
+    return manifest, full_config, seeds, t0
 
 
-def main():
+if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
-    manifest = run(dry_run=args.dry_run)
+    manifest, full_config, _seeds, _t0 = run(dry_run=args.dry_run)
 
-    out_dir = Path("/Users/dgolden/REE_Working/REE_assembly/evidence/experiments")
-    out_path = out_dir / f"{manifest['run_id']}.json"
-    write_manifest(out_path, manifest)
+    out_path = write_flat_manifest(
+        manifest,
+        dry_run=args.dry_run,
+        config=full_config,
+        seeds=_seeds,
+        script_path=Path(__file__),
+        started_at=_t0,
+        z_goal_stream_stats=_ZG.stats(),
+    )
 
     print(f"\noutcome: {manifest['outcome']}", flush=True)
     print(f"evidence_direction: {manifest['evidence_direction']}", flush=True)
@@ -988,7 +1008,3 @@ def main():
     _o = str(manifest["outcome"]).upper()
     emit_outcome(outcome=_o if _o in ("PASS", "FAIL") else "FAIL",
                  manifest_path=str(out_path), dry_run=args.dry_run)
-
-
-if __name__ == "__main__":
-    main()
