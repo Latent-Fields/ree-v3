@@ -27,6 +27,23 @@
       "experiment_type": "v3_exq_1067_mech266_squash_vs_clamp_cap_sweep",
       "predecessor": "V3-EXQ-934",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-1082",
+      "title": "SD-PP-B5 re-validation at alpha_world 0.9 on a live-agent battery: margin ladder vs OFF, paired d_act lift (diagnostic)",
+      "script": "experiments/v3_exq_1082_sdppb5_alpha09_live_battery_revalidation.py",
+      "priority": 30,
+      "machine_affinity": "any",
+      "estimated_minutes": 5,
+      "backlog_id": null,
+      "note": "SD-PP-B5 RE-VALIDATION at alpha_world 0.9 (explicit, asserted) on a LIVE-agent battery (reset-on-done ported from V3-EXQ-1073 into P0 rollout + battery; 0 post-death rows precondition). DIAGNOSTIC, claim_ids [] (bears_on MECH-573/MECH-574/SD-008), validates_substrate SD-PP-B5-z-world-per-step-displacement-range. AUTHORITY: chip-20260923-sdppb5-revalidate-alpha09 from confirmed failure_autopsy_V3-EXQ-1079_2026-09-23 (routing 1: new question, not a lettered 1075 re-run); pre-flight AMBER by orchestrate-20260924-0407 (both named changes applied). Arms = 1075's OFF + margin ladder 0.01/0.05/0.10/0.50, 3 seeds. Routed DV: d_act (analytic null 0) paired lift ON-OFF on a 512-row arm-invariant battery; model_r2 recorded next to persistence skill, never routed. Routes: PASS margin_raises_action_read / FAIL-b bought_by_reconstruction (A4) / FAIL-a margin_does_not_raise_action_read or margin_lowers_action_read (every rung lift CI upper < 0.05) / UNDETERMINED / substrate_not_ready_requeue. Smoke (2 seeds x 5 arms, full budget, 46s): PASS, all preconditions met, untrained-head d_act ~0.002, OFF reads action at 0.9. red-team (fable): CONTESTED, 3 findings -> F1 FAIL-a label split fixed; F2 A3' guard collapsed to MSE ratio<=1.0 -> removed, A4 only; F3 rung/step scale -> recorded per cell (M001 already below step L2). Session science-20260924-sdppb5-alpha09.",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 5,
+      "episodes_per_run": 40,
+      "experiment_type": "v3_exq_1082_sdppb5_alpha09_live_battery_revalidation",
+      "predecessor": "V3-EXQ-1079",
+      "seeds": 3
     }
   ]
 }
