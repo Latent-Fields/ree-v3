@@ -811,7 +811,10 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
     p0_steps = 90 if dry_run else P0_STEPS
     n_cycles = 2 if dry_run else N_CYCLES
     wake_eps = 1 if dry_run else WAKE_EPS_PER_CYCLE
-    steps = 30 if dry_run else STEPS_PER_EPISODE
+    # 35, not 30: n_cycles(2) x wake_eps(1) x steps must exceed ARM_1_LOW's interval
+    # (60) with margin, or LOW's first world-rule shift never fires within the smoke
+    # budget and LOW reads bit-identical to NONE (coverage gap, not a design issue).
+    steps = 35 if dry_run else STEPS_PER_EPISODE
     probe_steps = 40 if dry_run else PROBE_STEPS
     probe_size = BATTERY_SIZE
 
@@ -845,8 +848,6 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
     elapsed = time.time() - t0
     ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     run_id = f"{EXPERIMENT_TYPE}_{ts}_v3"
-    n_seeds = len(seeds)
-    need = math.ceil(SEED_PASS_FRAC * n_seeds)
     rungs = [a for a in INTAKE_DESC]
 
     # ---- P1..P5, per seed where they are per-seed ---------------------------
@@ -861,22 +862,39 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
                                    for i in range(3)))
         p1_spread = (((mel_asc[-1] - floor) / floor)
                      if fin and abs(floor) > EPS else float("nan"))
-        p1_met = bool(p1_mono and _fin(p1_spread) is not None
-                      and p1_spread >= MIN_REL_MEL_SPREAD)
         noise_mel = rows[(ARM_NOISE, seed)]["mel_mean_pe"]
+        noise_reproduces = bool(_fin(noise_mel) is not None and noise_mel >= mel_asc[-1])
+        pe_decay_per_arm = {a: rows[(a, seed)]["pe_decay_within_stationary_window"]
+                            for a in ARMS}
+        # P1's reducibility control (INV-063 what_would_answer, GFLAG-0446): elevated
+        # PE must DECAY within a stationary window. Checked on the three rungs that
+        # actually undergo a world-rule shift (ARM_LOW/MED/HIGH) -- ARM_NONE and
+        # ARM_NOISE have world_rule_shift_enabled=False, so there is no "elevated PE"
+        # event for either to decay from.
+        p1_decay_ok = bool(all(_fin(pe_decay_per_arm[a]) is not None
+                               and pe_decay_per_arm[a] > 0
+                               for a in (ARM_LOW, ARM_MED, ARM_HIGH)))
+        p1_met = bool(p1_mono and _fin(p1_spread) is not None
+                      and p1_spread >= MIN_REL_MEL_SPREAD
+                      and p1_decay_ok and not noise_reproduces)
         per_seed.append({
             "seed": seed, "mel_ascending_intake": mel_asc,
             "p1_monotone": p1_mono, "p1_relative_spread": p1_spread,
+            "p1_decay_ok": p1_decay_ok,
             "p1_met": p1_met,
             "conv_rel_drop": rows[(ARM_NONE, seed)]["conv_rel_drop"],
             "noise_arm_mel": noise_mel,
-            "noise_arm_at_least_as_elevated_as_high": bool(
-                _fin(noise_mel) is not None and noise_mel >= mel_asc[-1]),
-            "pe_decay_per_arm": {a: rows[(a, seed)]["pe_decay_within_stationary_window"]
-                                 for a in ARMS},
+            "noise_arm_at_least_as_elevated_as_high": noise_reproduces,
+            "pe_decay_per_arm": pe_decay_per_arm,
         })
     p1_seeds = [p["seed"] for p in per_seed if p["p1_met"]]
     scored = p1_seeds
+    # NOMINAL, from the total seed pool -- NOT len(scored). This is a vote-count floor
+    # ("did we retain enough of the intended population to trust a verdict"), not a
+    # per-DV threshold computed from the very population it gates; deriving it from
+    # len(scored) instead makes `len(scored) >= need` a tautology (ceil(2/3*k) <= k for
+    # every k), silently disabling the "too few scored seeds" degeneracy signal below.
+    need = math.ceil(SEED_PASS_FRAC * len(seeds))
 
     all_rows = [rows[k] for k in rows]
     cells_ok = all(r["cell_ok"] for r in all_rows)
@@ -1017,10 +1035,18 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
         print(f"Result written to: {p}")
         return str(p)
 
-    if not gating_ok or not scored:
+    if not gating_ok or not scored or len(scored) < need:
         unmet = [p["name"] for p in preconditions if not p["met"]]
         if not scored:
             unmet.append("P1_met_on_zero_seeds_nothing_scorable")
+        elif len(scored) < need:
+            # Too few seeds survived P1 to satisfy SEED_PASS_FRAC of the NOMINAL seed
+            # pool: falling through to C1/C2 here would compare n_monotone/n_knee
+            # (capped at len(scored)) against `need`, which is unsatisfiable by
+            # construction and would emit a false F1_flat/"genuinely falsified" label
+            # -- this is "scores nothing", not a finding in either direction.
+            unmet.append(f"P1_met_on_too_few_seeds ({len(scored)} of {len(seeds)} "
+                        f"scored, need {need})")
         reason = f"preconditions unmet: {unmet}"
         print(f"\n[{EXPERIMENT_TYPE}] -> substrate_not_ready_requeue: {reason}", flush=True)
         m = dict(base); m.update({
@@ -1040,9 +1066,19 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
         return "FAIL", _write(m)
 
     # ---- the RATIFIED refusal route, checked BEFORE C1 leg B ---------------
+    # ANY negative arm fires the route, not ALL: a negative delta at the pinned tau
+    # is the sign-inversion artifact GFLAG-0382 measured (readable needs tau <= 0.01,
+    # a positive delta needs tau >= 0.03, no overlap), so even one contaminated arm
+    # makes C1's cross-arm monotonicity/knee read on leg B unreliable. Requiring ALL
+    # four arms negative let a single non-negative arm through to F1_flat/weakens
+    # (the false falsification the route exists to prevent) and let a marginally
+    # positive HIGH arm with the other three negative reach F2/confirmed while sleep
+    # degraded the readout in 3 of 4 arms.
     legb_by_arm = {a: _mean([rows[(a, s)]["dvs"]["B1_infonce_delta"] for s in scored])
                    for a in rungs}
-    legb_all_negative = all(_fin(v) is not None and v < 0 for v in legb_by_arm.values())
+    legb_negative_arms = [a for a, v in legb_by_arm.items()
+                          if _fin(v) is not None and v < 0]
+    legb_any_negative = bool(legb_negative_arms)
 
     # ---- C1 / C2 ------------------------------------------------------------
     def dv_desc(key, seed):
@@ -1075,24 +1111,25 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
                           "pooled_cross_seed_sd_of_arm_to_arm_delta": pooled}
 
     legA_c1 = all(c1_by_key[k]["n_monotone"] >= need for k in LEG_A_KEYS)
-    legB_c1 = (None if legb_all_negative
+    legB_c1 = (None if legb_any_negative
                else all(c1_by_key[k]["n_monotone"] >= need for k in LEG_B_KEYS))
     legA_c2 = all(c2_by_key[k]["n_knee"] >= need for k in LEG_A_KEYS)
-    legB_c2 = (None if legb_all_negative
+    legB_c2 = (None if legb_any_negative
                else all(c2_by_key[k]["n_knee"] >= need for k in LEG_B_KEYS))
 
-    if legb_all_negative:
+    if legb_any_negative:
         label = "leg_b_dv_sign_inverted"
         outcome, direction = "FAIL", "non_contributory"
         note = (
             f"RATIFIED REFUSAL ROUTE FIRED. Leg B's across-sleep InfoNCE delta at the "
-            f"pinned tau = {TAU_PINNED:g} is NEGATIVE in every intake arm "
-            f"({ {a: round(v, 6) for a, v in legb_by_arm.items()} }), i.e. sleep makes "
-            f"the readout WORSE before any intake comparison. C1 leg B is therefore NOT "
-            f"read and NO F1/F2/F3 verdict is emitted -- a negative leg B would "
-            f"otherwise route to F1, which INV-063 pre-registers as a GENUINE "
-            f"falsification, and on the tau evidence (GFLAG-0382) that reading would be "
-            f"wrong. Everything else IS reported: leg A's C1 held on "
+            f"pinned tau = {TAU_PINNED:g} is NEGATIVE in {len(legb_negative_arms)} of "
+            f"{len(rungs)} intake arms ({sorted(legb_negative_arms)}: "
+            f"{ {a: round(v, 6) for a, v in legb_by_arm.items()} }), i.e. sleep makes "
+            f"the readout WORSE in at least one arm before any intake comparison. C1 "
+            f"leg B is therefore NOT read and NO F1/F2/F3 verdict is emitted -- a "
+            f"negative leg B would otherwise route to F1, which INV-063 pre-registers "
+            f"as a GENUINE falsification, and on the tau evidence (GFLAG-0382) that "
+            f"reading would be wrong. Everything else IS reported: leg A's C1 held on "
             f"{ {k: c1_by_key[k]['n_monotone'] for k in LEG_A_KEYS} } of "
             f"{len(scored)} scored seeds and its C2 on "
             f"{ {k: c2_by_key[k]['n_knee'] for k in LEG_A_KEYS} }. The full tau ladder "
@@ -1122,9 +1159,13 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
                 "fixed budget -- the starvation mechanism this invariant asserts is "
                 "genuinely falsified rather than substrate-confounded.")
 
+    # Over ALL measured seeds, not just `scored`: a seed with the noise arm
+    # reproducing the pattern is now EXCLUDED from `scored` by p1_met (the fix
+    # above), so restricting this aggregate to `scored` would make it vacuously
+    # False by construction on every run that reaches this point -- the seeds it
+    # would have flagged are never in `scored` to begin with.
     noise_reproduces = all(
-        p["noise_arm_at_least_as_elevated_as_high"] for p in per_seed
-        if p["seed"] in scored)
+        p["noise_arm_at_least_as_elevated_as_high"] for p in per_seed)
     crit = [
         {"name": "C1_both_legs_monotone", "load_bearing": True,
          "passed": bool(legA_c1 and (legB_c1 is True)),
@@ -1136,8 +1177,8 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
          "threshold": float(need), "comparator": ">=", "per_dv": c2_by_key},
     ]
     nd = {
-        "C1_both_legs_monotone": bool(not legb_all_negative and len(scored) >= need),
-        "C2_knee_both_legs": bool(not legb_all_negative and len(scored) >= need),
+        "C1_both_legs_monotone": bool(not legb_any_negative and len(scored) >= need),
+        "C2_knee_both_legs": bool(not legb_any_negative and len(scored) >= need),
     }
 
     print(f"\n[{EXPERIMENT_TYPE}] P1 scored seeds: {scored} of {seeds}", flush=True)
@@ -1150,7 +1191,7 @@ def main(dry_run: bool = False) -> Tuple[str, Optional[str]]:
         "overall_pass": int(outcome == "PASS"),
         "p1_seeds_met": float(len(p1_seeds)), "n_seeds_scored": float(len(scored)),
         "seeds_required": float(need),
-        "leg_b_sign_inverted": int(legb_all_negative),
+        "leg_b_sign_inverted": int(legb_any_negative),
         "min_conv_rel_drop": float(min_conv),
         "min_sws_n_writes": float(min_sws), "min_rem_n_rollouts": float(min_rem),
         "budget_cross_arm_sd": float(max(sws_var if _fin(sws_var) else 0.0,
