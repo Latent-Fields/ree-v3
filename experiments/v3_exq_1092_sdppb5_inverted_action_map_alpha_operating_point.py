@@ -1,4 +1,37 @@
 """V3-EXQ-1092 -- SD-PP-B5 inverted-action-map READINESS readout at alpha_world 0.3 vs 0.9.
+
+!! DO NOT QUEUE AS WRITTEN -- NOT QUEUED, INERT ON MAIN (2026-09-24) !!
+The mandatory Step 4.5 adversarial red-team (Fable, one pass, foreground) returned BLOCKING, and
+this session re-verified every finding directly against the source and the landed manifests:
+  F1 (BLOCKING) The LOAD-BEARING same-rows shuffle ratio clause is `d_act > 0` restated:
+     d_act := (S-T)/(S+T) makes (1+d_act)/(1-d_act) == S/T identically, and the gate's derangement
+     estimates that same S/T (16-draw means within ~1%). So `ratio > 1.0` <=> `d_act > 0`, the
+     declared null N1 ("ratio <= ~1.0 DESPITE d_act > 0") is self-contradictory in this form, and
+     the alpha-0.9 arm is a BIT-EXACT replay of V3-EXQ-1082's ARM_OFF (battery_hash
+     02ab0ea563a9f764 / 63f4eda43ca7ad0b identical; d_act equal to all 17 digits; per_row_se_true
+     identical element-for-element). C1 = "ready" on 3/3 seeds -- INCLUDING unrun seed 456
+     (S/T 1.5858, skill +0.2149) -- is computable from 1082's landed manifest by one division, so
+     the outcome is fixed at PASS before the run starts. A GOV-REUSE-1 hit against the NEW
+     load-bearing statistic.
+  F2 C2's alpha contrast is a property of the BATTERY, not the head: the ridge positive control's
+     d_act shifts MORE than the head's across alpha (head delta - PC delta = -0.0178 / -0.0113), so
+     a C2 PASS is not attributable to the head as the label claims. V3-EXQ-1079 carried a PC
+     contrast and a label split for exactly this (1079 :84-91, :755-758); this driver drops it.
+     The DV-symmetry argument below is also invalid as applied to a head RETRAINED per arm
+     (identity MSE differs 9.5x, rms |dz| 3.08x, and skill at 0.3 is NEGATIVE).
+  F3 `action_read_absent_at_operating_point_despite_d_act` is reachable only via the skill clause,
+     i.e. only with ratio > 1 and d_act CI > 0 -- a head that demonstrably DOES read its action --
+     so the label is false in the only state it can fire.
+Changing which statistic is load-bearing is a USER decision (it is what the first stop was about),
+so this driver was NOT redesigned here. Full analysis, verification tables and options:
+REE_assembly/evidence/planning/sdppb5_inverted_map_ratio_criterion_aliasing_staged_20260924.md
+(ADDENDUM section). Recommended path recorded there: emit a reanalysis for the recoverable
+shuffle-form half, and re-point the load-bearing criterion at the cross-battery ratio vs its
+action-blind null (the original option B), which is genuinely NOT recoverable -- 1082 collected no
+inverted-map battery. Governance: GFLAG-0470 (bar denomination) + GFLAG-0471 (this refusal).
+Everything below this banner is the option-C implementation as validated (validate_experiments
+--strict 1 OK / 0 warnings; validate_recording --strict complete; full-budget dry run rc=0).
+
 Does e2.world_forward's action read clear an action-sensitivity bar on a LIVE battery, and
 does it differ between SD-008's damped (0.3) and stable-floor (0.9) operating points?
 
@@ -7,7 +40,7 @@ Non-contributory to governance confidence by design; claim_ids EMPTY, bears_on n
 
 SLEEP DRIVER: not applicable (no sleep machinery; P0 world_forward training only).
 
-RED-TEAM (Step 4.5): see the RED-TEAM line at the end of this docstring.
+RED-TEAM (Step 4.5, fable): BLOCKING (F1/F2/F3) -- see the DO-NOT-QUEUE banner above.
 
 WHY THIS RUN EXISTS
 -------------------
@@ -122,7 +155,7 @@ re-run), experiment_purpose diagnostic, and the confirmed 1082 autopsy is itself
 half that routes this probe to /queue-experiment. GOV-DIAG-1 counts the full SD-PP-B5 token at
 2 (1079 + 1082), below N=3, and the autopsy notes the chain "is converging ..., not circling".
 
-RED-TEAM (Step 4.5, fable): see queue entry note for the verdict of record.
+RED-TEAM (Step 4.5, fable): BLOCKING -- see the DO-NOT-QUEUE banner at the top.
 """
 
 from __future__ import annotations
