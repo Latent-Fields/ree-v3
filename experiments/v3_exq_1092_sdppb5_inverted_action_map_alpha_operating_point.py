@@ -28,7 +28,7 @@ REE_assembly/evidence/planning/sdppb5_inverted_map_ratio_criterion_aliasing_stag
 (ADDENDUM section). Recommended path recorded there: emit a reanalysis for the recoverable
 shuffle-form half, and re-point the load-bearing criterion at the cross-battery ratio vs its
 action-blind null (the original option B), which is genuinely NOT recoverable -- 1082 collected no
-inverted-map battery. Governance: GFLAG-0470 (bar denomination) + GFLAG-0471 (this refusal).
+inverted-map battery. Governance: GFLAG-0470 (bar denomination) + GFLAG-0475 (this refusal).
 Everything below this banner is the option-C implementation as validated (validate_experiments
 --strict 1 OK / 0 warnings; validate_recording --strict complete; full-budget dry run rc=0).
 
