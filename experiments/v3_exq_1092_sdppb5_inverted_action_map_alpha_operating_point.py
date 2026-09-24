@@ -1,4 +1,53 @@
 """V3-EXQ-1092 -- SD-PP-B5 inverted-action-map readout vs its ACTION-BLIND NULL at alpha 0.3/0.9.
+
+!! DO NOT QUEUE -- STILL NOT QUEUED, INERT ON MAIN (2026-09-24, SECOND red-team BLOCKING) !!
+The option-B re-point described below was implemented, validated (validate_experiments
+--strict: 1 OK / 0 warnings; validate_recording --strict: complete) and smoked clean (rc=0;
+C1 discriminating -- FAIL at alpha 0.3 on the skill clause, PASS at 0.9). A SECOND Step 4.5
+red-team (fable, one foreground pass) then returned BLOCKING on the re-pointed design too.
+Every finding was re-verified by this session against source and the dry-run manifest:
+
+  F2 (deepest) THE ACTION-BLIND NULL IS 1 IN POPULATION, SO THE RE-POINT BARELY MOVED THE BAR.
+     The inverted map is a BIJECTION (0<->1, 2<->3, 4 fixed) applied to i.i.d.-uniform action
+     INDICES, so the executed MOVE sequence is i.i.d. uniform under BOTH maps and the (z0, z1)
+     law is IDENTICAL across the two batteries -- only the action LABEL differs. Hence
+     blind_null -> 1 in population, and "cross_ratio - blind_null > 0" reduces to "the head
+     predicts worse at the OPPOSITE-direction label than at the true one, on rows of the same
+     law". MEASURED: blind_null = 0.930 / 0.949 / 0.940 / 0.958, identity-MSE ratios
+     1.075 / 1.053 / 1.064 / 1.044 -- all scattered about 1, i.e. realization noise.
+     CONSEQUENCE FOR THE WHOLE BAR QUESTION: the 1.09-2.41 blind nulls that motivated
+     GFLAG-0470 were an artefact of V3-EXQ-1079's POST-DEATH batteries, where the law is NOT
+     preserved. On a LIVE battery options A and B very nearly coincide, so the first stop's
+     premise -- that the bar choice is materially load-bearing -- does not hold on live rows.
+     It also makes C1 a COMPONENT of d_act rather than a new property: d_act averages over all
+     four alternative labels, C1 uses the single opposite-direction one, and measured
+     (cross_ratio - blind_null)/(S/T - 1) = 1.34 / 1.21 / 1.68 / 1.40 -- monotone tracking in
+     every cell, including the two alpha-0.3 cells where skill is NEGATIVE.
+  F2c A FALSE PREMISE THIS DOCSTRING ITSELF ASSERTED -- corrected in place below.
+  F1 THE QUEUED RUN'S OUTCOME IS ALREADY DETERMINED. Every cell is a pure function of
+     (seed, alpha) and --dry-run executes seeds 42 and 123 at FULL budget against
+     SEEDS_REQUIRED = 2, so C1 and C2 are both satisfied before seed 456 runs; only the
+     non-load-bearing C2b split is open. (This is the lineage's dry-run convention, inherited
+     from V3-EXQ-1082 -- not specific to this driver, but it binds here.)
+  F3 POST_RESET_SKIP = 3 IS AN ARM-ASYMMETRIC INSTRUMENT CONSTANT. The driver never calls
+     REEAgent.reset(), so z_world's EMA carries across env resets; after 3 skipped steps the
+     residual weight on the PREVIOUS episode is (1-alpha)^3 = 0.343 at alpha 0.3 versus 0.001
+     at alpha 0.9. With 28-33 resets per 512-row battery (~16-18 rows/episode) a large share
+     of the 0.3 arm's rows carry cross-episode transients the 0.9 arm does not. The constant
+     was inherited from V3-EXQ-1082, which ran ONLY at 0.9. C2's alpha contrast and C2b's
+     attribution are both confounded by it. THIS ONE IS INDEPENDENT OF THE BAR QUESTION and
+     would bind any future alpha-contrast design on this collector.
+  F4 (OWED, deliberately NOT applied) C1's per-row inputs (e_head_c, e_id_o, e_id_c) are not
+     persisted, so the new load-bearing CI is not re-derivable post hoc. Not patched because
+     this driver is blocked and shipping unsmoked code to it would be worse than recording it.
+  F5 (text only, FIXED) several manifest/docstring strings still described the option-C design.
+
+Changing what gets measured is the USER's call, so this driver was NOT redesigned a third time.
+Full verification tables: REE_assembly evidence/planning/
+sdppb5_inverted_map_ratio_criterion_aliasing_staged_20260924.md. Governance: GFLAG-0470,
+GFLAG-0475, GFLAG-0476. THE RECOVERABLE HALF IS SETTLED AND LANDED:
+reanalysis_sdppb5_off_head_action_read_alpha09_live_battery_20260924T171654Z (OFF head reads
+its action at alpha 0.9 on a live battery, 3/3 seeds, zero compute).
 Does e2.world_forward's prediction degrade MORE under an inverted action map than an
 action-blind predictor does on the same battery pair -- and does that differ between
 alpha_world 0.3 (damped) and 0.9 (SD-008's stable floor)?
@@ -25,10 +74,16 @@ which is exactly what the first draft of this driver did, and why it was refused
 UNCERTAINTY THIS RUN REMOVES: whether the head's world-model is INVERSION-SENSITIVE beyond the
 battery's own difficulty -- i.e. whether an inverted action map is a genuine CONTRADICTION for
 this head, or merely a harder set of rows. Reading its action (established) and being
-contradicted by an inverted rule are different properties: V3-EXQ-1073 measured cross-battery
-ratios of 0.760/0.901/0.881 -- BELOW 1 -- on a head that did read its action, and self-routed
-`confidently_wrong_condition_unposeable_on_this_head`. Nothing on record settles it on a LIVE
-battery at any alpha.
+contradicted by an inverted rule are different properties. V3-EXQ-1073 measured cross-battery
+ratios of 0.760/0.901/0.881 -- BELOW 1 -- and self-routed
+`confidently_wrong_condition_unposeable_on_this_head`.
+CORRECTION (2026-09-24, red-team F2c): an earlier draft of this docstring said those ratios
+were measured "on a head that did read its action". That is FALSE, and it was this driver's
+own assertion. The 1073 autopsy records the opposite -- "B5 (head ignores the action;
+copy-the-input)" and "the frame (an action-blind head) is wrong" -- and 1073's manifest
+carries NO d_act or shuffle readout at all. 1073 is therefore NOT evidence that
+reading-the-action and being-contradicted-by-an-inversion dissociate, and H-difficulty-only
+below has no supporting case on record.
 
 HYPOTHESES DISCRIMINATED (>= 2, per GOV-FANOUT-1):
   H-inversion-sensitive   the head encodes the action->displacement RULE, so inverting the map
@@ -635,9 +690,10 @@ def _ridge_head(buf: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]) -> A
 
 def _shuffle_verdict(head: Any, z0: torch.Tensor, acts: torch.Tensor, z1: torch.Tensor,
                      seed_offset: int) -> Any:
-    """THE LOAD-BEARING readout (user option C). Same-rows action_shuffle form, where
-    RATIO_FLOOR=1.0 IS the true null. Gate defaults on both floors; the permutation is
-    stochastic so the generator is pinned for reproducibility."""
+    """RECORDED, NEVER GATES since the 2026-09-24 option-B re-point (it was option C's
+    load-bearing readout). Same-rows action_shuffle form, where RATIO_FLOOR=1.0 IS the true
+    null. Gate defaults on both floors; the permutation is stochastic so the generator is
+    pinned for reproducibility."""
     gen = torch.Generator(device="cpu")
     gen.manual_seed(SHUFFLE_GEN_SEED + seed_offset)
     return readiness_verdict(head, z0, acts, z1, counterfactual_battery=None,
@@ -1236,7 +1292,8 @@ def run_experiment(dry_run: bool = False) -> Tuple[Dict[str, Any], float]:
         "ridge-ceiling contrast -- has lower bound > 0 on >= %d valid seeds; when the "
         "ceiling gains MORE the label says the alpha gain is the BATTERY's. Counts are "
         "unchanged by the split. A seed is valid iff both arms' encoders match their "
-        "battery agents AND the ridge positive control clears the shuffle bar in both arms. "
+        "battery agents AND the ridge positive control clears C1's OWN blind-null bar "
+        "(pc_cross_ok) in both arms; the shuffle-form control is recorded and does not gate. "
         "rows_aligned is scoped to C2 alone (applies_to) so an unpairable contrast cannot "
         "vacate C1. Any precondition unmet -> substrate_not_ready_requeue. RECORDED AND "
         "NEVER GATING: the raw >1.0 verdict on the cross-battery ratio (so the autopsy's "
@@ -1302,7 +1359,6 @@ def run_experiment(dry_run: bool = False) -> Tuple[Dict[str, Any], float]:
         tag = f"seed{s['seed']}"
         flat[f"shuffle_ratio_alpha09_{tag}"] = _f(s.get("shuffle_ratio_hi"))
         flat[f"shuffle_ratio_alpha03_{tag}"] = _f(s.get("shuffle_ratio_lo"))
-        flat[f"shuffle_ratio_delta_{tag}"] = _f(s.get("shuffle_ratio_delta"))
         ac = s.get("alpha_contrast") or {}
         flat[f"d_act_delta_09_minus_03_{tag}"] = _f(ac.get("delta"))
         flat[f"d_act_delta_ci_low_{tag}"] = _f(ac.get("ci_low"))
@@ -1363,8 +1419,8 @@ def run_experiment(dry_run: bool = False) -> Tuple[Dict[str, Any], float]:
         "non_degenerate": non_degenerate,
         "degeneracy_reason": (
             None if non_degenerate else
-            "preconditions unmet, or shuffle ratios identical across cells / zero-width "
-            "alpha-contrast CIs"),
+            "preconditions unmet, or (cross_ratio - blind_null) identical across cells / "
+            "zero-width alpha-contrast or blind-null CIs"),
         "gate_canary": canary,
         "reanalysis_settling_the_recoverable_half": (
             "reanalysis_sdppb5_off_head_action_read_alpha09_live_battery_20260924T171654Z"),
