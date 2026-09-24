@@ -5088,9 +5088,19 @@ class REEAgent(nn.Module):
         self_e1_anchor = None
         if getattr(self.config.latent, "use_self_recurrence", False):
             self_e1_anchor = self._e1_predicted_next_z_self
+        # ARC-021 H2 (detach_carried_prev_action, default False): cut the
+        # cross-step selection graph that the undetached _last_action would
+        # otherwise carry into this tick's z_world via SD-007 reafference.
+        # Forward values are identical; only the gradient path changes.
+        _prev_action = self._last_action
+        if (
+            _prev_action is not None
+            and getattr(self.config, "detach_carried_prev_action", False)
+        ):
+            _prev_action = _prev_action.detach()
         new_latent = self.latent_stack.encode(
             enc_combined, self._current_latent,
-            prev_action=self._last_action,
+            prev_action=_prev_action,
             harm_obs=harm_for_encoder,  # SD-010 / MECH-282 external-only when LPB on
             harm_obs_a=obs_harm_a,   # SD-011: affective harm stream (None = disabled)
             harm_history=obs_harm_history,  # SD-011 second source (None = disabled)

@@ -1,6 +1,22 @@
 #!/opt/local/bin/python3
 """Reproducer: the ARC-021 H2 leg's MERGED arm does not run on current ree_core.
 
+CORRECTION (2026-09-24, pre-flight + build chip-20260911-arc021-h2-contextmemory-
+inplace-write). The MECHANISM section below is WRONG about the mutator and is kept
+only as the historical record. Measured: ContextMemory.write's `.data[idx] = ...`
+does NOT bump the parameter's version counter, and write() is never called in this
+config (stubbing it to a no-op reproduces the crash identically). The actual
+mutator is the merged Adam step (in-place parameter update); the anomaly trace
+named the forward that SAVED the tensor (ContextMemory.read), not the mutator. The
+stale graph enters through the CARRIED ACTION: select_action stores _last_action
+undetached and the next sense() passes it as prev_action into SD-007 reafference,
+so step t's z_world carries step t-1's selection graph. Fix (default OFF):
+REEConfig.detach_carried_prev_action=True detaches prev_action at the encode call
+site -> MERGED runs 40/40 clean at REEConfig.large, e1.context_memory.memory still
+receives gradient. Guard: tests/contracts/test_arc021_h2_merged_optimizer_backward.py.
+To run this probe with the fix, set cfg.detach_carried_prev_action = True before
+REEAgent(cfg).
+
 Context. The confirmed autopsy failure_autopsy_V3-EXQ-993a_2026-09-05 routes its
 H2 (representation-axis) leg through the EXISTING driver
 `experiments/v3_spark_arc021_three_loop_scale.py`, and records that the driver

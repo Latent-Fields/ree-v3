@@ -533,6 +533,7 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
     - [mech457_approach_extinction: experiments/_lib approach-drive extinction-on-contact -- IMPLEMENTED (2026-07-25)](docs/substrate/MECH-457-mech457-approach-extinction-experiments-lib.md) *(~953 tok)*
 - **[MECH-463](docs/substrate/MECH-463-e3-commit-gate-per-candidate-channel.md)** — E3 commit-gate + per-candidate channel-term diagnostics (arousal-conditioned variance decomposition instrumentation) (2026-07-18) *(~978 tok)*
 - **[ARC-006](docs/substrate/ARC-006-mech-045-token-instance-object-file.md)** — MECH-045: token-instance object-file / entity-persistence buffer (2026-06-09) *(~1,446 tok)*
+- **[ARC-021](docs/substrate/ARC-021-h2-carried-prev-action-detach.md)** — H2 merged-optimizer runnability: detach_carried_prev_action (default off) cuts the cross-step graph carried through _last_action -> prev_action (2026-09-24) *(~750 tok)*
 - **[ARC-033](docs/substrate/ARC-033-e2-harm-s-forward-model.md)** — E2_harm_s Forward Model (2026-04-09) *(~508 tok)*
 - **[ARC-058](docs/substrate/ARC-058-harm-stream-shared-forward-trunk.md)** — harm_stream.shared_forward_trunk -- REGISTERED (2026-04-19) *(~370 tok)*
 - **ARC-062** — 4 records, ~5,010 tok total.

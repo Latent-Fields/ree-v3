@@ -5950,6 +5950,25 @@ class REEConfig:
     # Default False -> the union reduces to the legacy
     # `_committed_trajectory is not None` -> bit-identical.
     use_persistent_committed_program_handle: bool = False
+    # ARC-021 H2 merged-optimizer runnability (chip-20260911-arc021-h2-
+    # contextmemory-inplace-write, 2026-09-24). select_action stores the emitted
+    # action in _last_action UNDETACHED (action.requires_grad is True on every
+    # step), and the NEXT sense() passes it as prev_action into
+    # LatentStack.encode -> SD-007 reafference correct_z_world. So step t's
+    # z_world carries step t-1's whole selection graph (E1 prior ->
+    # ContextMemory.read, E2, E3). A single-optimizer driver that backprops an
+    # UNDETACHED z_world loss (the ARC-021 H2 MERGED arm) then walks back across
+    # step t-1's optimizer.step() and crashes ("modified by an inplace
+    # operation" / "backward through the graph a second time"). The pre-flight
+    # measured that ContextMemory.write's .data write is NOT the mutator (it does
+    # not bump the version counter and is not even called in the probe config);
+    # the mutator is Adam's in-place step, reached through this carry.
+    # True -> prev_action is .detach()ed at the encode call site: forward values
+    # are bit-identical, only the cross-step gradient path is cut (every other
+    # _last_action consumer already detaches). Default False -> bit-identical,
+    # including gradients. THREE wiring sites: this field, the from_dims
+    # signature, the from_dims assignment. Consumer: REEAgent.sense.
+    detach_carried_prev_action: bool = False
     # ARC-071/MECH-090 E3-TICK RESELECTION SHORT-CIRCUIT.
     # diagnostic_arc071_e3_reselection_probe_2026-08-01.md confirmed (real
     # 53,063-step hazard-exposed rollout) that select_action's E3-tick branch
@@ -8213,6 +8232,7 @@ class REEConfig:
         use_decomposition_scale_resolved_probe: bool = False,
         use_decomposition_scale_resolved_probe_midexec: bool = False,
         use_persistent_committed_program_handle: bool = False,
+        detach_carried_prev_action: bool = False,
         use_e3_reselection_shortcircuit: bool = False,
         # Post-603i E2 escape-affordance linker (readout over detached E2
         # action-consequence features; reuse, not a duplicate predictor).
@@ -9801,6 +9821,8 @@ class REEConfig:
         config.use_persistent_committed_program_handle = (
             use_persistent_committed_program_handle
         )
+        # ARC-021 H2: cut the cross-step graph carried through prev_action.
+        config.detach_carried_prev_action = detach_carried_prev_action
         # ARC-071/MECH-090 E3-tick reselection short-circuit. Same three-site
         # pattern and same no-mirror reasoning as the persistent handle flag
         # above -- the consumer is REEAgent.select_action.
