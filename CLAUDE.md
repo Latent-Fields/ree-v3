@@ -423,7 +423,9 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
     - [AMEND: head-internals instrumentation (dead-ReLU / magnitude-ratio diagnostics for the still-zero V3-EXQ-822a propagation) (2026-07-27)](docs/substrate/SD-082-amend-head-internals-instrumentation.md) *(~1,216 tok)*
     - [AMEND: per-candidate summary was a shared constant, not per-candidate (the CORRUPTING defect V3-EXQ-822c confirmed) (2026-08-29)](docs/substrate/SD-082-amend-per-candidate-summary-was-a.md) *(~2,175 tok)*
 - **[SD-091](docs/substrate/SD-091-mech-481-coalition-topology-control.md)** — MECH-481: Coalition/Topology Control Substrate -- steps 1-6 of 7 IMPLEMENTED (2026-08-03); ARC-131 endogenous-recruitment driver IMPLEMENTED (2026-09-14) *(~3,515 tok)*
-- **[SD-092](docs/substrate/SD-092-cross-level-subgoal-credit-implemented.md)** — Cross-Level Subgoal Credit -- IMPLEMENTED (primitive + agent-loop call site, 2026-08-02) *(~1,569 tok)*
+- **SD-092** — 2 records, ~2,669 tok total.
+    - [Cross-Level Subgoal Credit -- IMPLEMENTED (primitive + agent-loop call site, 2026-08-02)](docs/substrate/SD-092-cross-level-subgoal-credit-implemented.md) *(~1,569 tok)*
+    - [Residual: parent-attractor E3 scoring consumer, E3Config.parent_goal_weight (2026-09-24)](docs/substrate/SD-092-parent-goal-e3-consumer.md) *(~1,100 tok)*
 - **[SD-093](docs/substrate/SD-093-progress-velocity-effort-persistence.md)** — Progress-Velocity Effort/Persistence Modulation -- IMPLEMENTED (2026-08-02) *(~1,723 tok)*
 - **[SD-099](docs/substrate/SD-099-mech-489-defensive-orienting-response.md)** — MECH-489: Defensive-Orienting Response -- IMPLEMENTED (2026-08-09) *(~1,557 tok)*
 - **[SD-100](docs/substrate/SD-100-arc-032-mech-089-phase-aware.md)** — ARC-032 / MECH-089: Phase-Aware ThetaBuffer Summary -- IMPLEMENTED (2026-08-10) *(~1,544 tok)*

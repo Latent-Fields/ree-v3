@@ -143,6 +143,9 @@ class SelectionResult:
 #   pe_confidence / self_viability -- generation:v4 penalties, default-OFF and
 #                        outside 571c's declared partition. Normalising them would
 #                        redefine the partition a successor measures against.
+#   parent_goal (SD-092 residual, E3Config.parent_goal_weight) -- default-OFF
+#                        additive parent-attractor term, outside 571c's partition
+#                        for the same reason; enters the score UNSCALED.
 _COMMENSURABILITY_CHANNELS = (
     "f_weighted",
     "harm_weighted",
@@ -1419,6 +1422,19 @@ class E3TrajectorySelector(nn.Module):
         prox = prox_flat.reshape(batch, horizon_p1)
         return prox.sum(dim=-1)
 
+    def compute_parent_goal_score(
+        self, trajectory: Trajectory, goal_state: GoalState
+    ) -> torch.Tensor:
+        """SD-092 residual: parent-attractor proximity summed across the
+        trajectory (GoalState.parent_goal_proximity). Shape: [batch]. Higher =
+        trajectory passes closer to _z_goal_parent. Default-off consumer
+        (E3Config.parent_goal_weight)."""
+        world_seq = self._get_world_states(trajectory)
+        batch, horizon_p1, _ = world_seq.shape
+        flat = world_seq.reshape(batch * horizon_p1, -1)
+        prox_flat = goal_state.parent_goal_proximity(flat)
+        return prox_flat.reshape(batch, horizon_p1).sum(dim=-1)
+
     def compute_harm_stream_cost(
         self,
         trajectory: Trajectory,
@@ -1742,6 +1758,20 @@ class E3TrajectorySelector(nn.Module):
             score = score - _t_g
             if self.e3_score_decomp_enabled:
                 _dc_goal_w = float(_t_g.detach().mean().item())
+
+        # SD-092 residual: parent-attractor (MECH-427 cross-level credit) goal
+        # term. ADDITIVE and gated on its OWN weight + parent_is_active(), NOT
+        # inside the child block above, so it is live when the child attractor
+        # is inactive or goal_weight is 0 (MECH-428 formation regime). Not in
+        # _COMMENSURABILITY_CHANNELS (see the DELIBERATELY EXCLUDED note).
+        # parent_goal_weight 0.0 (default) -> skipped -> bit-identical.
+        if (getattr(self.config, "parent_goal_weight", 0.0) > 0.0
+                and goal_state is not None
+                and goal_state.parent_is_active()):
+            gp = self.compute_parent_goal_score(trajectory, goal_state)
+            if terrain_weight is not None:
+                gp = gp * terrain_weight[:, 1]
+            score = score - self.config.parent_goal_weight * gp
 
         # DR-12 (self_model_v4:SELF-4, FIRST V4 substrate build): E2 forward-PE
         # confidence down-weight. score is a COST (lower is better), so a positive

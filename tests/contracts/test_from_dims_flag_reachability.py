@@ -282,7 +282,6 @@ REACHABLE_BY_ALTERNATIVE_IDIOM = {
         "replay_capacity / batch_size) is set the same way."
     ),
     "use_harm_un": "latent; 12 drivers + 1 lib + 2 tests",
-    "use_hierarchical_goal_credit": "goal; 2 drivers + 2 tests",
     "use_identity_classifier": "latent; 17 drivers + 1 ree_core site",
     "use_persistence_efficacy_gate": "ghost_goal_bank_config; 2 drivers + 4 tests",
     "use_progress_velocity_effort_modulation": "goal; 1 lib + 1 test",

@@ -1348,6 +1348,19 @@ class E3Config:
     # 0.0 disables goal contribution (backward-compatible default).
     goal_weight: float = 0.0
 
+    # SD-092 residual (chip-20260902-zgoal-parent-e3-consumer, 2026-09-24): the
+    # PARENT attractor GoalState._z_goal_parent (MECH-427 cross-level subgoal
+    # credit) had no reader, so restoring / ablating cross-level credit was
+    # DV-invariant. When > 0 and goal_state.parent_is_active(), score_trajectory
+    # subtracts parent_goal_weight * sum_t 1/(1 + MSE_sum(z_t, _z_goal_parent)).
+    # ADDITIVE, not a blend inside goal_proximity (which has many other callers),
+    # gated on its own weight + parent_is_active() -- NOT inside the child
+    # goal block, so it stays live when the child is inactive or goal_weight=0
+    # (the MECH-428 formation regime). Outside the _COMMENSURABILITY_CHANNELS
+    # partition. Terrain-scaled by w_goal exactly like the child goal term.
+    # 0.0 (default) -> bit-identical.
+    parent_goal_weight: float = 0.0
+
     # SD-011: z_harm_a urgency modulation of commit threshold (ARC-016 reframe).
     # When > 0 and z_harm_a is provided to select(), effective_threshold is RAISED
     # proportionally to z_harm_a.norm(), making the agent commit faster under threat
@@ -7717,6 +7730,13 @@ class REEConfig:
         decay_goal: float = 0.005,
         benefit_threshold: float = 0.1,
         goal_weight: float = 1.0,
+        # SD-092 residual: parent-attractor E3 consumer + the GoalConfig SD-092
+        # knobs (deferred passthrough "until a consumer exists" -- it now does).
+        parent_goal_weight: float = 0.0,
+        use_hierarchical_goal_credit: bool = False,
+        parent_goal_alpha: float = 0.05,
+        parent_goal_decay: float = 0.005,
+        subgoal_credit_min: float = 0.0,
         e1_goal_conditioned: bool = True,
         drive_weight: float = 2.0,  # SD-012: benefit amplification when depleted
         drive_ema_alpha: float = 1.0,  # SD-012 GAP-3 Option 1: sustained-drive EMA (1.0=OFF, bit-identical; 0.02~35-step half-life)
@@ -9133,6 +9153,7 @@ class REEConfig:
         config.e3.urgency_max = urgency_max
         config.e3.affective_harm_scale = affective_harm_scale
         config.e3.goal_weight = goal_weight
+        config.e3.parent_goal_weight = parent_goal_weight  # SD-092 residual
 
         # Hippocampal
         config.hippocampal.world_dim = world_dim
@@ -9179,6 +9200,10 @@ class REEConfig:
             "super_ordinal_seed_strength",  # MECH-189
             "super_ordinal_cue_centering",  # SD-077
             "super_ordinal_cue_baseline_alpha",  # SD-077
+            "use_hierarchical_goal_credit",  # SD-092
+            "parent_goal_alpha",  # SD-092
+            "parent_goal_decay",  # SD-092
+            "subgoal_credit_min",  # SD-092
         }
         local_goal_vals = {
             "z_goal_enabled": z_goal_enabled,
@@ -9214,6 +9239,10 @@ class REEConfig:
             "super_ordinal_seed_strength": super_ordinal_seed_strength,  # MECH-189
             "super_ordinal_cue_centering": super_ordinal_cue_centering,  # SD-077
             "super_ordinal_cue_baseline_alpha": super_ordinal_cue_baseline_alpha,  # SD-077
+            "use_hierarchical_goal_credit": use_hierarchical_goal_credit,  # SD-092
+            "parent_goal_alpha": parent_goal_alpha,  # SD-092
+            "parent_goal_decay": parent_goal_decay,  # SD-092
+            "subgoal_credit_min": subgoal_credit_min,  # SD-092
         }
         for _key in goal_fields:
             if _key in local_goal_vals:

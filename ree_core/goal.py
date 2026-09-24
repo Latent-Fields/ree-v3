@@ -1041,6 +1041,19 @@ class GoalState:
             return False
         return self._z_goal_parent.abs().sum().item() > 1e-6
 
+    def parent_goal_proximity(self, z_world: torch.Tensor) -> torch.Tensor:
+        """SD-092 residual: bounded proximity to the PARENT attractor,
+        1 / (1 + MSE_sum(z_world, _z_goal_parent)). Shape: [batch]. Mirrors
+        goal_proximity one hierarchy level up; read only by E3's default-off
+        parent-goal term (E3Config.parent_goal_weight). Returns zeros when the
+        parent has not been allocated (caller should gate on parent_is_active()).
+        """
+        if self._z_goal_parent is None:
+            return torch.zeros(z_world.shape[0], device=z_world.device, dtype=z_world.dtype)
+        parent_exp = self._z_goal_parent.expand_as(z_world)
+        dist = F.mse_loss(z_world, parent_exp, reduction="none").sum(dim=-1)
+        return 1.0 / (1.0 + dist)
+
     def goal_proximity(self, z_world: torch.Tensor) -> torch.Tensor:
         """
         Bounded wanting signal. Higher = closer to goal.
