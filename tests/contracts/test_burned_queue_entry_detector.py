@@ -598,6 +598,143 @@ class MisnamedDriverTest(unittest.TestCase):
                     "the stint window means the stint ran")
 
 
+class VThreeSuffixFallbackTest(unittest.TestCase):
+    """chip-20260923-burn-auditor-v3-suffix-fallback: a driver with NO
+    literal EXPERIMENT_TYPE falls back to its FILENAME stem for the manifest
+    lookup -- but a subset of such drivers actually write
+    "<filename stem>_v3", not the bare filename stem. Measured 2026-09-23: of
+    64 v[34]_exq_*.py drivers with no literal EXPERIMENT_TYPE, 12 have
+    manifests ONLY under that "_v3" shape (e.g. v3_exq_613_sd056_e2_action_
+    contrastive_substrate_readiness_v3_20260529T083242Z.json -- the driver's
+    run_id is "<filename stem>_v3"). Before this fix every ran_*/
+    prior_own_run/renumber_recovery lookup was keyed on the bare filename
+    stem, so those runs were as invisible as the C3e EXPERIMENT_TYPE case --
+    same failure shape (a resolvable naming mismatch), different cause (no
+    EXPERIMENT_TYPE at all, vs. one that disagrees with the filename).
+
+    This replays the shape end to end through `audit()` on a throwaway git
+    repo, exactly as C3e does. Both arms FAIL on the pre-fix detector
+    (measured): (i) the advisory stays silent, (ii) a burn is reported for a
+    stint that DID produce a manifest under the "_v3" shape.
+    """
+
+    SCRIPT = "experiments/v3_exq_902_suffix_probe.py"
+    FILENAME_STEM = "v3_exq_902_suffix_probe"
+    MANIFEST_STEM = FILENAME_STEM + "_v3"   # what the driver actually WRITES
+
+    def _git(self, repo, when, *args):
+        env = dict(os.environ,
+                   GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
+                   GIT_COMMITTER_NAME="t",
+                   GIT_COMMITTER_EMAIL="t@example.invalid",
+                   GIT_AUTHOR_DATE=when, GIT_COMMITTER_DATE=when)
+        subprocess.run(["git", "-c", "core.hooksPath=/dev/null",
+                        "-c", "commit.gpgsign=false", "-C", repo, *args],
+                       check=True, capture_output=True, env=env)
+
+    def _commit_queue(self, repo, when, subject, items):
+        with open(os.path.join(repo, "experiment_queue.json"), "w") as fh:
+            json.dump({"schema_version": "v1", "items": items}, fh)
+        self._git(repo, when, "add", "-A")
+        self._git(repo, when, "commit", "-q", "-m", subject)
+
+    def _build(self, root):
+        repo = os.path.join(root, "repo")
+        os.makedirs(os.path.join(repo, "experiments"))
+        self._git(repo, "2026-07-01T00:00:00+00:00", "init", "-q")
+        with open(os.path.join(repo, self.SCRIPT), "w") as fh:
+            # Deliberately NO "EXPERIMENT_TYPE = ..." literal anywhere -- the
+            # resolver must fall back to the filename stem, which is NOT
+            # what this driver actually writes (it appends "_v3" at run
+            # time, the shape measured 2026-09-23).
+            fh.write('"""suffix probe -- writes run_id = SCRIPT_STEM + '
+                     '\'_v3\', no EXPERIMENT_TYPE literal"""\nx = 1\n')
+        item = {"queue_id": "V3-EXQ-902", "script": self.SCRIPT}
+        self._commit_queue(repo, "2026-07-01T10:00:00+00:00",
+                           "queue: V3-EXQ-902", [item])
+        self._commit_queue(repo, "2026-07-01T10:30:00+00:00",
+                           "phase3-queue: snapshot", [])
+        # The burned re-add, 26 hours later, same driver blob.
+        self._commit_queue(repo, "2026-07-02T12:00:00+00:00",
+                           "queue: re-add V3-EXQ-902", [item])
+        self._commit_queue(repo, "2026-07-02T12:03:00+00:00",
+                           "phase3-queue: snapshot", [])
+        return repo
+
+    def _evidence(self, root, stamp):
+        ev = os.path.join(root, "evidence")
+        os.makedirs(ev)
+        open(os.path.join(ev, "%s_%s_v3.json"
+                          % (self.MANIFEST_STEM, stamp)), "w").close()
+        return ev
+
+    def _audit(self, repo, ev):
+        return [f for f in audit.audit(repo=repo, evidence_dir=ev)
+                if f["queue_id"] == "V3-EXQ-902"]
+
+    def test_filename_fallback_also_tries_the_v3_suffixed_stem(self):
+        # Unit-level pin on the resolver itself, independent of the
+        # end-to-end repo below: no literal EXPERIMENT_TYPE -> alt is
+        # primary + "_v3"; a literal EXPERIMENT_TYPE -> alt is always None
+        # (never widened -- it already names the exact stem written).
+        with tempfile.TemporaryDirectory() as root:
+            repo = self._build(root)
+            ds = audit.DriverStems(repo)
+            sha = subprocess.run(
+                ["git", "-C", repo, "rev-parse", "HEAD"],
+                capture_output=True, text=True, check=True).stdout.strip()
+            primary, alt = ds.stems(self.SCRIPT, sha)
+            self.assertEqual(primary, self.FILENAME_STEM)
+            self.assertEqual(alt, self.MANIFEST_STEM)
+
+        literal_script = "experiments/v3_exq_903_literal_probe.py"
+        with tempfile.TemporaryDirectory() as root:
+            repo = self._build(root)  # reuse for a throwaway git tree only
+            os.makedirs(os.path.dirname(
+                os.path.join(repo, literal_script)), exist_ok=True)
+            with open(os.path.join(repo, literal_script), "w") as fh:
+                fh.write('EXPERIMENT_TYPE = "some_other_stem"\n')
+            self._git(repo, "2026-07-03T00:00:00+00:00", "add", "-A")
+            self._git(repo, "2026-07-03T00:00:00+00:00", "commit", "-q",
+                      "-m", "add literal probe")
+            sha = subprocess.run(
+                ["git", "-C", repo, "rev-parse", "HEAD"],
+                capture_output=True, text=True, check=True).stdout.strip()
+            ds2 = audit.DriverStems(repo)
+            primary2, alt2 = ds2.stems(literal_script, sha)
+            self.assertEqual(primary2, "some_other_stem")
+            self.assertIsNone(alt2,
+                              "a literal EXPERIMENT_TYPE must never be "
+                              "widened with a _v3 alt candidate")
+
+    def test_v3_suffix_burn_end_to_end(self):
+        with tempfile.TemporaryDirectory() as root:
+            repo = self._build(root)
+            # (i) the driver ran BEFORE the burned re-add and wrote under
+            # "<filename stem>_v3". The burn is still a finding (disposition
+            # unchanged), but the already-ran advisory must now see the run.
+            findings = self._audit(repo, self._evidence(root,
+                                                        "20260701T101500Z"))
+            self.assertEqual(len(findings), 1)
+            self.assertTrue(findings[0]["already_ran_identical_script"],
+                            "a manifest filed under '<filename stem>_v3' "
+                            "must count as this driver's run")
+            self.assertEqual(findings[0]["already_ran_identical_script_at"],
+                             "2026-07-01T10:15:00Z")
+            self.assertFalse(findings[0]["evidence_recovered"],
+                             "the advisory is disposition-neutral")
+
+        with tempfile.TemporaryDirectory() as root:
+            repo = self._build(root)
+            # (ii) L3: the re-add stint DID run, under the "_v3"-suffixed
+            # stem. That is not a burn at all -- keyed on the bare filename
+            # stem it looked like one.
+            self.assertEqual(
+                self._audit(repo, self._evidence(root, "20260702T120200Z")),
+                [], "a manifest under '<filename stem>_v3' inside the "
+                    "stint window means the stint ran")
+
+
 @unittest.skipUnless(
     (REPO_ROOT / "experiment_queue.json").exists() and EVIDENCE_DIR.is_dir()
     and (REPO_ROOT / ".git").exists(),

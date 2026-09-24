@@ -387,6 +387,13 @@ class DriverStems:
     def __init__(self, repo):
         self.repo = repo
         self._stem = {}
+        # Parallel cache: True when the resolved stem above came from a
+        # LITERAL EXPERIMENT_TYPE, False when it fell back to the filename
+        # stem. Only the fallback case gets a second candidate (see `stems`)
+        # -- a driver with a literal EXPERIMENT_TYPE has already told us
+        # exactly what it writes, so widening it would only invite a false
+        # match against an unrelated "<stem>_v3" file.
+        self._literal = {}
 
     def prefetch(self, pairs):
         wanted = []
@@ -401,8 +408,9 @@ class DriverStems:
         for rev, script in wanted:
             blob = contents.get("%s:%s" % (rev, script))
             source = blob.decode("utf-8", "replace") if blob else None
-            self._stem[(rev, script)] = (experiment_type_of(source)
-                                         or script_stem(script))
+            literal = experiment_type_of(source)
+            self._stem[(rev, script)] = literal or script_stem(script)
+            self._literal[(rev, script)] = literal is not None
 
     def stem(self, script, rev):
         if not script:
@@ -410,6 +418,29 @@ class DriverStems:
         if (rev, script) not in self._stem:
             self.prefetch([(rev, script)])
         return self._stem[(rev, script)]
+
+    def stems(self, script, rev):
+        """(primary, alt) candidate manifest stems for this driver at this
+        revision. `alt` is None unless the driver has NO literal
+        EXPERIMENT_TYPE (the primary is the filename-stem fallback), in
+        which case alt = "<filename stem>_v3" -- the run_id shape a subset
+        of filename-fallback drivers actually write (measured 2026-09-23: of
+        64 v[34]_exq_*.py drivers with no literal EXPERIMENT_TYPE, 12 have
+        manifests ONLY under "<stem>_v3", e.g. v3_exq_613_..._v3_20260529T
+        083242Z.json -- invisible to every ran_*/prior_own_run/
+        renumber_recovery lookup that keyed on the bare filename stem;
+        chip-20260923-burn-auditor-v3-suffix-fallback). Omitted when it
+        would equal `primary` (already ends in "_v3") to avoid a redundant
+        lookup. A literal EXPERIMENT_TYPE is never widened -- it already
+        names the exact stem the driver writes."""
+        primary = self.stem(script, rev)
+        if not script or primary is None:
+            return primary, None
+        if self._literal.get((rev, script)):
+            return primary, None
+        if primary.endswith("_v3"):
+            return primary, None
+        return primary, primary + "_v3"
 
 
 # A stem is "v[34]_exq_<number><letters>_<descriptive slug>". The RENUMBER
@@ -463,6 +494,28 @@ def renumber_recovery(by_stem, stem, when_after):
     if not matches:
         return None
     return sorted(matches)[0][1]
+
+
+def _ran_between_any(evidence, stems, start, end):
+    return any(evidence.ran_between(s, start, end) for s in stems if s)
+
+
+def _ran_ever_any(evidence, stems):
+    return any(evidence.ran_ever(s) for s in stems if s)
+
+
+def _ran_after_any(evidence, stems, when_after):
+    return any(evidence.ran_after(s, when_after) for s in stems if s)
+
+
+def _prior_own_run_any(by_stem, stems, before):
+    """Latest manifest ANY of `stems` produced strictly before `before` --
+    the multi-candidate form of `prior_own_run`, so a driver with no literal
+    EXPERIMENT_TYPE is checked under both its filename stem and the
+    "<stem>_v3" shape (see DriverStems.stems)."""
+    hits = [prior_own_run(by_stem, s, before) for s in stems if s]
+    hits = [h for h in hits if h is not None]
+    return max(hits) if hits else None
 
 
 def prior_own_run(by_stem, stem, before):
@@ -645,21 +698,24 @@ def annotate_already_ran(pairs, by_stem, script_blobs):
     removes a finding. Demotion is the dangerous direction (see the REFUTED
     ROUTE block in the module tests), so this route only annotates.
 
-    `pairs` is [(finding, stint, stem)], where `stem` is the manifest stem
-    the stint's driver writes (its EXPERIMENT_TYPE -- see DriverStems), not
-    necessarily its filename stem. The blob comparison below is still on the
-    script PATH: the stem only says which manifests to look for. Two phases
-    so that every oid read goes through ONE batched `git cat-file` -- phase 1
-    resolves which revisions to compare, phase 2 reads them all at once.
+    `pairs` is [(finding, stint, stems)], where `stems` is the (primary, alt)
+    candidate manifest stems the stint's driver could write (its
+    EXPERIMENT_TYPE, else its filename stem and -- when that filename
+    fallback applies -- also "<filename stem>_v3"; see DriverStems.stems),
+    not necessarily its filename stem alone. The blob comparison below is
+    still on the script PATH: the stems only say which manifests to look
+    for. Two phases so that every oid read goes through ONE batched
+    `git cat-file` -- phase 1 resolves which revisions to compare, phase 2
+    reads them all at once.
     """
     if script_blobs is None:
         return
     wanted = []
     specs = []
-    for finding, stint, stem in pairs:
+    for finding, stint, stems in pairs:
         script = stint["item"].get("script")
         added = parse_iso(stint["added_at"])
-        when = prior_own_run(by_stem, stem, added)
+        when = _prior_own_run_any(by_stem, stems, added)
         if when is None or not script:
             continue
         then_sha = script_blobs.commit_at(script, when, stint["added_sha"])
@@ -685,14 +741,16 @@ def annotate_already_ran(pairs, by_stem, script_blobs):
             "%Y-%m-%dT%H:%M:%SZ")
 
 
-def _stint_stem(stint, driver_stems):
-    """The manifest stem this stint's driver writes, resolved at the
-    stint's own add commit -- or the filename stem when no resolver is
-    supplied (the module tests' synthetic stints)."""
+def _stint_stems(stint, driver_stems):
+    """(primary, alt) candidate manifest stems this stint's driver could
+    write, resolved at the stint's own add commit -- or just the filename
+    stem (alt=None) when no resolver is supplied (the module tests'
+    synthetic stints). See DriverStems.stems for what `alt` is and when it
+    applies."""
     script = stint["item"].get("script")
     if driver_stems is None:
-        return script_stem(script)
-    return driver_stems.stem(script, stint["added_sha"])
+        return script_stem(script), None
+    return driver_stems.stems(script, stint["added_sha"])
 
 
 def find_burns(stints, successors, evidence, window_minutes, grace_minutes,
@@ -730,10 +788,13 @@ def find_burns(stints, successors, evidence, window_minutes, grace_minutes,
     annotated = []
     for stint, added, removed, minutes in candidates:
         # L3 -- nothing ran, scoped to THIS stint (FP2 + FP4). Keyed on the
-        # stem the driver WRITES (its EXPERIMENT_TYPE), not its filename.
-        stem = _stint_stem(stint, driver_stems)
+        # stem(s) the driver could WRITE: its EXPERIMENT_TYPE when literal,
+        # else its filename stem AND (chip-20260923-burn-auditor-v3-suffix-
+        # fallback) the "<filename stem>_v3" shape a filename-fallback
+        # driver commonly writes instead.
+        stems = _stint_stems(stint, driver_stems)
         grace = dt.timedelta(minutes=grace_minutes)
-        if evidence.ran_between(stem, added, removed + grace):
+        if _ran_between_any(evidence, stems, added, removed + grace):
             continue
         # L4 -- the id had a prior life, so the DB row could be terminal
         if stint["prior_stints"] < 1:
@@ -757,9 +818,9 @@ def find_burns(stints, successors, evidence, window_minutes, grace_minutes,
         heirs = successors.get(stint["queue_id"], [])
         recovered = [
             qid for qid, _ in heirs
-            if evidence.ran_ever(_successor_stem(stints, qid, driver_stems))
+            if _ran_ever_any(evidence, _successor_stems(stints, qid, driver_stems))
         ]
-        rerun_later = evidence.ran_after(stem, removed + grace)
+        rerun_later = _ran_after_any(evidence, stems, removed + grace)
         if rerun_later:
             recovered.append("(same script re-ran)")
         # The renumber route uses plain `removed`, NOT removed+grace: the
@@ -769,7 +830,11 @@ def find_burns(stints, successors, evidence, window_minutes, grace_minutes,
         # after the burn -- V3-EXQ-893 was renumbered to 894 only 19 min
         # after removal, inside the 120 min grace -- so removed+grace would
         # miss the actual renumber and mis-attribute recovery to a later run.
-        renumbered = evidence.renumbered_run_after(stem, removed)
+        # Uses the PRIMARY stem only, never `alt` -- split_stem's descriptive
+        # slug must stay the driver's own naming, not a "..._v3"-suffixed
+        # variant that would only ever self-match (no other driver's stem
+        # ends the same way by construction).
+        renumbered = evidence.renumbered_run_after(stems[0], removed)
         if renumbered:
             recovered.append("(renumbered: %s)" % renumbered)
         finding = {
@@ -791,17 +856,17 @@ def find_burns(stints, successors, evidence, window_minutes, grace_minutes,
             "already_ran_identical_script_at": None,
         }
         findings.append(finding)
-        annotated.append((finding, stint, stem))
+        annotated.append((finding, stint, stems))
     annotate_already_ran(annotated, getattr(evidence, "by_stem", {}),
                          script_blobs)
     return findings
 
 
-def _successor_stem(stints, qid, driver_stems=None):
+def _successor_stems(stints, qid, driver_stems=None):
     for stint in stints:
         if stint["queue_id"] == qid:
-            return _stint_stem(stint, driver_stems)
-    return None
+            return _stint_stems(stint, driver_stems)
+    return None, None
 
 
 def audit(repo=DEFAULT_REPO, evidence_dir=DEFAULT_EVIDENCE,
