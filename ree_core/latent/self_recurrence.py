@@ -26,6 +26,40 @@ The E1-anchor BLEND lives at the encode call site (LatentStack.encode); this
 module owns only the dedicated-recurrence half. See
 REE_assembly/docs/architecture/dr13_self_recurrence_temporal_depth.md.
 
+HOW THIS CELL IS TRAINED (corrected 2026-09-24 -- sd_zself_training_path)
+------------------------------------------------------------------------
+DR-13's design doc originally stated that this cell "trains via the EXISTING
+E1/E2 z_self prediction losses -- v1 adds no new loss". THAT WAS FALSE. It
+reaches NO gradient from those losses: every z_self they see is a DETACHED copy
+(agent.py:5855, :6294, :11397). Measured on 3/3 seeds by V3-EXQ-1078
+(gru_param_max_delta = 0.0, latent_stack_tensors_changed = 0/53) and root-caused
+by REE_assembly/evidence/planning/zself_causal_reach_trace_20260924.md. No
+production optimizer group contains a z_self-path parameter either, so without
+the module below this cell is a FROZEN RANDOM PROJECTION for the whole of every
+run, silently.
+
+The repair is `ree_core/latent/zself_p0.py` (ZSelfP0Trainer), wrapped for drivers
+by `experiments/_lib/zself_p0_warmup.py:run_zself_p0`: a PHASED body-forward-model
+P0 -- head([z_self_t, a_t]) -> body_obs_{t+1} -- that runs its own forward passes
+over recorded observations, so it both reaches this cell and avoids the
+retained-graph hazard by construction. Default OFF, bit-identical when off.
+Do NOT instead "restore a live tap" so the existing E1/E2 losses reach z_self:
+that route was prototyped and COLLAPSES the self-state on 2/2 seeds (effective
+rank -> ~1.0, or the z norm shrunk 5x to the trivial solution), which would make
+INV-069's coherence trivially maximal and MECH-113's D_eff trivially minimal --
+both reading as success and both vacuous. Contract:
+`tests/contracts/test_zself_p0_training_path.py`.
+
+SCOPE -- this cell has no behavioural reach, before or after training. The same
+trace measured 0/68 E3 ticks and 0/12 whole episodes with any action change under
+z_self intervention (z_world canary 4-30% in the same harness): E3 scores world
+rollouts only, the per-candidate E2 self-rollout is computed and discarded, E1's
+z_self response reaches selection only via an untrained hippocampal.terrain_prior,
+and DR-10 is default-off with no z_self-derived producer. INV-069 / MECH-113
+retests after the P0 measure SELF-STATE QUALITY and E1 USE ONLY. The missing
+z_self-reading valuation consumer is routed to /governance as its own
+substrate_queue row (GFLAG-0481); it is not built here.
+
 ML/AI parallel (engineering counsel only, not architectural authority): a gated
 recurrent cell is the standard fix for a fixed-decay integrator that cannot
 selectively retain (the EMA); GRU gates solve vanishing/over-smoothing at low
