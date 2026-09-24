@@ -5,16 +5,27 @@ Sweeps SD-092's parent_goal_alpha x parent_goal_decay x N_STEPS (event count) an
 operating point, whether the correctly-nulled parent-level statistic S separates from its own
 re-constructed null AT ALL. It does not test MECH-428.
 
-STATUS: PARKED, NOT QUEUED (2026-09-24). BLOCKED pending decision chip
-chip-20260924-decision-exq1093-c1-pr3-identity. Parked in experiments/_scratch/ per the 884a/b/c
-convention; V3-EXQ-1093 stays reserved for it. Move back to experiments/ only once the decision
-is taken and applied. Full record: REE_assembly/evidence/planning/
+DECISION (user, 2026-09-24 ~17:20Z, rec-20260924-701216a5, on
+chip-20260924-decision-exq1093-c1-pr3-identity): option (b) -- C1 ranges only over sub-ceiling
+cells (ESS <= 0.5 x n_att); PR3 stays readiness; the default-cell replication is a REPORTED
+readout (C2). Parked 2026-09-24 12:xx-17:20Z; full record REE_assembly/evidence/planning/
 exq1093_mech428_parent_stat_redteam_blocking_20260924.md. Pilot raw data:
 experiments/_scratch/v3_exq_1093_pilot_seeds101_102.json.
 
-RED-TEAM (fable, one pass, foreground, 2026-09-24): BLOCKING.
-  F1 BLOCKING, CONFIRMED against source + pilot, NOT FIXED here (consent rule: a red-team
-     refusal is not re-designed around unilaterally): C1 is implied by PR3 by construction.
+RED-TEAM PASS 2 (fable, one pass, foreground, 2026-09-24, after decision (b)): CONTESTED, no
+  BLOCKING. C1 now discriminates (it can fail with PR3 met).
+  F4 CONTESTED, FIXED: the C1-unmet label claimed "no achievable range at registered settings"
+     although excluded above-cap cells are registered settings and may separate; that branch now
+     splits (parent_statistic_separates_only_above_c1_ess_cap), and separating_real_cells lists
+     ALL real cells with an in_c1_set flag.
+  F5 CONTESTED-minor, RECORDED: C1 is a max, so it binds on the highest-ESS eligible cell (pilot
+     (0.025, 0, N=1600), ESS 78.7); a PASS means the margin survives to ESS <= 0.5 x n_att, and
+     the crossover itself is reported (C1_min_separating_ess_in_set, cell map). best_cell now
+     breaks ties toward the binding (highest-ESS) cell. Scope stated in the manifest.
+
+RED-TEAM PASS 1 (fable, one pass, foreground, 2026-09-24): BLOCKING.
+  F1 BLOCKING, CONFIRMED against source + pilot; RESOLVED by the user's decision (b) above
+     (not re-designed unilaterally): C1 was implied by PR3 by construction.
      The real cell (alpha=0.005, decay=0) has near-flat weights, i.e. it IS the uniform ceiling
      (pilot ESS 58.6 vs 59 at N=400; S 0.002414 vs 0.002422, p95 0.000744 vs 0.000749), and
      PR3 is evaluated before C1. So C1 never fails independently, and the one genuine negative
@@ -127,10 +138,11 @@ PILOT (held-out seeds 101/102, full budgets, this exact instrument; not part of 
   * PR0 0.0, PR2 min cos 0.99999988, credits by N=400: 59 / 66, by N=1600: 248 / 245.
 
 PRE-REGISTERED PREDICTION for SEEDS (written before they run):
-  (P1) C1 PASS: every real cell with ESS >= 14 separates on >= 4/5 seeds.
+  (P1) C1 PASS: every sub-ceiling real cell with ESS >= 14 separates on >= 4/5 seeds (pilot C1
+       set: N=400 -> ESS <= ~31, N=1600 -> ESS <= ~123; the default cell is in the set).
   (P2) The crossover lies in ESS [8, 15]: the alpha = 0.2 cells separate on fewer seeds than the
        alpha <= 0.1 cells at the same (decay, N).
-  (P3) C2 FAILS: the default cell (0.05, 0.005, N=400) separates on a majority. If so, 884c's
+  (P3) C2 PASSES: the default cell (0.05, 0.005, N=400) separates on a majority. If so, 884c's
        at-chance reading of S at the default operating point (pct 78.0 / 63.0 / 86.5, K=1) was
        a single-control-draw instrument limitation, NOT an ESS ceiling. That corrects this chip's
        and its pre-flight's premise ("headroom is bounded by event count") and is the finding to
@@ -149,9 +161,11 @@ CRITERIA (thresholds fixed here, not derived from the run):
                          reachability asserted at setup against the pilot reference cells)
   PR4 negative control   max over all (cell, N) of fraction of seeds where the RANDOM-CREDIT arm
                          separates <= NC_MAX_FRAC   (direction: upper)
-  C1  LOAD-BEARING       max over REAL cells of fraction of seeds where S separates >= SEP_FRAC
-  C2  reported only      default cell (0.05, 0.005, N=400) separation fraction <= NC_MAX_FRAC
-                         (the 884c at-chance reading; PREDICTED TO FAIL, see P3)
+  C1  LOAD-BEARING       max over SUB-CEILING real cells (ess_mean <= C1_ESS_FRAC_MAX x mean
+                         n_att at that N) of fraction of seeds where S separates >= SEP_FRAC.
+                         The near-flat cells are excluded: they ARE the ceiling (red-team F1).
+  C2  reported only      default cell (0.05, 0.005, N=400) separation fraction >= SEP_FRAC
+                         (does the 884c at-chance reading replicate? PREDICTED NOT, see P3)
   C3  reported only      Spearman rho(cell ESS, cell mean percentile) over REAL cells >= 0.5
   "separates" for one seed-cell = K-averaged s_obs > the 95th percentile of its own K-averaged
   null (N_PERM samples). SEP_FRAC = 0.6 = 3 of 5 seeds (the WWA's "majority of seeds").
@@ -163,7 +177,10 @@ VERDICT GRID (every branch: evidence_direction non_contributory):
                       even at the ESS ceiling -- the precondition is not satisfiable in this harness)
   C1 met           -> PASS, parent_statistic_achievable_range_exists (the WWA precondition's
                       achievable-range clause is satisfiable; readout names WHERE)
-  C1 unmet         -> FAIL, parent_statistic_no_achievable_range_at_registered_settings
+  C1 unmet, an excluded (above-cap) cell separates
+                   -> FAIL, parent_statistic_separates_only_above_c1_ess_cap (red-team pass 2 F4)
+  C1 unmet, nothing separates
+                   -> FAIL, parent_statistic_no_achievable_range_at_registered_settings
 
 Power: at the ESS ceiling the pilot's uniform S sits 3-17x above its null p95; at the default
 cell 1.7-2.3x. With 5 seeds the 3/5 majority rule's chance rate per cell is ~1e-3 at p = 0.05 per
@@ -242,6 +259,7 @@ C0_NORM_TOL = 1e-4
 SEP_FRAC = 0.6
 NC_MAX_FRAC = 0.4
 C3_RHO_FLOOR = 0.5
+C1_ESS_FRAC_MAX = 0.5      # decision (b): C1 ranges only over cells with ESS <= this x n_att
 
 EQUIV_TICKS = 30                            # act() twin check on the sense path (PR0)
 EQUIV_TOL = 1e-6
@@ -691,11 +709,28 @@ def build_manifest(per_seed: List[dict], n_list: List[int], smoke: bool, min_cre
             "s_obs_mean": statistics.fmean(r["s_obs"] for r in rows),
             "null_p95_mean": statistics.fmean(r["null_p95"] for r in rows),
         })
-    best = max(cell_summary, key=lambda c: (c["sep_frac"], c["pct_mean"])) if cell_summary else None
+    # Decision (b), chip-20260924-decision-exq1093-c1-pr3-identity: C1 ranges ONLY over real
+    # cells whose ESS <= C1_ESS_FRAC_MAX x n_att (mean over seeds at that N). The near-flat cells
+    # (alpha 0.005/0.01 at decay 0) ARE the uniform ceiling (red-team F1), so including them made
+    # C1 a restatement of PR3; excluding them makes C1 ask whether S separates at a NON-ceiling
+    # SD-092 setting, and PR3 stays the readiness control.
+    n_att_mean = {N: statistics.fmean(s["n_att"].get(str(N), 0) for s in per_seed) for N in n_list}
+    for c in cell_summary:
+        c["c1_ess_cap"] = C1_ESS_FRAC_MAX * n_att_mean[c["N"]]
+        c["c1_eligible"] = bool(c["ess_mean"] <= c["c1_ess_cap"])
+    c1_cells = [c for c in cell_summary if c["c1_eligible"]]
+    # red-team pass 2 F5: name the cell that BINDS -- ties broken toward the highest ESS
+    best = (max(c1_cells, key=lambda c: (c["sep_frac"], c["pct_mean"], c["ess_mean"]))
+            if c1_cells else None)
     c1_measured = best["sep_frac"] if best else 0.0
-    c1_pass = c1_measured >= SEP_FRAC
-    sep_cells = [f"a{c['alpha']}_d{c['decay']}_N{c['N']}" for c in cell_summary
-                 if c["sep_frac"] >= SEP_FRAC]
+    c1_pass = bool(c1_cells) and c1_measured >= SEP_FRAC
+    # red-team pass 2 F4: list separating cells over ALL real cells, flagged by C1 membership
+    sep_cells = [{"cell": f"a{c['alpha']}_d{c['decay']}_N{c['N']}", "ess_mean": c["ess_mean"],
+                  "sep_frac": c["sep_frac"], "in_c1_set": c["c1_eligible"]}
+                 for c in cell_summary if c["sep_frac"] >= SEP_FRAC]
+    excluded_separates = any(c["sep_frac"] >= SEP_FRAC for c in cell_summary
+                             if not c["c1_eligible"])
+    sep_in_set = sorted(c["ess_mean"] for c in c1_cells if c["sep_frac"] >= SEP_FRAC)
 
     # ---- preconditions
     n_att_400 = [s["n_att"].get(str(min(n_list)), 0) for s in per_seed]
@@ -725,7 +760,9 @@ def build_manifest(per_seed: List[dict], n_list: List[int], smoke: bool, min_cre
 
     default = next((c for c in cell_summary if (c["alpha"], c["decay"], c["N"]) == DEFAULT_CELL), None)
     c2_measured = default["sep_frac"] if default else None
-    c2_pass = c2_measured is not None and c2_measured <= NC_MAX_FRAC
+    # REPORTED, not load-bearing: the 884c at-chance reading at its default operating point.
+    # Pre-registered prediction P3: it does NOT replicate (separates on a majority).
+    c2_pass = c2_measured is not None and c2_measured >= SEP_FRAC
     rho = _spearman([c["ess_mean"] for c in cell_summary], [c["pct_mean"] for c in cell_summary])
     c3_pass = rho is not None and rho >= C3_RHO_FLOOR
 
@@ -741,19 +778,26 @@ def build_manifest(per_seed: List[dict], n_list: List[int], smoke: bool, min_cre
         outcome, label = "FAIL", "substrate_not_ready_requeue"
     elif c1_pass:
         outcome, label = "PASS", "parent_statistic_achievable_range_exists"
+    elif excluded_separates:
+        # red-team pass 2 F4: separation exists, but only above the C1 ESS cap
+        outcome, label = "FAIL", "parent_statistic_separates_only_above_c1_ess_cap"
     else:
         outcome, label = "FAIL", "parent_statistic_no_achievable_range_at_registered_settings"
     ready = pr0 and pr1 and pr2 and pr3 and pr4
-    c1_non_degenerate = bool(ready and cell_summary
+    c1_non_degenerate = bool(ready and c1_cells
                              and len({round(c["s_obs_mean"], 9) for c in cell_summary}) > 1
                              and all(c["null_p95_mean"] > 0.0 for c in cell_summary))
 
     criteria = [
-        {"name": "C1_real_cell_separates_majority", "load_bearing": True, "passed": c1_pass,
-         "measured": c1_measured, "threshold": SEP_FRAC, "comparator": ">=",
+        {"name": "C1_subceiling_real_cell_separates_majority", "load_bearing": True,
+         "passed": c1_pass, "measured": c1_measured, "threshold": SEP_FRAC, "comparator": ">=",
+         "cell_set": f"real cells with ess_mean <= {C1_ESS_FRAC_MAX} x mean n_att at that N",
+         "n_cells_in_set": len(c1_cells),
          "best_cell": (f"a{best['alpha']}_d{best['decay']}_N{best['N']}" if best else None)},
-        {"name": "C2_default_cell_at_chance_replication", "load_bearing": False, "passed": c2_pass,
-         "measured": c2_measured, "threshold": NC_MAX_FRAC, "comparator": "<="},
+        {"name": "C2_default_cell_separates_reported", "load_bearing": False, "passed": c2_pass,
+         "measured": c2_measured, "threshold": SEP_FRAC, "comparator": ">=",
+         "note": "884c at-chance replication check at (0.05, 0.005, N=400); predicted to separate "
+                 "(P3). Reported only."},
         {"name": "C3_ess_orders_separation", "load_bearing": False, "passed": c3_pass,
          "measured": rho, "threshold": C3_RHO_FLOOR, "comparator": ">="},
     ]
@@ -787,7 +831,9 @@ def build_manifest(per_seed: List[dict], n_list: List[int], smoke: bool, min_cre
 
     readout = {
         "C1_max_sep_frac_real_cells": c1_measured, "C1_passed": c1_pass,
-        "C2_default_cell_sep_frac": c2_measured, "C3_spearman_ess_pct": rho,
+        "C2_default_cell_sep_frac": c2_measured, "C1_n_cells_in_set": len(c1_cells),
+        "C1_min_separating_ess_in_set": sep_in_set[0] if sep_in_set else None,
+        "any_excluded_cell_separates": excluded_separates, "C3_spearman_ess_pct": rho,
         "PR0_sense_act_max_abs_diff": pr0_measured,
         "PR1_min_credits_N400": pr1_measured, "PR2_c0_min_cos": c0_min,
         "PR2_c0_max_rel_norm_err": c0_err, "PR3_uniform_sep_frac": pr3_measured,
@@ -833,7 +879,12 @@ def build_manifest(per_seed: List[dict], n_list: List[int], smoke: bool, min_cre
                       "precondition's achievable-range clause is satisfiable at the named "
                       "(alpha, decay, N) cells. It does NOT test MECH-428's CONFIRMING clause: "
                       "no live consumer (parent_goal_weight = 0), scripted policy, no "
-                      "NO-SUBGOAL or forced-seed arm. Behavioural leg: EXP-0710 / GFLAG-0464.",
+                      "NO-SUBGOAL or forced-seed arm. Behavioural leg: EXP-0710 / GFLAG-0464. "
+                      "C1 is a MAX over the sub-ceiling set, so it binds on the highest-ESS "
+                      "eligible cell (red-team pass 2 F5): a PASS says the separation margin "
+                      "survives down to ESS <= 0.5 x n_att, not that every sub-ceiling cell "
+                      "separates -- the crossover lives in the reported cell map "
+                      "(readout C1_min_separating_ess_in_set, sep_frac_*) and C2/C3.",
         "interpretation": {
             "label": label,
             "preconditions": preconditions,

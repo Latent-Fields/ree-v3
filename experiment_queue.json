@@ -69,6 +69,21 @@
       "episodes_per_run": 174,
       "experiment_type": "v3_exq_1089_mech268_closure_cadence_mode_register",
       "seeds": 5
+    },
+    {
+      "queue_id": "V3-EXQ-1093",
+      "title": "MECH-428 instrument diagnostic: SD-092 parent-statistic S (time-shift null, K-averaged controls) swept over parent_goal_alpha x decay {0.005,0} x N_STEPS {400,1600}; sub-ceiling C1",
+      "script": "experiments/v3_exq_1093_mech428_parent_stat_ess_sweep.py",
+      "experiment_type": "v3_exq_1093_mech428_parent_stat_ess_sweep",
+      "priority": 30,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 40,
+      "episodes_per_run": 20,
+      "seeds": 5,
+      "conditions": 1,
+      "claim_id": "MECH-428",
+      "note": "DIAGNOSTIC, non_contributory on every branch (chip-20260917-mech428-parent-goal-alpha-sweep; orchestrator Q-MECH428 -> A; user decision (b) on chip-20260924-decision-exq1093-c1-pr3-identity, rec-20260924-701216a5). UNCERTAINTY REMOVED: whether SD-092's parent-level statistic S = 1-cos(parent_credited, parent_control) has an achievable range that separates from a null that re-runs parent construction at a NON-ceiling setting (MECH-428 WWA precondition, achievable-range clause), where the ESS crossover lies, and whether 884c's at-chance S at the default operating point replicates. HYPOTHESES: H1 ESS-bound (884c doc / pre-flight): S separates only near the ESS ceiling, default cell (0.05,0.005,N=400, ESS~24) at chance; H2 instrument-bound (this session's pilot, held-out seeds 101/102): 884c's at-chance reading was a single-control-draw limitation -- with K=32-averaged controls and a circular time-shift null the default cell separates (pct 100 x2), crossover ESS 8-15; H3 no content: S cannot separate even at the uniform ceiling (PR3 unmet) -> the precondition is unsatisfiable in this harness. STOP RESULT: PASS -> the achievable-range clause is satisfiable, stop sweeping the parent statistic and carry the separating settings to the behavioural leg EXP-0710 (GFLAG-0464); FAIL separates_only_above_c1_ess_cap -> only ceiling-like settings (alpha<=0.01, decay 0) carry content; PR3 unmet -> stop the parent-statistic line in this harness (event budget cannot carry content); PR4 unmet -> instrument fault, not a claim reading. C2 (default-cell replication) is a pre-registered REPORTED readout, not load-bearing. CONSUMER: none (parent_goal_weight=0, scripted waypoint walk; a PASS does NOT test the WWA CONFIRMING clause). WHY EXISTING EVIDENCE DOES NOT ANSWER IT (GOV-REUSE-1): the only MECH-428 manifest (V3-EXQ-884, 20260803) is pre-SD-094 and truncated 77-95%; 884a/b/c were refused, their probes are scratch (no manifest, no substrate_hash) and used K=1 controls with an unmatched null that this session MEASURED to be confounded by temporal structure (random-credit negative control at pct 98-99.8); no recorded run carries S at swept alpha/decay -> run. INSTRUMENT: circular time-shift null + time-local controls (measured necessary; negative control 0/52 on pilot), sense_flat path proven equal to act() per seed (PR0), replay proven equal to a real GoalState per cell (PR2). DV-SYMMETRY: S is cosine (scale-invariant); alpha/decay change the RELATIVE weights over credits, not a uniform scale, so the manipulation is not invariant under S (pilot S and null differ across cells). GATES: Step 2.5b brake count 1 (<2, not braked); 2.5c corrupting overlap SD-PP-B5 is module-level only (world-forward margin loss, use_world_interventional off; same dismissal as V3-EXQ-1089); degrading/cosmetic overlaps noted: SD-018/SD-106 (zworld_p0, stack), SD-091/mech005/mech290/suffering-derivative (select_action, exercised only by the 30-tick PR0 twin), SD-ZWORLD-SENSE-PATH-PARITY (random world_obs_encoder pre-projection; production path measured, as all 884-lineage probes). Ethics preflight all-false/allow. Smoke --dry-run PASS. red-team pass 1 (fable): BLOCKING F1 (C1 implied by PR3) -> resolved by user decision (b); F2 CONTESTED accepted conservative (bump fraction recorded); F3 fixed. red-team pass 2 (fable): CONTESTED -> F4 fixed (split C1-unmet label; separating cells listed over all cells), F5 recorded (C1 binds on highest-ESS eligible cell). Record: REE_assembly evidence/planning/exq1093_mech428_parent_stat_redteam_blocking_20260924.md."
     }
   ]
 }
