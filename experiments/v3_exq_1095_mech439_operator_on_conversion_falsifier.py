@@ -233,7 +233,50 @@ than corrected; (ii) Miller-Madow closes the residual K_obs term. C1/C1b route o
 counterfactual verdict under the uncorrected estimator are all recorded
 (`diagnostics.miller_madow_audit.estimator_changes_verdict`).
 
-RED-TEAM FINDINGS RECORDED BUT NOT ACTED ON, and why: F3 (the matched-noise control is
+RED-TEAM PASS 2 (Fable 5.1, cross-model, on the revised chain): CONTESTED. Dispositions --
+  F3 FIXED (a regression the fixed-N change introduced, confirmed against 689i's own landed
+     manifest): with counts truncated to exactly N, two single-class-collapse cells collide
+     by truncation alone -- at 689i seed 43 ARM_MATCHED_NOISE {'2': 202} and ARM_OFF
+     {'2': 217} both become {'2': 200}. A one-seed C_CONTROL_DISTINCT predicate would then
+     have invalidated all 16 cells for a seed pathology. The gate now fires only on an
+     ALL-SEED collision, which is the defect 689i actually guards ("bit-identical on every
+     recorded metric on all three seeds" = inert by construction); every single-seed
+     collision is still reported under `diagnostics.identical_control_pairs`.
+  F4 FIXED (recording): per-cell `committed_frac` and `gap_scaled_commit_active_frac` are
+     now measured. Factor B is reachable only on the committed branch, so without them a
+     `matched_noise_control_unmeetable` verdict cannot be told apart from "Factor B never
+     fired" -- and a C1b PASS cannot be told apart from "the operator lowered the commit
+     rate, and uncommitted ticks sample stochastically". Pass 1's BLOCKING finding was a
+     commit fraction of zero in the other regime; here it is measured, not assumed.
+  F2 FIXED (recording): on the likeliest exit (`matched_noise_control_unmeetable`) the chain
+     stops before C1/C1b, but C1b does not depend on the noise control, so it stays validly
+     measured. `diagnostics.c1b_operator_attribution` now reports it with an explicit
+     adjudicated/not-adjudicated flag instead of leaving a criteria list that reads
+     "C1b passed" beside a non_contributory run.
+  F5 FIXED: two-regime prose that would have shipped in the manifest (`combination_rule`,
+     `evidence_direction_note`, a precondition description) corrected to the fed-only design.
+  F1 NOT ACTED ON (low, recorded): readiness gates on `n_fresh_select`, not on
+     `n_committed_samples`; the two differ only if `_first_action_class` throws. Both
+     `dv_sample_cap_met` per cell and `summary.all_cells_at_fixed_n` are recorded, and the
+     dry-run asserts the DV is engaged.
+  F6 NOT ACTED ON: stale machinery is regime-looped and degrades to one iteration; the
+     `mixed_by_regime` branch is unreachable dead code, retained deliberately so the starved
+     half can be restored without a grid rewrite.
+  F7 NOT ACTED ON: Miller-Madow is applied consistently to every compared quantity (C1, C1b,
+     C_NOISE_LIFTS, the headroom precondition, `per_arm_headroom`, the counterfactual). The
+     only caveat is that H_MM can exceed ln(action_dim) by (K_obs-1)/2N, so a ceiling-pinned
+     control reports a slightly negative headroom -- direction-consistent with the 0.10 floor
+     and with no attribution effect.
+  F8 NOT A DEFECT, but material and carried into the queue note: on the closest prior (689i,
+     a different lever in the top_k regime) NO seed satisfies C1, C1b and C_NOISE_LIFTS
+     together -- seed 45 meets the noise-lift and C1 but fails C1b (ARM_ON 0.9998 < ARM_OFF
+     1.0041, i.e. the e2wf summary source alone lifted, which is exactly the confound C1b was
+     added to catch), while seeds 42/43/44 meet C1b but fail the noise-lift. The PASS region
+     is unobserved on that prior. That is appropriate for a falsifier -- the bar is MECH-439's
+     own registered one plus an attribution contrast -- but it means a null here is the
+     expected-value outcome and must not be over-read.
+
+RED-TEAM PASS 1 FINDINGS RECORDED BUT NOT ACTED ON, and why: F3 (the matched-noise control is
 uniform-over-E rather than gap-scaled on the proposer summary source) and F4 (a red CONTROL
 arm lands on the "conversion_ceiling_persists" label rather than substrate_not_ready) were
 raised against the two-regime design; F6 (`C_CONTROL_DISTINCT` is whole-run, so a starved
@@ -308,7 +351,7 @@ SD056_ROLLOUT_CLAMP_EXEMPT = (
 
 DISJUNCTIVE_CRITERIA_LOAD_BEARING_EXEMPT = (
     "the combination_rule is a strict CONJUNCTION -- instrument_clean AND C_CONTROL_DISTINCT "
-    "AND C_NOISE_LIFTS in BOTH regimes AND C2 in BOTH regimes AND C1 in BOTH regimes -- so "
+    "AND C_NOISE_LIFTS AND C2 AND C1 AND C1b -- so "
     "every tagged member genuinely must hold for the PASS branch. The lint matches the single "
     "'>=1 arm gate green' conjunct (the precondition_gate aggregate, which is deliberately "
     "any-arm-green so one red arm never vacates another's finding, per V3-EXQ-785); that "
@@ -442,7 +485,7 @@ PRECONDITION_SPECS: List[PreconditionSpec] = [
     ),
     PreconditionSpec(
         name="residue_protocol_landed",
-        description="the arm's residue-feeding protocol executed as declared (fed: every step; starved: never)",
+        description="the arm's residue-feeding protocol executed as declared (fed: every env step)",
         control="all cells of the arm",
         threshold=1.0,
         direction="lower",
@@ -887,6 +930,17 @@ def run_cell(arm: Dict[str, Any], seed: int, p0_episodes: int, p1_episode_cap: i
 
         # --- the conversion DV ---
         selected_class_counts: Counter = Counter()
+        # RED-TEAM PASS 2 FIX (F4), recording-only. Factor B -- the registered matched-noise
+        # lever -- is reachable ONLY on the COMMITTED branch (e3_selector.py:4352 `elif
+        # committed:`), so a `matched_noise_control_unmeetable` verdict is ambiguous between
+        # "Factor B never fired" and "Factor B fired and did not lift" unless the committed
+        # fraction is recorded. Pass 1's BLOCKING finding was exactly a commit fraction of
+        # zero in another regime; the fed regime's commit fraction is now MEASURED, not
+        # assumed. It also lets a C1b PASS be checked against the alternative that the
+        # operator merely lowered the commit rate (more stochastic uncommitted ticks raise
+        # class entropy) rather than converting. 689i recorded the same quantity.
+        n_committed_ticks = 0
+        n_gap_scaled_active = 0
         pool_classes: List[float] = []
         harm_total = 0.0
         n_env_steps = 0
@@ -981,6 +1035,12 @@ def run_cell(arm: Dict[str, Any], seed: int, p0_episodes: int, p1_episode_cap: i
                 # cell carries the SAME n and the plug-in estimator's differential bias
                 # between compared cells is zero rather than corrected. Stepping continues;
                 # only the DV accumulator is capped.
+                if is_p1 and fresh_select:
+                    _d = getattr(agent.e3, "last_score_diagnostics", None) or {}
+                    if bool(_d.get("committed", False)):
+                        n_committed_ticks += 1
+                    if bool(_d.get("gap_scaled_commit_active", False)):
+                        n_gap_scaled_active += 1
                 if is_p1 and fresh_select and sum(selected_class_counts.values()) < fresh_target:
                     cls = _first_action_class(action)
                     if cls is not None:
@@ -1155,6 +1215,14 @@ def run_cell(arm: Dict[str, Any], seed: int, p0_episodes: int, p1_episode_cap: i
             "miller_madow_correction_nats": float(committed_entropy - committed_entropy_plugin),
             "dv_sample_cap": int(fresh_target),
             "dv_sample_cap_met": bool(sum(selected_class_counts.values()) >= fresh_target),
+
+            # ===== commit-branch engagement (F4; recorded, not gated) =====
+            "n_committed_ticks": int(n_committed_ticks),
+            "committed_frac": (float(n_committed_ticks / fs.n_fresh_select)
+                               if fs.n_fresh_select else 0.0),
+            "n_gap_scaled_commit_active": int(n_gap_scaled_active),
+            "gap_scaled_commit_active_frac": (float(n_gap_scaled_active / fs.n_fresh_select)
+                                              if fs.n_fresh_select else 0.0),
             "n_committed_classes": len(selected_class_counts),
             "selected_class_counts": {str(k_): int(v) for k_, v in selected_class_counts.items()},
             "n_committed_samples": int(sum(selected_class_counts.values())),
@@ -1262,10 +1330,9 @@ def _by(rows: List[Dict[str, Any]], regime: str, lever: str) -> Dict[int, Dict[s
 
 
 def _identical_control_pairs(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """689i's C_CONTROL_DISTINCT: any (regime, seed) pair of non-treatment arms whose
-    committed-class COUNT VECTOR is identical. In 689d ARM_MATCHED_NOISE and
-    ARM_PROPOSER_CTRL were bit-identical on every metric on every seed, which made the
-    negative control unmeetable by construction."""
+    """Per-(regime, seed) collisions of the committed-class COUNT VECTOR between two
+    non-treatment arms. REPORTED for every collision; the GATE below fires only on an
+    ALL-SEED collision -- see `_inert_control_pairs`."""
     out: List[Dict[str, Any]] = []
     for regime in REGIMES:
         tables = {lv: _by(rows, regime, lv) for lv in DISTINCTNESS_LEVERS}
@@ -1280,6 +1347,47 @@ def _identical_control_pairs(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]
                     if a["selected_class_counts"] == b["selected_class_counts"]:
                         out.append({"regime": regime, "seed": seed, "arm_a": a["arm"],
                                     "arm_b": b["arm"], "counts": a["selected_class_counts"]})
+    return out
+
+
+def _inert_control_pairs(rows: List[Dict[str, Any]],
+                         pairs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """C_CONTROL_DISTINCT, restated to fire on the defect it actually guards.
+
+    689i added this gate because in 689d ARM_MATCHED_NOISE and ARM_PROPOSER_CTRL were
+    "BIT-IDENTICAL on every recorded metric on all three seeds" -- a control that is INERT
+    BY CONSTRUCTION, so the negative control was unmeetable. The guarded defect is
+    structural, i.e. identity on EVERY seed.
+
+    Firing on a SINGLE seed became a false positive the moment this driver adopted fixed-N
+    sampling (red-team pass 2, F3, confirmed against 689i's own landed manifest): at 689i
+    seed 43 ARM_MATCHED_NOISE recorded {'2': 202} and ARM_OFF {'2': 217} -- both are
+    single-class collapses that differ ONLY in realised n, so truncating each to exactly
+    200 makes them identical. Under a one-seed predicate that seed pathology would have
+    invalidated all 16 cells even with a clean contrast on the other three, and a reader
+    could not tell "the control is inert" from "one seed collapsed to one class".
+
+    So: a pair counts as INERT only if it collides on every seed where both arms produced a
+    cell. Every individual collision is still reported under
+    `diagnostics.identical_control_pairs` for the autopsy.
+    """
+    if not pairs:
+        return []
+    seeds_by_arm: Dict[str, set] = {}
+    for r in rows:
+        seeds_by_arm.setdefault(str(r["arm"]), set()).add(int(r["seed"]))
+    collided: Dict[Tuple[str, str], set] = {}
+    for pr in pairs:
+        key = (str(pr["arm_a"]), str(pr["arm_b"]))
+        collided.setdefault(key, set()).add(int(pr["seed"]))
+    out: List[Dict[str, Any]] = []
+    for (a, b), seeds in sorted(collided.items()):
+        shared = seeds_by_arm.get(a, set()) & seeds_by_arm.get(b, set())
+        if shared and seeds >= shared:
+            out.append({"arm_a": a, "arm_b": b, "seeds": sorted(seeds),
+                        "n_shared_seeds": len(shared),
+                        "why": "identical committed-class count vector on EVERY shared seed "
+                               "-- inert by construction (the 689d defect)"})
     return out
 
 
@@ -1436,7 +1544,8 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     )
 
     identical_pairs = _identical_control_pairs(rows)
-    control_distinct = bool(len(identical_pairs) == 0)
+    inert_pairs = _inert_control_pairs(rows, identical_pairs)
+    control_distinct = bool(len(inert_pairs) == 0)
 
     readings = {regime: _regime_reading(rows, regime, green) for regime in REGIMES}
     noise_lifts_all = all(readings[r]["noise_control_lifts"] for r in REGIMES)
@@ -1505,10 +1614,15 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             "load_bearing": True,
             "role": "control validity gate (689i defect-2 repair)",
             "passed": bool(control_distinct),
-            "measured": float(len(identical_pairs)),
+            "measured": float(len(inert_pairs)),
             "threshold": 0.0,
             "direction": "upper",
-            "detail": "(regime, seed) pairs of non-treatment arms with identical committed-class count vectors",
+            "detail": ("non-treatment arm PAIRS whose committed-class count vector is identical "
+                       "on EVERY shared seed (inert by construction -- the 689d defect). "
+                       "Single-seed collisions are reported under "
+                       "diagnostics.identical_control_pairs but do not gate: under fixed-N "
+                       "sampling two single-class-collapse cells collide by truncation alone "
+                       "(689i seed 43: {'2':202} vs {'2':217} -> both {'2':200})."),
         },
     ]
     for regime in REGIMES:
@@ -1587,7 +1701,8 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "twin ARM_OFF -- the attribution contrast, since ARM_ON differs from the controls in "
         "candidate_summary_source as well as the operator). C1 true with C1b FALSE -> "
         "conversion_not_attributable_to_operator / non_contributory, NOT a claim verdict. "
-        "Once they hold: C1 true in BOTH regimes -> PASS / "
+        "Once they hold (this run is residue-FED only, so 'all regimes' is the fed "
+        "regime): C1 true -> PASS / "
         "supports (conversion required rebalancing the score-scale monopoly, which is "
         "MECH-439's own conditional -- inherited verbatim from V3-EXQ-936a's registered "
         "combination_rule 'C2 true -> supports'). C1 false in both -> FAIL / "
@@ -1595,7 +1710,9 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "MECH-439's confirming conjunct (F share > 0.85) is unreachable under the operator, so "
         "936a's 'C1 false otherwise ... the falsifier was NOT evaluated' applies and the cell's "
         "value is ROUTING (to the reserved final-commit-stage replay, 1012c autopsy sec 7b), "
-        "not direction. C1 true in exactly one regime -> mixed_by_regime / non_contributory. "
+        "not direction. The mixed_by_regime branch is unreachable while REGIMES has one "
+        "member and is retained only so the starved half can be restored without a grid "
+        "rewrite. "
         "NOTE: this design cannot produce 'weakens'. MECH-439's registered falsifier requires a "
         "lift WITHOUT a reduction in F's cross-candidate variance share, and the operator "
         "reduces that share by construction, so the falsifying antecedent has no instance in "
@@ -1647,6 +1764,7 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
 
     diagnostics = {
         "identical_control_pairs": identical_pairs,
+        "inert_control_pairs": inert_pairs,
         "miller_madow_audit": {
             "routed_estimator": "committed_action_class_entropy_mm (Miller-Madow)",
             "plugin_estimator": "committed_action_class_entropy",
@@ -1665,6 +1783,17 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             rows, value_key="committed_action_class_entropy_mm",
             low=0.0, high=MAX_COMMITTED_CLASS_ENTROPY, arm_key="arm"),
         "per_regime": readings,
+        "c1b_operator_attribution": c1b_measured_not_adjudicated,
+        "commit_branch_engagement": {
+            "note": ("Factor B (the registered matched-noise lever) is reachable only on the "
+                     "COMMITTED branch, so these separate 'the control never fired' from "
+                     "'the control fired and did not lift'. Recorded, not gated."),
+            "committed_frac_per_cell": {
+                "%s/seed%s" % (r["arm"], r["seed"]): r["committed_frac"] for r in rows},
+            "gap_scaled_commit_active_frac_per_cell": {
+                "%s/seed%s" % (r["arm"], r["seed"]): r["gap_scaled_commit_active_frac"]
+                for r in rows},
+        },
         "gflag0072_remeasurement": {
             "note": ("GFLAG-0072's ceiling is denominated on PRE-COMMIT class entropy in "
                      "V3-EXQ-708b's regime. Measured here on the COMMITTED DV, per arm and seed; "
@@ -1685,7 +1814,8 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "n_off_crosscheck_failures_total": int(n_offc),
         "worst_i2_mismatch_rate": float(worst_i2),
         "control_distinct": control_distinct,
-        "n_identical_control_pairs": int(len(identical_pairs)),
+        "n_inert_control_pairs": int(len(inert_pairs)),
+        "n_identical_control_pairs_any_seed": int(len(identical_pairs)),
         "c1_all_regimes": c1_all,
         "c1b_all_regimes": c1b_all,
         "c2_all_regimes": c2_all,
@@ -1693,6 +1823,27 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "all_cells_at_fixed_n": bool(rows and all(r["dv_sample_cap_met"] for r in rows)),
         "green_arms": sorted(green),
         "red_arms": sorted(gate.get("red_arms") or []),
+    }
+
+    # RED-TEAM PASS 2 FIX (F2), recording-only. On the prior (689i) the likeliest exit is
+    # `matched_noise_control_unmeetable`, which is reached BEFORE C1/C1b. C1b does not depend
+    # on the noise control -- it is ARM_ON vs its own operator-OFF twin -- so it is still
+    # validly measured on that exit, and throwing it away is exactly what the fix was added
+    # to prevent. Surface it explicitly instead of leaving a reader to infer from a criteria
+    # list that the run was non_contributory while C1b reads passed=True.
+    c1b_adjudicated = bool(outcome == "PASS" or label in (
+        "conversion_ceiling_persists_under_commensurate_eligibility",
+        "conversion_not_attributable_to_operator"))
+    c1b_measured_not_adjudicated = {
+        "adjudicated": c1b_adjudicated,
+        "note": ("C1b was measured but the run exited on an earlier gate (%s), so it carries "
+                 "no claim direction here. It is the single-variable ON-vs-OFF contrast and "
+                 "is reported so an autopsy need not re-run to recover it." % label)
+                if not c1b_adjudicated else "C1b was adjudicated in this run's verdict.",
+        "per_regime": {r: {"c1b_passed": readings[r]["c1b_passed"],
+                           "n_seeds_on_above_off": readings[r]["n_seeds_on_above_off"],
+                           "attribution_per_seed": readings[r]["attribution_per_seed"]}
+                       for r in REGIMES},
     }
 
     outcome_note = (
@@ -1824,7 +1975,8 @@ if __name__ == "__main__":
             "commensurability operator substituted for its C2 share-reduction, and restated for "
             "the operator-ON regime in GFLAG-0471 (open at queue time). 'supports' is emitted "
             "ONLY when every instrument and control gate holds, the ratified eligibility-stage "
-            "gate is met in both regimes, and C1 fires in both. This design CANNOT emit "
+            "gate is met, and BOTH C1 (above both controls) and C1b (above its own "
+            "operator-OFF twin) fire. This design CANNOT emit "
             "'weakens': MECH-439's registered falsifier requires a lift WITHOUT a reduction in "
             "F's cross-candidate variance share, and the operator reduces that share by "
             "construction. A flat result is non_contributory and routes to the reserved "
@@ -1938,7 +2090,7 @@ if __name__ == "__main__":
         assert s["n_residual_failures_total"] == 0, "SMOKE FAIL: I1 residual -- capture/reconstruction bug"
         assert s["n_self_check_failures_total"] == 0, "SMOKE FAIL: I1b replay self-check"
         assert s["n_off_crosscheck_failures_total"] == 0, "SMOKE FAIL: I1c OFF cross-check"
-        # The DV must be non-trivially engaged BEFORE the full 32-cell grid is committed to
+        # The DV must be non-trivially engaged BEFORE the full 16-cell grid is committed to
         # (skill Step 3.5: a structural zero on an evidence run's decisive readout costs the
         # same as on a diagnostic).
         n_samples = [int(r["n_committed_samples"]) for r in result["arm_results"]]
