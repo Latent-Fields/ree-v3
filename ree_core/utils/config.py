@@ -3451,6 +3451,52 @@ class ResidueConfig:
     # in BOTH branches) and the returned dict keeps exactly its original three
     # keys. An experiment that WANTS the mechanism sets this True.
     use_offline_integration_gradient_step: bool = False
+    # GFLAG-0441 (MECH-018, 2026-09-24): integrate()'s distillation sampling
+    # noise is an isotropic Gaussian whose PER-DIMENSION std is the kernel
+    # bandwidth (`effective_harm_bandwidth`), inherited from a pre-V3-scale
+    # design. At the production world_dim=32 a sample therefore lands
+    # ~sqrt(32)=5.6 kernel widths from its harm location. Analytically: with
+    # std==bandwidth the RBF exponent is -(1/2) * a chi-square with world_dim
+    # degrees of freedom, whose expectation of exp(-that) is exactly
+    # 2^(-world_dim/2) -- the mean target/peak ratio, and it is BANDWIDTH-
+    # INVARIANT because bandwidth cancels between the noise scale and the
+    # kernel width. MEASURED 2026-09-23 (session eloquent-lichterman-824f74):
+    # target/peak = 4.5e-06 (bw 1.0) / 8.8e-06 (bw 0.15) at world_dim=32 --
+    # matching the ~1.5e-05 the formula predicts -- versus ~4e-02 at
+    # world_dim=8 (formula: 2^-4=0.0625) and ~0.45 at world_dim=2 (formula:
+    # 2^-1=0.5). Consequence: neural_field is distilled toward ~0 everywhere,
+    # and integrate() does nothing but erase the untrained Softplus head's
+    # ~0.07 pedestal from evaluate() (GFLAG-0356).
+    #
+    # THE FIX, when True: scale the per-dimension std by 1/sqrt(world_dim), so
+    # the SUM of squared per-dim offsets (in bandwidth units) has expectation
+    # world_dim * (1/world_dim) = 1 regardless of world_dim, instead of
+    # world_dim. The mean target/peak ratio becomes
+    # (1 + 1/world_dim)^(-world_dim/2), which -> exp(-1/2) ~= 0.6065 as
+    # world_dim grows and is already ~0.61 at world_dim=32 (vs the unscaled
+    # ~1.5e-05) -- dimension-invariant to first order, rather than collapsing
+    # geometrically with world_dim.
+    #
+    # WHY THIS OPTION over the pre-flight's other candidate ("draw sample
+    # points from recorded visited z_world"): ResidueField currently records
+    # only HARM locations (`_harm_history`) -- there is no general "visited"
+    # pool anywhere in this module or its agent-side producer, so that
+    # alternative would need new production plumbing (an agent-side visited-
+    # z_world recorder threaded into ResidueField) rather than a local change
+    # to this method's own sampling step, and it would also change WHAT is
+    # being distilled (a harm-neighbourhood jitter vs a mix of harm and
+    # non-harm points) -- a materially bigger semantic change than the
+    # measured defect (samples landing off the field's support) calls for.
+    # The sqrt(world_dim) rescale fixes the INSTRUMENT without touching what
+    # integrate() is trying to approximate.
+    #
+    # Default False -> BIT-IDENTICAL: the OFF branch computes the identical
+    # `effective_harm_bandwidth` float used today, with no coercion difference
+    # from the pre-existing expression. See tests/contracts/
+    # test_mech018_residue_integrate_gradient.py for the world_dim=32 contract
+    # that pins the fixed ratio above a floor and the world_dim=8 contract
+    # that must stay bit-identical.
+    use_dim_scaled_integrate_sampling: bool = False
     # ARC-030 / MECH-117: benefit terrain (liking -- separate from z_goal wanting)
     benefit_terrain_enabled: bool = False
     # SD-024 live-path producer (2026-07-20). benefit_terrain_enabled builds the
@@ -8975,6 +9021,11 @@ class REEConfig:
         # test_from_dims_flag_reachability.py and by C1 of
         # test_mech018_residue_integrate_gradient.py.
         use_offline_integration_gradient_step: bool = False,
+        # GFLAG-0441: dimension-scaled integrate() distillation sampling.
+        # Same unprefixed-spelling reasoning as use_offline_integration_
+        # gradient_step directly above -- see the ResidueConfig field comment
+        # for the fix and the choice-of-approach rationale.
+        use_dim_scaled_integrate_sampling: bool = False,
         use_sleep_residue_integration: bool = False,
         sleep_residue_integration_steps: int = 10,
         # Default 0.25 (was 0.1 pre-2026-05-09); see field comment in REEConfig
@@ -10684,6 +10735,10 @@ class REEConfig:
         # passed a flag into the canonical factory and silently ran with it OFF).
         config.residue.use_offline_integration_gradient_step = bool(
             use_offline_integration_gradient_step
+        )
+        # GFLAG-0441: same write-back reasoning as the gradient-step flag above.
+        config.residue.use_dim_scaled_integrate_sampling = bool(
+            use_dim_scaled_integrate_sampling
         )
         config.use_sleep_residue_integration = bool(use_sleep_residue_integration)
         config.sleep_residue_integration_steps = int(

@@ -3331,6 +3331,27 @@ KNOWN_UNPROBED_NESTED = {
     # sign-preserving clamp on discharge_domain, the one path where erasure IS
     # reachable. A full-agent probe would add no discrimination over those.
     "use_offline_integration_gradient_step",
+    # GFLAG-0441 (chip-20260923-residue-integrate-sampling): a SECOND,
+    # independent inertness in integrate() found after the gradient-step flag
+    # above was fixed. Its distillation samples are isotropic Gaussians whose
+    # per-dimension std equals the kernel bandwidth, so at the production
+    # world_dim=32 they land ~5.6 kernel widths from their harm location and
+    # the mean target/peak ratio is ~1.5e-05 (bandwidth-invariant, exactly
+    # 2^(-world_dim/2)) -- the gradient step now fires (use_offline_
+    # integration_gradient_step=True) but distills neural_field toward ~0
+    # everywhere, so the C1-C8 contracts above (built at world_dim=8, where
+    # the ratio is ~4e-02) are blind to it. ON rescales the per-dim std by
+    # 1/sqrt(world_dim), giving a dimension-invariant ratio of ~0.61.
+    # Registered here rather than probed at this file's level for the same
+    # reason as its sibling directly above: the observable is a target/peak
+    # ratio at a specific world_dim, not an action stream, and it is pinned
+    # directly against the module in tests/contracts/
+    # test_mech018_residue_integrate_gradient.py (C9 flag surface + from_dims
+    # reachability, C10 the world_dim=32 collapse-and-fix contract itself and
+    # the unchanged world_dim=8 re-confirmation, C11 bit-identical RNG
+    # consumption between ON and OFF). A full-agent probe would add no
+    # discrimination over those.
+    "use_dim_scaled_integrate_sampling",
     # --- HippocampalConfig ----------------------------------------------------#
     # SD-097 typed possibility topology over AnchorKeys. Gates whether
     # HippocampalModule constructs a PossibilityTopology and attaches it to the

@@ -1188,6 +1188,19 @@ class ResidueField(nn.Module):
         `rbf_field.weights`, that MIN_FLOOR clamp MUST be re-applied after every
         `step()` -- autograd writes bypass the `.data` clamp entirely.
 
+        GFLAG-0441 (2026-09-24) -- SAMPLING COLLAPSE AT PRODUCTION world_dim.
+        Even with the gradient step above wired, the distillation samples
+        drawn below were isotropic Gaussians with PER-DIMENSION std equal to
+        the kernel bandwidth, so at world_dim=32 they land ~5.6 kernel widths
+        from their harm location and the mean target/peak ratio is ~1.5e-05
+        (bandwidth-invariant; see ResidueConfig.use_dim_scaled_integrate_
+        sampling for the full derivation) -- i.e. `do_train=True` trained
+        neural_field toward ~0 everywhere, geometrically inert for a different
+        reason than the missing gradient step was. `use_dim_scaled_integrate_
+        sampling=True` rescales the per-dim std by 1/sqrt(world_dim), giving a
+        dimension-invariant mean target/peak of ~0.61 instead. Default OFF ->
+        bit-identical.
+
         Args:
             num_steps: Number of integration iterations.
             train: Override the ResidueConfig.use_offline_integration_gradient_step gate.
@@ -1214,6 +1227,25 @@ class ResidueField(nn.Module):
         )
 
         harm_locations = torch.stack(self._harm_history[-100:])
+
+        # GFLAG-0441 (MECH-018): the isotropic per-dim std == bandwidth used
+        # below collapses at production world_dim -- mean target/peak is
+        # exactly 2^(-world_dim/2) (bandwidth-invariant), e.g. ~1.5e-05 at
+        # world_dim=32, so the distillation target is ~0 everywhere and the
+        # loop is geometrically inert. Dividing by sqrt(world_dim) keeps the
+        # expected squared sample radius (in bandwidth units) at 1 regardless
+        # of world_dim instead of world_dim, giving a dimension-invariant mean
+        # target/peak of (1+1/world_dim)^(-world_dim/2) -> exp(-1/2) ~= 0.61.
+        # Default OFF -> bit-identical (identical float, no coercion change).
+        # Full rationale, including why this was chosen over drawing samples
+        # from recorded visited z_world: ResidueConfig.
+        # use_dim_scaled_integrate_sampling field comment.
+        sampling_bandwidth = self.effective_harm_bandwidth
+        if self.config.use_dim_scaled_integrate_sampling:
+            sampling_bandwidth = sampling_bandwidth / (
+                float(self.config.world_dim) ** 0.5
+            )
+
         total_loss = 0.0
 
         optimizer = None
@@ -1247,7 +1279,10 @@ class ResidueField(nn.Module):
             # When armed they differ, and using the shared 1.0 here would scatter
             # samples far outside the narrowed field's support, making the
             # distillation target ~0 everywhere and the loop vacuous.
-            noise = torch.randn_like(harm_locations) * self.effective_harm_bandwidth
+            # GFLAG-0441: sampling_bandwidth (computed above) additionally
+            # divides by sqrt(world_dim) when use_dim_scaled_integrate_sampling
+            # is set, equal to effective_harm_bandwidth otherwise.
+            noise = torch.randn_like(harm_locations) * sampling_bandwidth
             sample_points = harm_locations + noise
             with torch.no_grad():
                 targets = self.rbf_field(sample_points)

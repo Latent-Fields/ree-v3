@@ -54,6 +54,28 @@ Contracts:
       the agent wires both knobs into SleepLoopManager.
   C8. The pairing trap is observable: the call site emits mech018_residue_trains
       so a run that fired an INERT integration is identifiable in the manifest.
+
+GFLAG-0441 (2026-09-24) -- A SECOND, INDEPENDENT INERTNESS AT PRODUCTION
+world_dim. Even with C3's gradient step wired, integrate()'s distillation
+samples are drawn from an isotropic Gaussian whose PER-DIMENSION std equals
+the kernel bandwidth. At the C1-C8 fixture's world_dim=8 that lands targets at
+~4% of peak (loss falls, params move -- these contracts pass). At the
+production world_dim=32 the same construction lands targets at ~1.5e-05 of
+peak (bandwidth-invariant; mean target/peak is exactly 2^(-world_dim/2)): the
+gradient step now fires but distills neural_field toward ~0 everywhere, so
+integrate() still does nothing observable except erase evaluate()'s untrained
+Softplus pedestal. C1-C8 are BLIND to this because they only ever build
+world_dim=8 fields. C9-C11 pin the fix (ResidueConfig.
+use_dim_scaled_integrate_sampling) at world_dim=32 without disturbing C1-C8.
+
+  C9.  Flag surface: use_dim_scaled_integrate_sampling defaults False and is
+       reachable through REEConfig.from_dims.
+  C10. THE CHIP'S OWN CONTRACT: at world_dim=32, mean target/peak stays
+       catastrophically small (~1.5e-05) with the flag OFF and clears a
+       floor with it ON -- and C10b re-confirms the untouched world_dim=8
+       contract (C3) still passes.
+  C11. BIT-IDENTICAL RNG CONSUMPTION between ON and OFF (the same shape is
+       drawn either way; only the scalar multiplier differs), mirroring C6.
 """
 
 from __future__ import annotations
@@ -328,3 +350,119 @@ def test_c8b_module_declares_an_optimizer_at_all():
     src = Path(inspect.getsourcefile(ResidueField)).read_text(encoding="utf-8")
     assert "loss.backward()" in src, "integrate() no longer calls backward()"
     assert "torch.optim." in src, "residue module declares no optimizer"
+
+
+# ---------------------------------------------------------------- C9-C11 (GFLAG-0441)
+
+WORLD_DIM_32 = 32
+
+
+def _field_dimscaled(world_dim, dim_scaled, seed=21, harm_magnitude=1.0):
+    """A single-harm-event field, so the RBF sum has exactly one active
+    center and integrate()'s targets carry no cross-center contribution --
+    the target/peak ratio measured below is then an exact function of the
+    sampling geometry, not an artifact of nearby centers overlapping."""
+    torch.manual_seed(seed)
+    cfg = ResidueConfig(world_dim=world_dim, use_dim_scaled_integrate_sampling=dim_scaled)
+    rf = ResidueField(cfg)
+    torch.manual_seed(seed + 1)
+    rf.accumulate(torch.randn(1, world_dim) * 0.01, harm_magnitude=harm_magnitude)
+    return rf
+
+
+def _mean_target_over_peak(rf, num_steps=300, seed=99):
+    """Mean RBF value at integrate()'s own jittered sample points, over the
+    RBF's peak value (its weight -- the value AT the recorded center, where
+    the exp() term is exactly 1.0). Captured via a forward hook on the live
+    rbf_field so this measures the REAL production call, not a re-derivation
+    of the sampling formula."""
+    captured = []
+
+    def _hook(_module, _inputs, output):
+        captured.append(output.detach().clone())
+
+    handle = rf.rbf_field.register_forward_hook(_hook)
+    torch.manual_seed(seed)
+    try:
+        rf.integrate(num_steps=num_steps, train=False)
+    finally:
+        handle.remove()
+
+    targets = torch.cat(captured)
+    assert targets.numel() == num_steps
+    peak = float(rf.rbf_field.weights[rf.rbf_field.active_mask].item())
+    return float(targets.mean()) / peak
+
+
+def test_c9_dim_scaled_sampling_flag_surface_and_from_dims_reachability():
+    assert ResidueConfig().use_dim_scaled_integrate_sampling is False
+
+    on = REEConfig.from_dims(
+        body_obs_dim=12,
+        world_obs_dim=250,
+        action_dim=4,
+        use_dim_scaled_integrate_sampling=True,
+    )
+    assert on.residue.use_dim_scaled_integrate_sampling is True
+
+    off = REEConfig.from_dims(body_obs_dim=12, world_obs_dim=250, action_dim=4)
+    assert off.residue.use_dim_scaled_integrate_sampling is False
+
+
+def test_c10_world_dim_32_sampling_collapse_and_fix():
+    """THE CHIP'S OWN CONTRACT. GFLAG-0441 measured mean target/peak of
+    4.5e-06 (bw 1.0) / 8.8e-06 (bw 0.15) at world_dim=32 -- both far below any
+    reasonable floor, and matching the analytic 2^(-32/2) ~= 1.5e-05. This
+    must still reproduce with the flag OFF (bit-identical-OFF requires it),
+    and clear a floor with the flag ON."""
+    rf_off = _field_dimscaled(WORLD_DIM_32, dim_scaled=False)
+    ratio_off = _mean_target_over_peak(rf_off)
+    assert ratio_off < 1e-3, (
+        f"OFF-path mean target/peak = {ratio_off} at world_dim=32 -- expected "
+        "the documented collapse (~1.5e-05); if this fires, either "
+        "bit-identical-OFF was broken by this change or this test's geometry "
+        "no longer isolates the defect"
+    )
+
+    rf_on = _field_dimscaled(WORLD_DIM_32, dim_scaled=True)
+    ratio_on = _mean_target_over_peak(rf_on)
+    # Analytic fixed-path expectation ~0.61 (see ResidueConfig field comment
+    # for the derivation); 0.3 leaves ample margin for the n=300 Monte Carlo
+    # estimate while still being 300x the OFF-path floor above.
+    assert ratio_on > 0.3, (
+        f"ON-path mean target/peak = {ratio_on} at world_dim=32 -- expected "
+        "the fix to clear a floor far above the OFF-path collapse"
+    )
+    assert ratio_on > ratio_off * 100
+
+
+def test_c10b_world_dim_8_contract_still_passes_unchanged():
+    """Re-confirms the pre-existing world_dim=8 fixture (C3's _field helper,
+    unrelated to this flag) still trains normally -- this change must not
+    disturb the world_dim=8 case the original MECH-018 contracts pin."""
+    rf = _field(trains=True)
+    torch.manual_seed(1234)
+    metrics = rf.integrate(num_steps=25)
+    assert metrics["trained"] == 1.0
+    assert metrics["integration_loss_last"] < metrics["integration_loss_first"]
+
+
+def test_c11_on_off_consume_identical_rng_downstream():
+    """Same bit-identical-RNG-consumption proof as C6, for this flag: the
+    MAGNITUDE of the randn_like draw differs between ON and OFF, but the
+    call's shape/dtype/count is identical, so a downstream unrelated draw
+    lands on the same value regardless of the flag."""
+    rf_on = _field_dimscaled(WORLD_DIM_32, dim_scaled=True)
+    torch.manual_seed(555)
+    rf_on.integrate(num_steps=10, train=False)
+    after_on = torch.randn(3)
+
+    rf_off = _field_dimscaled(WORLD_DIM_32, dim_scaled=False)
+    torch.manual_seed(555)
+    rf_off.integrate(num_steps=10, train=False)
+    after_off = torch.randn(3)
+
+    assert torch.equal(after_on, after_off), (
+        "ON and OFF consume different amounts of RNG -- the sampling-scale "
+        "flag is no longer bit-identical for downstream draws when OFF"
+    )
