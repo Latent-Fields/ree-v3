@@ -13248,9 +13248,46 @@ class REEAgent(nn.Module):
             drive_state=None,  # attribution mode: drive-neutral
         )
 
+        # MECH-365 (default OFF): present each FORWARD (imagined) replay
+        # trajectory to the same MECH-217 consolidation writer the reverse
+        # (real) replay reaches below, so that the carried provenance label --
+        # not routing exclusion -- is what keeps imagined content out of
+        # committed history. OFF = as shipped: forward replay is scored
+        # read-only and never reaches a writer. The read (scoring) path below is
+        # identical in both states; routing consumes no RNG.
+        _route_fwd = bool(
+            getattr(
+                self.hippocampal.config,
+                "rem_route_forward_replay_to_consolidation",
+                False,
+            )
+        )
+        _fwd_presented = 0
+        _fwd_reached_gate = 0
+        _fwd_accepted = 0
+        _fwd_refused = 0
+        _fwd_mass = 0.0
+        _fwd_lesion_overrides = 0
         for traj in forward_trajs:
             score = self.hippocampal._score_trajectory(traj)
             terrain_scores.append(float(score.item() if isinstance(score, torch.Tensor) else score))
+            if _route_fwd:
+                _fwd_presented += 1
+                _fr = self.hippocampal.spread_reverse_replay_wanting(traj)
+                if _fr.get("n_steps_spread", 0):
+                    _fwd_reached_gate += 1
+                _fwd_accepted += int(_fr.get("n_steps_accepted", 0))
+                _fwd_refused += int(_fr.get("n_steps_refused_provenance", 0))
+                _fwd_mass += float(_fr.get("accepted_mass", 0.0))
+                _fwd_lesion_overrides += int(bool(_fr.get("mech365_lesion_override", False)))
+        if _route_fwd:
+            metrics["rem_fwd_n_scored"] = float(len(forward_trajs))
+            metrics["rem_fwd_spread_n_presented"] = float(_fwd_presented)
+            metrics["rem_fwd_spread_n_reached_gate"] = float(_fwd_reached_gate)
+            metrics["rem_fwd_spread_n_accepted"] = float(_fwd_accepted)
+            metrics["rem_fwd_spread_n_refused"] = float(_fwd_refused)
+            metrics["rem_fwd_spread_accepted_mass"] = float(_fwd_mass)
+            metrics["rem_fwd_spread_n_lesion_overrides"] = float(_fwd_lesion_overrides)
 
         # Reverse replay pass (ARC-045 bidirectional flow proxy)
         # Only if exploration buffer has stored trajectories
@@ -13273,6 +13310,18 @@ class REEAgent(nn.Module):
                 # No-op (empty dict) when use_offline_wanting_spread is False.
                 spread_result = self.hippocampal.spread_reverse_replay_wanting(traj)
                 n_spread = spread_result.get("n_steps_spread", 0)
+                if _route_fwd:
+                    # MECH-365 instrumentation for the REAL (reverse) source,
+                    # so accepted-mass is attributable by provenance source.
+                    metrics["rem_rev_spread_n_accepted"] = metrics.get(
+                        "rem_rev_spread_n_accepted", 0.0
+                    ) + float(spread_result.get("n_steps_accepted", 0))
+                    metrics["rem_rev_spread_accepted_mass"] = metrics.get(
+                        "rem_rev_spread_accepted_mass", 0.0
+                    ) + float(spread_result.get("accepted_mass", 0.0))
+                    metrics["rem_rev_spread_n_sham_overrides"] = metrics.get(
+                        "rem_rev_spread_n_sham_overrides", 0.0
+                    ) + float(bool(spread_result.get("mech365_sham_override", False)))
                 if n_spread:
                     wanting_spread_n += n_spread
                     wanting_spread_total += spread_result["mean_spread"] * n_spread

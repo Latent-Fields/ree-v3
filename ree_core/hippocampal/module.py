@@ -3031,6 +3031,17 @@ class HippocampalModule(nn.Module):
             traj = self.e2.rollout_with_world(
                 z_self_zeros, z_world_replay, actions, compute_action_objects=False
             )
+            # MECH-365 / MECH-094: replay content is IMAGINED (an E2 rollout of
+            # random actions), so it carries the provenance label on the object
+            # itself. Before 2026-09-24 this stamp was missing (Trajectory's
+            # dataclass default is False) despite the docstring above -- latent
+            # only because no consolidation writer received replay() output.
+            # mech365_suppress_replay_provenance_stamp=True reproduces that
+            # unlabelled output (V3-EXQ-1085 source-side canary arm only).
+            if not getattr(
+                self.config, "mech365_suppress_replay_provenance_stamp", False
+            ):
+                traj.hypothesis_tag = True
             replay_trajectories.append(traj)
 
         return replay_trajectories
@@ -3728,23 +3739,60 @@ class HippocampalModule(nn.Module):
 
         gamma = float(getattr(self.config, "offline_wanting_spread_gamma", 0.9))
         gain = float(getattr(self.config, "offline_wanting_spread_gain", 0.1))
+
+        # MECH-365 boundary lesion (default "off" -> eff_tag is exactly the
+        # trajectory's own label, bit-identical to before). The Trajectory
+        # object is NEVER mutated: the sender keeps its label and only the
+        # translation into the write drops it.
+        lesion = str(getattr(self.config, "mech365_provenance_lesion", "off"))
+        if lesion not in ("off", "drop_at_consolidation", "sham_real_only"):
+            raise ValueError(
+                "mech365_provenance_lesion must be one of 'off', "
+                "'drop_at_consolidation', 'sham_real_only'; got " + repr(lesion)
+            )
+        eff_tag = bool(trajectory.hypothesis_tag)
+        lesion_override = False
+        sham_override = False
+        if lesion == "drop_at_consolidation" and eff_tag:
+            eff_tag = False
+            lesion_override = True
+        elif lesion == "sham_real_only" and not eff_tag:
+            eff_tag = False  # the same assignment, on already-untagged content
+            sham_override = True
+
         total_spread = 0.0
         n_steps = 0
+        n_accepted = 0
+        n_refused = 0
+        accepted_mass = 0.0
         for steps_from_terminus in range(1, len(world_states)):
             z_w = world_states[steps_from_terminus]
             spread = gain * wanting_at_terminus * (gamma ** steps_from_terminus)
             self.residue_field.update_valence(
                 z_w, VALENCE_WANTING, spread,
-                hypothesis_tag=trajectory.hypothesis_tag,
+                hypothesis_tag=eff_tag,
             )
             total_spread += spread
             n_steps += 1
+            # MECH-365 instrumentation: update_valence refuses iff the tag it
+            # RECEIVED is True (its first guard). Counted here at the
+            # boundary, from the tag actually passed, not the source's label.
+            if eff_tag:
+                n_refused += 1
+            else:
+                n_accepted += 1
+                accepted_mass += abs(spread)
 
         mean_spread = total_spread / n_steps if n_steps > 0 else 0.0
         return {
             "n_steps_spread": n_steps,
             "wanting_at_terminus": wanting_at_terminus,
             "mean_spread": mean_spread,
+            "n_steps_accepted": n_accepted,
+            "n_steps_refused_provenance": n_refused,
+            "accepted_mass": accepted_mass,
+            "mech365_lesion_override": lesion_override,
+            "mech365_sham_override": sham_override,
         }
 
     # ------------------------------------------------------------------ #

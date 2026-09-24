@@ -3220,6 +3220,47 @@ class HippocampalConfig:
     offline_wanting_spread_gain: float = 0.1   # stability guard on the write magnitude
 
     # ------------------------------------------------------------------ #
+    # MECH-365: provenance-bearing one-way commit-status gate (2026-09-24) #
+    # ------------------------------------------------------------------ #
+    # V3's committed_vs_imagined label is Trajectory.hypothesis_tag, carried
+    # ON the representation object. Three knobs, all no-op at default:
+    #
+    # mech365_suppress_replay_provenance_stamp (default False = STAMPED):
+    #   HippocampalModule.replay() now stamps hypothesis_tag=True on every
+    #   returned (imagined, E2-rolled-out) trajectory, as its docstring always
+    #   claimed. Before 2026-09-24 it did NOT (Trajectory's dataclass default
+    #   is False) -- harmless only because no consolidation writer ever
+    #   received replay() output. The stamp is bit-identical in production:
+    #   the only ree_core reader of Trajectory.hypothesis_tag is
+    #   spread_reverse_replay_wanting(), which received only reverse_replay()
+    #   output. True reproduces the pre-2026-09-24 unlabelled output; it
+    #   exists ONLY as the V3-EXQ-1085 source-side canary arm.
+    #
+    # rem_route_forward_replay_to_consolidation (default False):
+    #   REEAgent.run_rem_attribution_pass() additionally presents each FORWARD
+    #   (imagined) replay trajectory to the MECH-217 consolidation writer
+    #   spread_reverse_replay_wanting(). Default False = as shipped: forward
+    #   replay is scored read-only and never reaches a writer (routing
+    #   exclusion). True is the configuration in which the label, not the
+    #   routing, is what keeps imagined content out of committed history.
+    #   Requires use_offline_wanting_spread=True to write anything.
+    #
+    # mech365_provenance_lesion (default "off"):
+    #   "off"                   -- the writer honours trajectory.hypothesis_tag.
+    #   "drop_at_consolidation" -- BOUNDARY lesion: a tagged trajectory is
+    #                              presented to update_valence with the tag
+    #                              dropped; the Trajectory object itself is
+    #                              never mutated (sender keeps its label; only
+    #                              the translation into the write drops it).
+    #   "sham_real_only"        -- matched negative control: the same override
+    #                              assignment runs on UNTAGGED (real, reverse)
+    #                              trajectories only, where it is a no-op.
+    # Any other value raises ValueError at the write site.
+    mech365_suppress_replay_provenance_stamp: bool = False
+    rem_route_forward_replay_to_consolidation: bool = False
+    mech365_provenance_lesion: str = "off"
+
+    # ------------------------------------------------------------------ #
     # MECH-057b: hippocampal sequence-completion verification gating      #
     # trajectory promotion (2026-09-14).                                  #
     # ------------------------------------------------------------------ #
@@ -8710,6 +8751,11 @@ class REEConfig:
         use_offline_wanting_spread: bool = False,
         offline_wanting_spread_gamma: float = 0.9,
         offline_wanting_spread_gain: float = 0.1,
+        # MECH-365: provenance-bearing one-way commit-status gate (all no-op
+        # at default; see HippocampalConfig for semantics).
+        mech365_suppress_replay_provenance_stamp: bool = False,
+        rem_route_forward_replay_to_consolidation: bool = False,
+        mech365_provenance_lesion: str = "off",
         # MECH-057b: hippocampal sequence-completion verification gating
         # trajectory promotion. No-op default; bit-identical OFF.
         use_completion_promotion_gate: bool = False,
@@ -10380,6 +10426,22 @@ class REEConfig:
         config.hippocampal.use_offline_wanting_spread = use_offline_wanting_spread
         config.hippocampal.offline_wanting_spread_gamma = offline_wanting_spread_gamma
         config.hippocampal.offline_wanting_spread_gain = offline_wanting_spread_gain
+        # MECH-365: provenance-bearing one-way commit-status gate.
+        if mech365_provenance_lesion not in (
+            "off", "drop_at_consolidation", "sham_real_only"
+        ):
+            raise ValueError(
+                "mech365_provenance_lesion must be one of 'off', "
+                "'drop_at_consolidation', 'sham_real_only'; got "
+                + repr(mech365_provenance_lesion)
+            )
+        config.hippocampal.mech365_suppress_replay_provenance_stamp = bool(
+            mech365_suppress_replay_provenance_stamp
+        )
+        config.hippocampal.rem_route_forward_replay_to_consolidation = bool(
+            rem_route_forward_replay_to_consolidation
+        )
+        config.hippocampal.mech365_provenance_lesion = str(mech365_provenance_lesion)
 
         # MECH-057b: hippocampal sequence-completion verification gating
         # trajectory promotion
