@@ -490,6 +490,20 @@ class E3TrajectorySelector(nn.Module):
         # operating point of 0.005420). Also emitted for diagnostics: the gap
         # between it and _running_variance IS the inflation the lever produced.
         self._wci_symmetric_rv_ref: float = self.config.precision_init
+        # SD-076b OU log-multiplier drift source (2026-09-24). None until the
+        # first "ou"-source tick, which seeds it at the stationary mean
+        # (waking_confidence_ou_mean_log_gain) so there is no warmup transient.
+        # The generator is built LAZILY, for the same reason ARC-029's window
+        # is: `agent.config.e3.<field> = ...` after construction is an existing
+        # idiom in the experiment corpus, so the seed is often not known yet
+        # here. Consequence, stated rather than discovered: changing the seed
+        # AFTER the first "ou" tick does not re-seed the stream.
+        self._wci_ou_log_gain: Optional[float] = None
+        self._wci_ou_rng_obj: Any = None
+        # Counts clamps of u_t against waking_confidence_ou_log_gain_clamp. A
+        # silently-saturating lever is the SD-076 rv-floor defect V3-EXQ-794
+        # was burned by; this makes the same failure loud instead.
+        self._wci_ou_clamp_hits: int = 0
         # SD-069 sharp-surprise source (2026-07-17): the RAW per-tick PE-MSE
         # (error_var) from the most recent update_running_variance call, stored
         # BEFORE the running-variance EMA smoothing folds it in. This preserves
@@ -1043,25 +1057,54 @@ class E3TrajectorySelector(nn.Module):
         # drift source is needed at all (without it rv tracks true error and
         # the MECH-173 overconfidence DV is a tautology).
         if getattr(self.config, "use_waking_confidence_inflation", False):
-            asym = float(
-                getattr(self.config, "waking_confidence_inflation_asymmetry", 0.0)
+            # SD-076b (2026-09-24): which drift FORM. The default selects the
+            # original asymmetric EMA and its arithmetic below is evaluated
+            # unchanged, so this branch is bit-identical for every pre-existing
+            # config. An UNRECOGNISED value RAISES rather than falling back --
+            # a silent fallback would be the "structurally present but
+            # functionally inert" failure this codebase keeps producing, and it
+            # would look exactly like a mechanism that failed to work.
+            source = str(
+                getattr(self.config, "waking_confidence_drift_source",
+                        "asymmetric_ema")
             )
-            asym = max(0.0, min(0.999, asym))
-            # Improving (error below current estimate) -> believe it FAST.
-            # Worsening (error above current estimate) -> believe it SLOWLY.
-            # Net: rv settles BELOW the true error mean = overconfidence.
-            if error_var < self._running_variance:
-                alpha = min(1.0, self._ema_alpha * (1.0 + asym))
+            if source == "ou":
+                # Advance the un-inflated counterfactual FIRST: under this
+                # source it is not merely the floor's reference scale, it is
+                # the base the multiplier is applied to.
+                self._wci_symmetric_rv_ref = (
+                    (1 - self._ema_alpha) * self._wci_symmetric_rv_ref
+                    + self._ema_alpha * error_var
+                )
+                rv_new = self._advance_wci_ou(self._wci_symmetric_rv_ref)
+            elif source == "asymmetric_ema":
+                asym = float(
+                    getattr(self.config, "waking_confidence_inflation_asymmetry", 0.0)
+                )
+                asym = max(0.0, min(0.999, asym))
+                # Improving (error below current estimate) -> believe it FAST.
+                # Worsening (error above current estimate) -> believe it SLOWLY.
+                # Net: rv settles BELOW the true error mean = overconfidence.
+                if error_var < self._running_variance:
+                    alpha = min(1.0, self._ema_alpha * (1.0 + asym))
+                else:
+                    alpha = max(0.0, self._ema_alpha * (1.0 - asym))
+                rv_new = (1 - alpha) * self._running_variance + alpha * error_var
+                # Advance the counterfactual un-inflated reference in lockstep: the
+                # ORIGINAL symmetric expression, on the same error_var, at the same
+                # alpha. This is the scale the floor is allowed to be relative to.
+                self._wci_symmetric_rv_ref = (
+                    (1 - self._ema_alpha) * self._wci_symmetric_rv_ref
+                    + self._ema_alpha * error_var
+                )
             else:
-                alpha = max(0.0, self._ema_alpha * (1.0 - asym))
-            rv_new = (1 - alpha) * self._running_variance + alpha * error_var
-            # Advance the counterfactual un-inflated reference in lockstep: the
-            # ORIGINAL symmetric expression, on the same error_var, at the same
-            # alpha. This is the scale the floor is allowed to be relative to.
-            self._wci_symmetric_rv_ref = (
-                (1 - self._ema_alpha) * self._wci_symmetric_rv_ref
-                + self._ema_alpha * error_var
-            )
+                raise ValueError(
+                    "E3Config.waking_confidence_drift_source must be "
+                    "'asymmetric_ema' or 'ou', got "
+                    f"{source!r}. An unrecognised drift source is never "
+                    "silently ignored: it would read as a mechanism that ran "
+                    "and did nothing."
+                )
             # rv feeds an ABSOLUTE commit threshold and 1/(rv + 1e-6); bound it
             # so inflation cannot pin the agent committed or explode precision.
             # SD-076 headroom repair -- see E3Config.waking_confidence_rv_floor
@@ -1093,6 +1136,120 @@ class E3TrajectorySelector(nn.Module):
         clamped lever is visible in the manifest without an autopsy.
         """
         return float(self._wci_symmetric_rv_ref)
+
+    @property
+    def wci_ou_log_gain(self) -> float:
+        """SD-076b diagnostic: the current OU log-multiplier u_t.
+
+        Before the first "ou"-source tick this reports the configured
+        stationary mean, which is where u_0 is seeded -- so the value is
+        meaningful from construction and never a misleading 0.0.
+        """
+        if self._wci_ou_log_gain is None:
+            return float(
+                getattr(self.config, "waking_confidence_ou_mean_log_gain", 0.0)
+            )
+        return float(self._wci_ou_log_gain)
+
+    @property
+    def wci_ou_clamp_hits(self) -> int:
+        """SD-076b diagnostic: how many times u_t hit the numerical guard.
+
+        MUST be 0 in any run whose result is interpreted. A non-zero count
+        means the lever saturated, which is the V3-EXQ-794 rv-floor failure
+        shape (a clamped lever reporting a clean-looking dose), not a dose.
+        """
+        return int(self._wci_ou_clamp_hits)
+
+    def _advance_wci_ou(self, ref: float) -> float:
+        """SD-076b: advance the OU log-multiplier one tick and apply it.
+
+            u_t <- (1 - theta) * u_{t-1} + theta * mean_log_gain + sigma * xi_t
+            return exp(u_t) * ref
+
+        ``ref`` is ``_wci_symmetric_rv_ref``, the un-inflated counterfactual, so
+        the returned displacement ``1 - rv / ref`` is exactly ``1 - exp(u_t)``
+        -- set by config, NOT by the dispersion of the prediction-error stream.
+        That independence is the whole reason this form exists; see
+        ``E3Config.waking_confidence_drift_source`` for the measurement it
+        replaces.
+
+        Stationary law: ``u ~ Normal(mean_log_gain, sigma^2 / (theta * (2 -
+        theta)))``. u_0 is seeded at ``mean_log_gain``, i.e. already stationary.
+
+        RAISES on the unset ``theta`` sentinel, and on the unset seed sentinel
+        when ``sigma > 0``, for the ARC-029 reason: both decide what a run
+        MEASURES, so neither gets a silent default.
+        """
+        theta = float(getattr(self.config, "waking_confidence_ou_theta", -1.0))
+        if not (0.0 < theta <= 1.0):
+            raise ValueError(
+                "E3Config.waking_confidence_ou_theta must be set in (0, 1] "
+                "when waking_confidence_drift_source == 'ou' (got "
+                f"{theta!r}; -1.0 is the deliberate UNSET sentinel). theta "
+                "sets the lag that decides whether the MECH-204 Option A "
+                "falsifier can fire at all, so it is the experiment's choice "
+                "to pre-register, not this build's to default."
+            )
+        mean_log_gain = float(
+            getattr(self.config, "waking_confidence_ou_mean_log_gain", 0.0)
+        )
+        sigma = float(getattr(self.config, "waking_confidence_ou_sigma", 0.0))
+        if sigma < 0.0:
+            raise ValueError(
+                "E3Config.waking_confidence_ou_sigma must be >= 0, got "
+                f"{sigma!r}."
+            )
+
+        if self._wci_ou_log_gain is None:
+            self._wci_ou_log_gain = mean_log_gain
+
+        u = (1.0 - theta) * float(self._wci_ou_log_gain) + theta * mean_log_gain
+        if sigma > 0.0:
+            u += sigma * float(self._wci_ou_normal())
+
+        # Numerical guard ONLY, and a counted one -- see the config comment.
+        clamp = abs(float(
+            getattr(self.config, "waking_confidence_ou_log_gain_clamp", 30.0)
+        ))
+        if u > clamp:
+            u = clamp
+            self._wci_ou_clamp_hits += 1
+        elif u < -clamp:
+            u = -clamp
+            self._wci_ou_clamp_hits += 1
+
+        self._wci_ou_log_gain = float(u)
+        return float(math.exp(u) * float(ref))
+
+    def _wci_ou_normal(self) -> float:
+        """One draw from the SD-076b DEDICATED RNG stream.
+
+        A dedicated ``numpy.random.Generator`` (the ree_core idiom, cf.
+        ``CausalGridWorld._rng``) rather than the global torch stream: sharing
+        the global stream would perturb every unrelated draw downstream and
+        destroy bit-identity of arms that have nothing to do with this lever.
+
+        Cross-machine note (CLAUDE.md, "Running the test suite"): contracts
+        assert the STATISTICS of this stream against closed form with a
+        tolerance, never an individual draw, because only the discrete
+        quantizer is known to diverge across machines and asserting on a draw
+        would import that risk for nothing.
+        """
+        if self._wci_ou_rng_obj is None:
+            seed = int(getattr(self.config, "waking_confidence_ou_seed", -1))
+            if seed < 0:
+                raise ValueError(
+                    "E3Config.waking_confidence_ou_seed must be set to a "
+                    "non-negative value when waking_confidence_drift_source "
+                    "== 'ou' and waking_confidence_ou_sigma > 0 (got "
+                    f"{seed!r}; -1 is the deliberate UNSET sentinel). A "
+                    "silently-shared default seed would correlate arms that "
+                    "the design requires to be independent."
+                )
+            import numpy as _np
+            self._wci_ou_rng_obj = _np.random.default_rng(seed)
+        return float(self._wci_ou_rng_obj.standard_normal())
 
     def _apply_wci_rv_floor(self, rv_new: float) -> float:
         """SD-076 lower bound on the inflated running variance.

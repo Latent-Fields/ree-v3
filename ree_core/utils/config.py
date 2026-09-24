@@ -1261,6 +1261,93 @@ class E3Config:
     waking_confidence_rv_floor_mode: str = "hard"
     waking_confidence_rv_floor_softness: float = 0.25
 
+    # SD-076b: OU-LOG-MULTIPLIER DRIFT SOURCE (2026-09-24), the successor form
+    # the user ratified on 2026-09-24 after V3-EXQ-794a FAILED C1 at both doses.
+    #
+    # WHY A SECOND FORM AT ALL. The asymmetric EMA above is a CONDITIONAL-GAIN
+    # modification of the same estimator, applied to the same realised per-tick
+    # squared error e. Its fixed point therefore satisfies
+    #     (1 + asym) * E[(rv - e)+] = (1 - asym) * E[(e - rv)+]
+    # i.e. rv* is the EXPECTILE of e's distribution at tau = (1 - asym) / 2, and
+    # an expectile's displacement from the mean is proportional to that
+    # distribution's DISPERSION. In a converged regime e is tightly concentrated
+    # and the displacement collapses -- exactly the regime MECH-204 needs.
+    # MEASURED (V3-EXQ-794a manifest, 2026-07-24): halving tau (asymmetry
+    # 0.6 -> 0.8) moved mean_rv/true_error_ref only 1.043 -> 1.023, i.e. 1.9%,
+    # against a C1 bar needing 10.5% (score log(true/rv) > 0.10). Best single
+    # cell of 18 was 0.986. So ANY reweighting of the same e stream -- harsher
+    # asymmetry, a low-quantile tracker, a trimmed/winsorised estimator --
+    # inherits the same bound and cannot clear C1. The replacement must inject
+    # displacement whose magnitude is set by a CONFIG parameter rather than by
+    # the spread of e. Design record, with the three candidates that were put to
+    # the user and why this one was chosen: REE_assembly/evidence/planning/
+    # mech204_waking_drift_source_candidates_staged_20260924.md.
+    #
+    # MECHANISM. Maintain a mean-reverting log-multiplier u_t (a discrete
+    # Ornstein-Uhlenbeck / AR(1) process) and apply it to the UN-INFLATED
+    # symmetric reference:
+    #     u_t <- (1 - theta) * u_{t-1} + theta * mean_log_gain + sigma * xi_t
+    #     rv  <- exp(u_t) * _wci_symmetric_rv_ref
+    # so 1 - rv / _wci_symmetric_rv_ref reads the applied displacement DIRECTLY
+    # and independently of e's dispersion, which is the property the expectile
+    # form lacks. u_0 = mean_log_gain (start AT the stationary mean, no warmup
+    # transient).
+    #
+    # WHY TIME-VARYING AND NOT A CONSTANT DISCOUNT. A constant multiplicative
+    # discount also clears C1, but MECH-204 Option A's guard-ON recalibration
+    # target is an EMA of current_precision = 1/rv -- a LAGGED FUNCTION OF rv
+    # ITSELF -- so a constant offset is absorbed and the Option A falsifier stays
+    # unfirable (exq541d_redteam_blocking_refusal_staged_20260919.md sec 7c,
+    # adversarial sweep: guard-ON displacement [-0.15, +0.062] vs a 0.25 bar).
+    # A time-varying u_t is NOT absorbed: the target lags it persistently, by an
+    # amount set by sigma and theta/precision_ema_alpha rather than by e.
+    # sigma = 0.0 collapses this to the constant-discount form, which is why the
+    # ratified design uses it AS the control arm rather than as a separate build.
+    #
+    # STATIONARY LAW, and the two different "doses" (do not conflate them):
+    #     u ~ Normal(mean_log_gain, sigma^2 / (theta * (2 - theta)))
+    #     MEDIAN multiplier     = exp(mean_log_gain)
+    #     ARITHMETIC-MEAN mult. = exp(mean_log_gain + Var[u] / 2)
+    # The C1 DV is log(true_error_ref / MEAN rv), so to hit an arithmetic-mean
+    # displacement g set mean_log_gain = log(g) - Var[u]/2. At sigma = 0 the two
+    # coincide. Both forms are pinned by contract.
+    #
+    # TWO LIVE CONSUMERS THIS TOUCHES, stated because a run arming it must say
+    # so: rv feeds (1) current_precision = 1/(rv + 1e-6) and the E3 commit gate,
+    # which is the intended native consumer, and (2) _rv_history ->
+    # _volatility_estimate (Q-007) and the ARC-029 variance-tracking commit bar,
+    # both of which read the rv TRAJECTORY and cannot distinguish injected OU
+    # volatility from real environmental volatility. That is why the ratified
+    # design carries a sigma = 0 control arm.
+    #
+    # DEFAULTS ARE NO-OP: the selector stays "asymmetric_ema", so the OFF path
+    # and the existing SD-076 path are both evaluated unchanged and are
+    # bit-identical. theta and seed are UNSET SENTINELS that RAISE when the "ou"
+    # source is selected, on the ARC-029 precedent immediately below: theta sets
+    # the lag that decides whether the Option A falsifier can fire at all, and a
+    # silently-shared seed would correlate arms that must be independent. That
+    # is a science choice for the experiment to pre-register, not a default for
+    # this build to smuggle in.
+    waking_confidence_drift_source: str = "asymmetric_ema"
+    # log of the MEDIAN multiplier. 0.0 = no drift (multiplier median 1.0).
+    waking_confidence_ou_mean_log_gain: float = 0.0
+    # per-tick innovation sd of the log-multiplier. 0.0 = deterministic
+    # constant-discount control arm.
+    waking_confidence_ou_sigma: float = 0.0
+    # mean reversion per tick, in (0, 1]. UNSET sentinel; raises when the "ou"
+    # source is selected.
+    waking_confidence_ou_theta: float = -1.0
+    # dedicated RNG stream seed. UNSET sentinel; raises when the "ou" source is
+    # selected WITH sigma > 0 (a seed is meaningless without innovations).
+    waking_confidence_ou_seed: int = -1
+    # Numerical guard on u_t only -- NOT a science knob. |u| is clamped to this
+    # and every clamp is COUNTED and exposed as E3TrajectorySelector
+    # .wci_ou_clamp_hits, so a silently-saturating lever (the SD-076 rv-floor
+    # defect V3-EXQ-794 was burned by) cannot recur unseen. At the ratified dose
+    # ladder the band is ~40 stationary sd away and is provably unreachable;
+    # a run must assert the counter is 0.
+    waking_confidence_ou_log_gain_clamp: float = 30.0
+
     # SD-063: conditional predictive-precision commit gate. When True AND a
     # conditional_predictive_variance is passed to select(), the ARC-016 commit
     # decision compares that per-input predictive variance (from the SD-063
