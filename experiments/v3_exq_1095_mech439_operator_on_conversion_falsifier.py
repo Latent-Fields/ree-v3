@@ -160,7 +160,67 @@ deliberately inert in this lineage and reads 0 content ticks.
 
 ASCII-only output (repo rule).
 
-RED-TEAM (Step 4.5): recorded in the queue entry note; see V3-EXQ-1095.
+RED-TEAM (Step 4.5), Fable 5.1, cross-model: **BLOCKING**. NOT QUEUED. See the section
+immediately below.
+
+THIS DRIVER IS NOT QUEUED -- BLOCKING RED-TEAM FINDING, CONFIRMED AT SOURCE
+---------------------------------------------------------------------------
+F1 (BLOCKING): **the residue-STARVED regime can never reach a COMMITTED selection, so the
+committed-action-class DV does not read a committed selection there at all.** The chain,
+verified in source and then numerically, not taken on the reviewer's word:
+
+  * `update_running_variance` has exactly ONE caller in all of `ree_core`:
+    `e3_selector.py:4686`, inside `post_action_update`.
+  * `post_action_update` has exactly ONE caller: `agent.py:11070`, which is inside
+    `REEAgent.update_residue` (def at `agent.py:11041`; the next method def is
+    `record_transition` at `agent.py:11240`).
+  * The STARVED protocol is defined by never calling `update_residue` -- that IS the
+    manipulation (571c/1012a/1012c inherit the same protocol).
+  * So `_running_variance` stays pinned at `precision_init = 0.5` (`config.py:1137`)
+    against `commitment_threshold = 0.40` (`config.py:1135`). Measured on a freshly
+    constructed lineage agent: rv 0.5, threshold 0.4, `rv < threshold` -> **False**.
+  * `e3_selector.py:956` documents this exact shape in the substrate's own words: "a
+    driver that never calls post_action_update leaves rv pinned at precision_init forever
+    (v3_exq_925a documents exactly this)".
+
+Consequences, all of which bear on what this run could conclude:
+  (a) Factor B (the matched-noise manipulation) is reached only on the committed branch, so
+      ARM_STARVED_MATCHED_NOISE and ARM_STARVED_PROPOSER_CTRL differ by RNG stream alone.
+      `C_NOISE_LIFTS_starved` then has no signal to detect: it is ~P(3 of 4 iid coin flips).
+  (b) That criterion is AND-ed across regimes (`noise_lifts_all`) and sits THIRD in the
+      verdict chain, so a starved-regime coin flip vacates the whole 32-cell run --
+      including a clean fed-regime result -- and the runs that pass it pass by chance.
+  (c) The fed and starved halves are therefore measuring DIFFERENT SELECTION RULES under one
+      DV name (fed: the committed argmin / Factor B multinomial; starved: the uncommitted
+      tempered multinomial), which the DV-symmetry paragraph above does not describe.
+  (d) This driver's own smoke corroborated it independently before the review: all four
+      STARVED arms returned an identical H = 0.6931 over 2 classes.
+
+This is NOT a defect in the operator, the instrument or the fed regime -- the fed half and
+the eligibility-stage instrument both behaved correctly in smoke (ARM_FED_ON R_ON 0.4405 vs
+R_OFF 0.0000, operator engaged, 0/0/0 instrument failures). It is a defect in the pre-
+registered CONTROL SET: MECH-439's own `what_would_answer` names "a residue-fed vs
+residue-starved protocol contrast" as part of the control set, and that contrast is
+unusable for the claim's own committed-action-class DV on this substrate.
+
+Every available repair -- dropping the starved regime, scoping it out of `C_NOISE_LIFTS`,
+calling `update_residue` with a null harm signal so rv tracks without feeding residue, or
+adding a commit-fraction readiness gate that self-routes starved to not-ready -- CHANGES
+WHAT GETS MEASURED, and none is specified by the chip, the pre-flight, the 1012c autopsy or
+the governance 2026-09-24 release. Under the standing consent rule that is a user decision,
+so this session STOPPED rather than choosing one. Decision chip:
+`chip-20260924-mech439-starved-regime-cannot-commit`. Governance flag recording the
+substrate/claim-text finding: GFLAG (raised by this session, see the chip).
+
+Other red-team findings, recorded but NOT acted on (they are downstream of F1 and several
+would be moot under some repairs): F2 ARM_ON differs from both controls in summary source
+AND operator while no criterion compares ON to OFF; F3 the matched-noise control is
+uniform-over-E rather than gap-scaled on the proposer summary source; F4 a red CONTROL arm
+lands on the "conversion_ceiling_persists" label rather than substrate_not_ready_requeue;
+F5 C1 is a zero-margin strict `>` on plug-in entropies at unequal realised n (689i used
+Miller-Madow for exactly this); F6 `C_CONTROL_DISTINCT` is whole-run, so a starved
+degeneracy silences a valid fed contrast. F2 and F5 are independently actionable and were
+verified as real by reading the cited lines.
 """
 
 from __future__ import annotations
@@ -278,11 +338,11 @@ CHANNELS: Tuple[str, ...] = tuple(CHANNEL_SIGN.keys())
 SCORINGS: Tuple[str, ...] = ("ON", "OFF", "ORACLE")
 
 DRY_RUN_SEEDS = [42]
-DRY_RUN_P0 = 4
+DRY_RUN_P0 = 2
 DRY_RUN_P1_CAP = 2
-DRY_RUN_STEPS = 60
-DRY_RUN_FRESH_TARGET = 16
-DRY_RUN_MIN_CONTENT_TICKS = 3   # smoke only: lets the smoke exercise R/J on few ticks
+DRY_RUN_STEPS = 40
+DRY_RUN_FRESH_TARGET = 6
+DRY_RUN_MIN_CONTENT_TICKS = 2   # smoke only: lets the smoke exercise R/J on few ticks
 
 _ZG = ZGoalStreamAccumulator()
 _LAST_AGENT: Dict[str, Any] = {"agent": None}
@@ -372,6 +432,7 @@ PRECONDITION_SPECS: List[PreconditionSpec] = [
         control="worst seed of this arm",
         threshold=MIN_POOL_FIRST_ACTION_CLASSES,
         direction="lower",
+        structural_max=lambda ctx: float(EXPECTED_ACTION_DIM),
     ),
     PreconditionSpec(
         name="control_entropy_headroom",
@@ -383,6 +444,7 @@ PRECONDITION_SPECS: List[PreconditionSpec] = [
         control="worst seed of this arm; controls only",
         threshold=CONTROL_HEADROOM_FLOOR,
         direction="lower",
+        structural_max=lambda ctx: float(MAX_COMMITTED_CLASS_ENTROPY),
         applies_to=_is_control,
         applies_note="only the arms C1 must exceed can starve C1's strict-above comparison",
     ),
@@ -407,6 +469,7 @@ PRECONDITION_SPECS: List[PreconditionSpec] = [
         control="worst seed of this arm",
         threshold=2.0,
         direction="lower",
+        structural_max=lambda ctx: float(len(CHANNELS)),
         applies_to=_is_instrumented,
         applies_note="R is only computed on the instrumented ON arms",
     ),
@@ -561,19 +624,23 @@ def _first_action_class(action: torch.Tensor) -> Optional[int]:
 
 
 def _pool_first_action_classes(candidates: Any) -> Optional[int]:
-    """Distinct first-action classes across the candidate pool, this tick."""
+    """Distinct FIRST-ACTION classes across the candidate pool, this tick.
+
+    `traj.actions[:, 0, :]` is 689i's `_first_actions_K` extraction -- the FIRST action of
+    each candidate trajectory -- and its argmax is the same class the committed DV counts
+    (`action.argmax(-1)[0]`). Getting this wrong is not cosmetic: a first draft flattened the
+    whole trajectory tensor and reported ~28 "classes" out of 32 candidates against an
+    action_dim of 5, i.e. a readiness gate that could never fail. Bounded by action_dim, so
+    the structural_max on this precondition is a real bound.
+    """
     try:
         classes = set()
-        for cand in candidates:
-            t = cand[0] if isinstance(cand, (list, tuple)) and len(cand) else cand
-            if not torch.is_tensor(t):
-                t = getattr(cand, "actions", None)
-                if t is None:
-                    return None
-            t = t.detach()
-            if t.dim() >= 2:
-                t = t.reshape(t.shape[0], -1)[0] if t.shape[0] else t.reshape(-1)
-            classes.add(int(t.reshape(-1).argmax().item()))
+        for traj in candidates:
+            acts = getattr(traj, "actions", None)
+            if acts is None or not torch.is_tensor(acts):
+                return None
+            first = acts[:, 0, :].detach().reshape(-1)
+            classes.add(int(first.argmax().item()))
         return len(classes) if classes else None
     except Exception:
         return None
