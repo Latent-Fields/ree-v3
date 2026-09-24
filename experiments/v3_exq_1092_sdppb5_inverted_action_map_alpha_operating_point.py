@@ -45,7 +45,7 @@ Every finding was re-verified by this session against source and the dry-run man
 Changing what gets measured is the USER's call, so this driver was NOT redesigned a third time.
 Full verification tables: REE_assembly evidence/planning/
 sdppb5_inverted_map_ratio_criterion_aliasing_staged_20260924.md. Governance: GFLAG-0470,
-GFLAG-0475, GFLAG-0476. THE RECOVERABLE HALF IS SETTLED AND LANDED:
+GFLAG-0475, GFLAG-0482. THE RECOVERABLE HALF IS SETTLED AND LANDED:
 reanalysis_sdppb5_off_head_action_read_alpha09_live_battery_20260924T171654Z (OFF head reads
 its action at alpha 0.9 on a live battery, 3/3 seeds, zero compute).
 Does e2.world_forward's prediction degrade MORE under an inverted action map than an
