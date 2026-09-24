@@ -1,161 +1,168 @@
-"""V3-EXQ-1092 -- SD-PP-B5 inverted-action-map READINESS readout at alpha_world 0.3 vs 0.9.
-
-!! DO NOT QUEUE AS WRITTEN -- NOT QUEUED, INERT ON MAIN (2026-09-24) !!
-The mandatory Step 4.5 adversarial red-team (Fable, one pass, foreground) returned BLOCKING, and
-this session re-verified every finding directly against the source and the landed manifests:
-  F1 (BLOCKING) The LOAD-BEARING same-rows shuffle ratio clause is `d_act > 0` restated:
-     d_act := (S-T)/(S+T) makes (1+d_act)/(1-d_act) == S/T identically, and the gate's derangement
-     estimates that same S/T (16-draw means within ~1%). So `ratio > 1.0` <=> `d_act > 0`, the
-     declared null N1 ("ratio <= ~1.0 DESPITE d_act > 0") is self-contradictory in this form, and
-     the alpha-0.9 arm is a BIT-EXACT replay of V3-EXQ-1082's ARM_OFF (battery_hash
-     02ab0ea563a9f764 / 63f4eda43ca7ad0b identical; d_act equal to all 17 digits; per_row_se_true
-     identical element-for-element). C1 = "ready" on 3/3 seeds -- INCLUDING unrun seed 456
-     (S/T 1.5858, skill +0.2149) -- is computable from 1082's landed manifest by one division, so
-     the outcome is fixed at PASS before the run starts. A GOV-REUSE-1 hit against the NEW
-     load-bearing statistic.
-  F2 C2's alpha contrast is a property of the BATTERY, not the head: the ridge positive control's
-     d_act shifts MORE than the head's across alpha (head delta - PC delta = -0.0178 / -0.0113), so
-     a C2 PASS is not attributable to the head as the label claims. V3-EXQ-1079 carried a PC
-     contrast and a label split for exactly this (1079 :84-91, :755-758); this driver drops it.
-     The DV-symmetry argument below is also invalid as applied to a head RETRAINED per arm
-     (identity MSE differs 9.5x, rms |dz| 3.08x, and skill at 0.3 is NEGATIVE).
-  F3 `action_read_absent_at_operating_point_despite_d_act` is reachable only via the skill clause,
-     i.e. only with ratio > 1 and d_act CI > 0 -- a head that demonstrably DOES read its action --
-     so the label is false in the only state it can fire.
-Changing which statistic is load-bearing is a USER decision (it is what the first stop was about),
-so this driver was NOT redesigned here. Full analysis, verification tables and options:
-REE_assembly/evidence/planning/sdppb5_inverted_map_ratio_criterion_aliasing_staged_20260924.md
-(ADDENDUM section). Recommended path recorded there: emit a reanalysis for the recoverable
-shuffle-form half, and re-point the load-bearing criterion at the cross-battery ratio vs its
-action-blind null (the original option B), which is genuinely NOT recoverable -- 1082 collected no
-inverted-map battery. Governance: GFLAG-0470 (bar denomination) + GFLAG-0475 (this refusal).
-Everything below this banner is the option-C implementation as validated (validate_experiments
---strict 1 OK / 0 warnings; validate_recording --strict complete; full-budget dry run rc=0).
-
-Does e2.world_forward's action read clear an action-sensitivity bar on a LIVE battery, and
-does it differ between SD-008's damped (0.3) and stable-floor (0.9) operating points?
+"""V3-EXQ-1092 -- SD-PP-B5 inverted-action-map readout vs its ACTION-BLIND NULL at alpha 0.3/0.9.
+Does e2.world_forward's prediction degrade MORE under an inverted action map than an
+action-blind predictor does on the same battery pair -- and does that differ between
+alpha_world 0.3 (damped) and 0.9 (SD-008's stable floor)?
 
 PURPOSE: diagnostic (validates_substrate SD-PP-B5-z-world-per-step-displacement-range).
 Non-contributory to governance confidence by design; claim_ids EMPTY, bears_on names the claims.
 
 SLEEP DRIVER: not applicable (no sleep machinery; P0 world_forward training only).
 
-RED-TEAM (Step 4.5, fable): BLOCKING (F1/F2/F3) -- see the DO-NOT-QUEUE banner above.
+WHY THIS RUN EXISTS, AND WHAT IT IS *NOT* ASKING
+------------------------------------------------
+Routed by confirmed failure_autopsy_V3-EXQ-1082_2026-09-24 targets[0].fanout_recommendation,
+suggested_probes[0] (hypothesis H-operating-point). It composes V3-EXQ-1079's inverted-map env
+with V3-EXQ-1082's live reset-on-done collector.
 
-WHY THIS RUN EXISTS
--------------------
-The confirmed failure_autopsy_V3-EXQ-1082_2026-09-24 (targets[0].fanout_recommendation,
-suggested_probes[0], hypothesis H-operating-point) routes ONE cheap measurement probe: the
-inverted-action-map readout is the `zworld_action_readability_lever` live_gate that has never
-been measured on a LIVE battery. H-operating-point is CONFIRMED on d_act and
-skill-vs-identity by 1082 (OFF d_act 0.3415/0.2160/0.2266, CI>0 3/3; skill +0.35/+0.22/+0.21)
-but its live_gate readout was unmeasured, and the causal attribution to alpha was cross-run.
-This run composes V3-EXQ-1079's inverted-map env with V3-EXQ-1082's live reset-on-done
-collector -- exactly what the autopsy's C1-style self-check says is available and uncovered.
+It does NOT ask "does the OFF head read its action at 0.9". THAT IS ALREADY ANSWERED, at zero
+compute, by reanalysis
+  reanalysis_sdppb5_off_head_action_read_alpha09_live_battery_20260924T171654Z
+(REE_assembly evidence/reanalysis/), derived in closed form from V3-EXQ-1082's landed ARM_OFF
+per-row errors: READY on 3/3 seeds (S/T 2.0371/1.5512/1.5858 > 1.0; skill +0.3486/+0.2194/
++0.2149 > 0.0; d_act CI lower > 0 on 3/3). Asking it again here would re-derive landed data --
+which is exactly what the first draft of this driver did, and why it was refused.
 
-THE BAR -- USER DECISION (option C), and why the ratified "~1.0" needed one
---------------------------------------------------------------------------
-The autopsy's sketch reads "inverted-action-map battery MSE / original MSE with a bar
-excluding the degenerate ~1.0 ... reuse readiness_verdict". `readiness_verdict` has TWO forms
-with DIFFERENT nulls:
-  * action_shuffle_ratio (counterfactual_battery=None): SAME rows, actions permuted in place.
-    Null IS exactly 1.0 -- intrinsic transition difficulty cancels by construction.
-  * battery_pair_ratio (counterfactual_battery=cf): TWO DIFFERENT batteries, one from an
-    inverted-action-map env. Null is NOT 1.0 -- the two row sets differ in intrinsic |dz|,
-    which moves the ratio with no action-reading at all. V3-EXQ-1079 measures that nuisance
-    per cell as blind_null_1075_order (an action-blind identity predictor over the same pair).
-On 1079's landed cells the raw-1.0 bar and the blind-null bar disagree on 6 of 9 cells and
-route OPPOSITELY at alpha 0.9 (raw: 2/3 seeds read, 1.2563/1.2755 -> PASS; blind-null: 1/3 ->
-FAIL). Since a PASS here is what makes the V3-EXQ-1073 MECH-572 contradiction design
-re-posable, the bar decides whether an expensive build is authorised.
-Raised as GFLAG-0470 (contested_disposition) + decision chip
-chip-20260924-sdppb5-invmap-ratio-bar-decision; analysis in
-REE_assembly/evidence/planning/sdppb5_inverted_map_ratio_criterion_aliasing_staged_20260924.md
-(origin/master e9e37e46c2). USER CHOSE OPTION C (2026-09-24, via orchestrate-20260924-b):
-  LOAD-BEARING: the SAME-ROWS action_shuffle_ratio verdict (readiness_verdict with
-    counterfactual_battery=None) at RATIO_FLOOR=1.0 -- the one form where 1.0 is the true null.
-  RECORDED, NEVER GATING: the cross-battery inverted-map ratio with its raw >1.0 verdict (so
-    the autopsy's literal declared null stays evaluable), AND that ratio against its
-    action-blind null on the same battery pair.
-This resolves GFLAG-0470's contested disposition as C per the user; /governance applies the flag.
+UNCERTAINTY THIS RUN REMOVES: whether the head's world-model is INVERSION-SENSITIVE beyond the
+battery's own difficulty -- i.e. whether an inverted action map is a genuine CONTRADICTION for
+this head, or merely a harder set of rows. Reading its action (established) and being
+contradicted by an inverted rule are different properties: V3-EXQ-1073 measured cross-battery
+ratios of 0.760/0.901/0.881 -- BELOW 1 -- on a head that did read its action, and self-routed
+`confidently_wrong_condition_unposeable_on_this_head`. Nothing on record settles it on a LIVE
+battery at any alpha.
+
+HYPOTHESES DISCRIMINATED (>= 2, per GOV-FANOUT-1):
+  H-inversion-sensitive   the head encodes the action->displacement RULE, so inverting the map
+                          costs it more than it costs an action-blind predictor
+                          (cross_ratio - blind_null > 0). An inverted-map contradiction is
+                          posable, and the V3-EXQ-1073 MECH-572 design can be re-posed at 0.9.
+  H-difficulty-only       the head reads its action (established) but does not encode the rule
+                          in a way an inversion contradicts; the whole cross-battery ratio is
+                          the two row sets' difficulty difference (cross_ratio ~ blind_null).
+                          1073's sub-1 ratios are this shape. Do NOT build the contradiction.
+  H-operating-point       (crossed with the above) whichever holds, is it alpha-dependent?
+                          C2 plus its positive-control split separates "the HEAD improved" from
+                          "the BATTERY became more action-explainable for any reader".
+STOP RESULT: if C1 fails at 0.9 -- the ratio sits within its action-blind null -- the
+InfoNCE and encoder-displacement legs stay unbuilt and the MECH-572 contradiction re-pose stays
+refused, on a measured basis rather than an assumed one. That is a real, informative outcome.
+
+NATIVE CONSUMER THE RATIO REACHES: `experiments/_lib/action_sensitivity_gate.readiness_verdict`
+is the shipped pre-flight gate a consolidation/contradiction experiment is required to pass
+before it may pose an inverted-action-map condition (that module's own docstring: "this gate
+exists to be run BEFORE that kind of experiment"). This run supplies the counterfactual-battery
+form of that gate on a live battery -- the form 1073 needed and did not have.
+
+THE BAR -- TWO USER DECISIONS, RECORDED BECAUSE THE SECOND REVERSED THE FIRST
+-----------------------------------------------------------------------------
+The autopsy's sketch says "inverted-map battery MSE / original MSE with a bar excluding the
+degenerate ~1.0 ... reuse readiness_verdict". `readiness_verdict` has TWO forms with DIFFERENT
+nulls, and the sketch pairs one form's manipulation with the other's bar:
+  * action_shuffle_ratio (counterfactual_battery=None): SAME rows, actions permuted. Null IS
+    exactly 1.0 -- difficulty cancels by construction.
+  * battery_pair_ratio (counterfactual_battery=cf): TWO batteries, one from an inverted-map
+    env. Null is NOT 1.0; it is the ACTION-BLIND ratio over those two row sets.
+Stop 1 (chip-20260924-sdppb5-invmap-ratio-bar-decision) -> USER chose option C: load-bear the
+same-rows form at 1.0. Implemented; the Step 4.5 red-team then showed that criterion is
+`d_act > 0` restated ((1+d_act)/(1-d_act) == S/T identically) and already answered by 1082,
+whose ARM_OFF cells this driver's 0.9 arm reproduces BIT-FOR-BIT. Stop 2
+(chip-20260924-sdppb5-invmap-loadbearing-recoverable) -> USER chose "(2) then (1)"
+(rec-20260924-5812c302): emit the reanalysis above, then RE-POINT the load-bearing criterion at
+option B. That is what this driver now does. GFLAG-0470 + GFLAG-0475; analysis in REE_assembly
+evidence/planning/sdppb5_inverted_map_ratio_criterion_aliasing_staged_20260924.md.
+
+GOV-REUSE-1 RE-RUN AGAINST THE *NEW* LOAD-BEARING STATISTIC (2026-09-24, the GFLAG-0475 lesson
+in force): recoverability is a property of the CRITERION, not of the experiment, so moving the
+criterion requires re-running Step 2.4. Scanned 1076 manifests in evidence/experiments (521
+carrying arm_results -- denominator printed because a silent zero here is indistinguishable
+from a broken search). EXACTLY ONE carries a cross-battery ratio together with an action-blind
+null: V3-EXQ-1079, and its collector never read `done`, so every one of its rows is POST-DEATH
+(that is also why its blind nulls read 1.09-2.41 while live ones measure ~0.95). The
+live-battery form of this statistic exists NOWHERE in the corpus. NOT recoverable -> run.
 
 DESIGN
 ------
 2 arms x 3 seeds = 6 cells. The ONLY between-arm difference is alpha_world.
-  ARM_ALPHA_0p3  alpha_world 0.3 (REEConfig.from_dims default; SD-008's damped point)
+  ARM_ALPHA_0p3  alpha_world 0.3 (from_dims default; SD-008's damped point)
   ARM_ALPHA_0p9  alpha_world 0.9 (SD-008's stable floor; 1082's operating point)
-alpha_world is set EXPLICITLY at from_dims and asserted threaded (MECH-307 guard: from_dims
-silently swallows unknown kwargs). Both arms are OFF -- no interventional margin, asserted.
-Env, dims, budget (3600 P0 steps), optimiser, batch sampling and seeds are 1082's ARM_OFF.
+alpha_world is set EXPLICITLY at from_dims and asserted threaded (MECH-307 guard). Both arms
+are OFF -- no interventional margin, asserted. Env, dims, budget (3600 P0 steps), optimiser,
+batch sampling and seeds are V3-EXQ-1082's ARM_OFF.
 
-DONE-HANDLING: 1082's `_collect_live_battery` (itself ported from V3-EXQ-1073 :1054-1056) in
-BOTH the P0 rollout and every battery collector: unpack `done` from env.step, on done ->
-env.reset() and prev=None, so no transition spanning a death/reset is recorded; the collector
-also skips the first POST_RESET_SKIP transitions after each reset and records per-row health.
-The precondition `battery_rows_all_live` requires ZERO post-death rows -- the 1075/1079 defect
-(their collectors never read `done`, so every row was post-death) is what made the existing
-inverted-map ratios unusable and is why this cannot be answered by reanalysis.
+DONE-HANDLING: 1082's `_collect_live_battery` (ported from V3-EXQ-1073 :1054-1056) in the P0
+rollout and in BOTH battery collectors: unpack `done`, on done -> env.reset() and prev=None, so
+no transition spanning a death is recorded; the collector also skips POST_RESET_SKIP
+transitions after each reset and records per-row health. `battery_rows_all_live` and
+`battery_cf_rows_all_live` both require ZERO post-death rows -- the inverted map changes the
+trajectory, so the second is not implied by the first.
 
 THE READOUTS, per cell (head = the cell's OWN trained e2.world_forward)
-  LOAD-BEARING  shuffle_status   readiness_verdict(head, z0, acts, z1,
-                                   counterfactual_battery=None) -> "ready" requires
-                                   shuffle ratio > 1.0 AND skill > 0.0 vs copy-the-input.
-  RECORDED      cross_ratio      battery_pair_ratio over (orig battery, inverted-map battery)
-  RECORDED      cross_blind_null identity_predictor_mse(cf)/identity_predictor_mse(orig) --
-                                 the SAME pair's action-blind nuisance
-  RECORDED      cross_reads_raw  cross_ratio > 1.0            (autopsy's literal bar)
-  RECORDED      cross_reads_blind cross_ratio > cross_blind_null (nuisance-corrected)
-  RECORDED      d_act + paired row bootstrap CI (1082 verbatim), skill_vs_identity,
-                the ridge positive control, the untrained head, persistence/model_r2.
-Both batteries are collected from FRESH agents built at the SAME alpha as the cell (the
-encoder IS part of the arm here, unlike 1082 where alpha was constant and one battery agent
-served every arm). `encoder_equal_to_battery_agent` records that the battery agent's frozen
-encoder equals the trained cell's.
+  LOAD-BEARING  cross_ratio vs blind_null. readiness_verdict(counterfactual_battery=inverted,
+                ratio_floor=blind_null, skill_floor=0.0) == "ready" AND a TWO-SAMPLE bootstrap
+                CI on (cross_ratio - blind_null) excluding 0. Two-sample, not paired: the
+                original and inverted batteries are different row sets, so they are resampled
+                independently.
+  RECORDED      the raw >1.0 verdict on the same cross-battery ratio (the autopsy's literal
+                declared null, kept evaluable); the SAME-ROWS action_shuffle verdict and its
+                16-draw spread (DEMOTED from load-bearing -- see above); d_act + paired CI;
+                skill_vs_identity; the ridge positive control; the untrained head; model_r2
+                and the persistence verdict.
 
-VERDICT GRID -- the autopsy's declared null is a DISJUNCTION, so PASS rejects BOTH clauses:
-  N1 "at 0.9 the ratio stays <= ~1.0 despite d_act > 0"  -> rejected by C1
-  N2 "the 0.3 and 0.9 arms do not differ"                -> rejected by C2
-  PASS inverted_map_readout_confirms_action_read_at_operating_point -- C1 and C2.
-  FAIL action_read_present_at_0p9_but_alpha_contrast_undetermined -- C1 only (N2 holds).
-  FAIL action_read_absent_at_operating_point_despite_d_act -- C1 fails (N1 holds); this is
-       the autopsy's own first disjunct and is a real finding, not a null run.
-  FAIL inverted_map_readout_undetermined -- neither resolves.
-  FAIL substrate_not_ready_requeue -- any precondition unmet.
-outcome PASS iff C1 and C2. Every cross-battery number is RECORDED and never gates.
+VERDICT GRID -- the declared null is a DISJUNCTION, so PASS rejects BOTH clauses:
+  N1 (re-pointed) "at 0.9 the inverted-map ratio does not exceed its action-blind null"  -> C1
+  N2              "the 0.3 and 0.9 arms do not differ"                                   -> C2
+  PASS  inverted_map_exceeds_blind_null_and_head_gains_beyond_ceiling -- C1+C2, and the
+        difference-of-differences says the HEAD gained beyond the ridge ceiling.
+  PASS  inverted_map_exceeds_blind_null_alpha_gain_attributable_to_battery -- C1+C2, but the
+        ceiling gained MORE: the alpha gain is the battery's, not the head's.
+  PASS  inverted_map_exceeds_blind_null_alpha_attribution_undetermined -- C1+C2, split unclear.
+  FAIL  inverted_map_exceeds_blind_null_alpha_contrast_undetermined -- C1 only.
+  FAIL  inverted_map_ratio_within_action_blind_null_at_operating_point -- C1 fails on every
+        valid seed. NOTE this does NOT say the head is action-blind: the reanalysis above
+        established it reads its action at 0.9 on 3/3. It says the INVERTED-MAP readout does
+        not clear the nuisance bar, i.e. H-difficulty-only.
+  FAIL  inverted_map_readout_undetermined -- neither resolves.
+  FAIL  substrate_not_ready_requeue -- any precondition unmet.
+(Labels are written to be TRUE in the state they fire; the 2026-09-24 red-team found the
+previous draft's "read absent ... despite d_act" label was false in its only reachable state.)
+
+C2'S POSITIVE-CONTROL SPLIT (V3-EXQ-1079 :84-91, :755-758, carried into the GROWS direction):
+1079 split its SHRINKS label on whether the budget-free ridge control moved too. The measured
+hazard here is the GROWS analogue -- the head's contrast can be positive while the ceiling's is
+LARGER, in which case more linearly readable action information reached z_world and the head
+did not use it. So the attribution statistic is a difference of differences,
+[d_head(0.9)-d_head(0.3)] - [d_pc(0.9)-d_pc(0.3)], with 1079's literal pc contrast recorded
+alongside. It SPLITS the label and never changes the counts.
 
 DV-SYMMETRY (Step 3.5), per arm -- BOTH arms, same statement:
-The DV is a ratio of MSEs of the same head over the same rows under true vs permuted actions.
-Symmetry group of that DV: it is INVARIANT under any uniform positive rescaling of z_world
-(numerator and denominator both scale by c^2) and under any relabeling of action indices
-applied consistently. The manipulation (alpha_world) is NOT invariant under it: alpha is an
-EMA blend coefficient, i.e. a temporal low-pass filter on z_world, so it changes the
-per-step displacement STRUCTURE and the action-to-dz coupling, not merely z_world's scale.
-Measured, not argued: across 1079's alpha arms d_act moves 0.175 -> 0.498 (seed 42) and the
-burn-in ratio 1.54 -> 2.96, so the DV demonstrably moves with alpha. `rms_dz_per_dim_battery`
-and `transition_l2_mean` are recorded per cell so a reader can confirm the displacement scale
-changed rather than taking this on trust. Corollary, stated because it bounds the readout: a
-manipulation that acted on z_world as a PURE uniform rescaling would be invisible to this DV.
+The load-bearing DV is a DIFFERENCE of two MSE ratios over the same two batteries. Any uniform
+positive rescaling of z_world cancels in each ratio (numerator and denominator both scale by
+c^2) and therefore in their difference, and any consistent relabeling of action indices leaves
+it unchanged. The manipulation is NOT invariant under that group -- and, importantly, the
+BLIND-NULL SUBTRACTION is what makes this true rather than an assumption: whatever alpha does
+to the displacement SCALE enters cross_ratio and blind_null alike and cancels, so what survives
+is specifically the head's rule-sensitivity over and above an action-blind reader on the same
+rows. (The previous draft argued the DV moves with alpha "therefore alpha is not a rescaling";
+that inference was invalid for a head RETRAINED per arm -- identity MSE differs ~9.5x and rms
+|dz| ~3.1x across arms and skill at 0.3 is NEGATIVE, so d_act at 0.3 is diluted by a fixed
+LR/step budget. Recorded here rather than dropped: `rms_dz_per_dim_battery`,
+`transition_l2_mean` and both identity MSEs are emitted per cell so a reader can see the scale
+change, and C2's positive-control split is what keeps a scale artefact from being read as a
+head result.)
 
-MULTI-ARM GATE (Step 3.5 / V3-EXQ-785): preconditions are whole-run worst-cell here, which is
+MULTI-ARM GATE (Step 3.5 / V3-EXQ-785): preconditions are whole-run worst-cell, which is
 correct rather than the 785 defect -- no precondition is structurally unsatisfiable for either
-arm (both arms are ordinary OFF cells differing only in a blend coefficient), so no arm's
-impossible gate can vacate the other's finding. C1 is read at ARM_ALPHA_0p9 by design (that is
-the operating point under test); C2 needs both arms and is cannot_determine without them.
+arm (both are ordinary OFF cells differing only in a blend coefficient). C1 is read at
+ARM_ALPHA_0p9 by design; `rows_aligned` is scoped by `applies_to` to C2 alone, so an unpairable
+contrast cannot vacate C1.
 
-WHY NOT REANALYSIS (Step 2.4, GOV-REUSE-1): the decisive readout is the inverted-map ratio on
-a LIVE battery. V3-EXQ-1079 (substrate_hash 17e203f335387880) HAS the ratio at both alphas but
-every row is POST-DEATH; V3-EXQ-1082 (same hash) HAS the live battery but no inverted-map
-readout -- its own autopsy states the readout "is still unmeasured at 0.9". Checked run_ids
-v3_exq_1073_...20260922T182856Z_v3, v3_exq_1079_...20260923T172400Z_v3,
-v3_exq_1082_...20260924T045004Z_v3. Deriving it post hoc is impossible: it requires a live
-inverted-map battery, which requires a run. NOT recoverable -> run.
+RE-DERIVE BRAKE (Step 2.5b): does not hold. claim_ids [], a new EXQ NUMBER, purpose diagnostic,
+and the confirmed 1082 autopsy is the producer half routing this probe. GOV-DIAG-1 counts the
+full SD-PP-B5 token at 2 (1079 + 1082), below N=3; the autopsy notes the chain "is converging
+..., not circling".
 
-RE-DERIVE BRAKE (Step 2.5b): does not hold. claim_ids [], a new EXQ NUMBER (not a lettered
-re-run), experiment_purpose diagnostic, and the confirmed 1082 autopsy is itself the producer
-half that routes this probe to /queue-experiment. GOV-DIAG-1 counts the full SD-PP-B5 token at
-2 (1079 + 1082), below N=3, and the autopsy notes the chain "is converging ..., not circling".
-
-RED-TEAM (Step 4.5, fable): BLOCKING -- see the DO-NOT-QUEUE banner at the top.
+RED-TEAM (Step 4.5, fable): first pass on the option-C draft returned BLOCKING (3 findings, all
+verified, all addressed by the option-B re-point above); the verdict of record for the design
+AS QUEUED is in the queue entry note.
 """
 
 from __future__ import annotations
@@ -212,8 +219,10 @@ AUTOPSY = "failure_autopsy_V3-EXQ-1082_2026-09-24"
 ANCHOR_REACHABILITY_EXEMPT = (
     "counting anchors reachable by construction (random-action fixed-length live batteries "
     "with reset-on-done); canary anchor is the gate's own pinned-value check; "
-    "positive-control anchor runs the shipped _shuffle_verdict predicate itself against an "
-    "action-aware-by-construction ridge head")
+    "positive-control anchor runs the SHIPPED _ratio_vs_blind_ci predicate -- the very "
+    "function C1 routes on -- against an action-aware-by-construction ridge head, so the "
+    "bar is reachable by that control by construction rather than by a narrower hand-written "
+    "predicate")
 # Load-bearing bars are seed COUNTS over three-valued verdicts, and BOTH directions of
 # starvation already self-report rather than masquerading as a FAIL: C1's statistic is
 # certified to have room by the positive-control precondition (same predicate, same battery);
@@ -225,8 +234,10 @@ ANCHOR_REACHABILITY_EXEMPT = (
 # informative outcome here, not only a failure-to-measure.
 CRITERION_ACHIEVABLE_RANGE_EXEMPT = (
     "load-bearing bars are seed counts over three-valued verdicts; C1's range is certified "
-    "per seed by the positive-control precondition running the same predicate, and a starved "
-    "C2 self-reports as cannot_determine + non_degenerate:false rather than as a FAIL")
+    "per seed by positive_control_cross_exceeds_blind_null_seeds, which runs C1's OWN "
+    "statistic (_ratio_vs_blind_ci) on an action-aware-by-construction ridge head and "
+    "self-routes substrate_not_ready_requeue when that bar is out of reach; a starved C2 "
+    "self-reports as cannot_determine + non_degenerate:false rather than as a FAIL")
 
 SEEDS = [42, 123, 456]
 SELF_DIM = 16
@@ -488,6 +499,117 @@ def _contrast_ci(et_hi: torch.Tensor, es_hi: torch.Tensor, et_lo: torch.Tensor,
     return out
 
 
+def _ratio_vs_blind_ci(e_head_o: torch.Tensor, e_head_c: torch.Tensor,
+                       e_id_o: torch.Tensor, e_id_c: torch.Tensor,
+                       seed_offset: int) -> Dict[str, Any]:
+    """THE LOAD-BEARING statistic (user option B, 2026-09-24): a CI on
+
+        cross_ratio - blind_null
+        = MSE_cf(head)/MSE_orig(head)  -  MSE_cf(identity)/MSE_orig(identity)
+
+    The two batteries are DIFFERENT row sets collected in different envs, so this is a
+    TWO-SAMPLE bootstrap: original rows and inverted-map rows are resampled INDEPENDENTLY
+    (unlike `_contrast_ci`, where the rows are shared and the resample is joint). Null is 0:
+    an action-blind predictor moves the ratio by exactly the battery's own difficulty
+    difference, which is what `blind_null` measures on the same pair.
+
+    Row-SUM errors are used throughout (per_row_squared_error's convention); the constant
+    n*dim factor cancels in every ratio, so these ratios equal the MSE ratios.
+    """
+    no, nc = int(e_head_o.shape[0]), int(e_head_c.shape[0])
+    out: Dict[str, Any] = {"delta": None, "ci_low": None, "ci_high": None,
+                           "cross_ratio": None, "blind_null": None,
+                           "n_rows_orig": no, "n_rows_cf": nc, "n_bootstrap": 0}
+    if no < MIN_BATTERY_ROWS or nc < MIN_BATTERY_ROWS:
+        out["status"] = "cannot_determine"
+        return out
+    so, sc = float(e_head_o.sum()), float(e_head_c.sum())
+    io, ic = float(e_id_o.sum()), float(e_id_c.sum())
+    if so <= 0 or io <= 0:
+        out["status"] = "cannot_determine"
+        return out
+    out["cross_ratio"] = sc / so
+    out["blind_null"] = ic / io
+    out["delta"] = out["cross_ratio"] - out["blind_null"]
+    gen = torch.Generator(device="cpu")
+    gen.manual_seed(BOOTSTRAP_SEED + seed_offset)
+    io_idx = torch.randint(0, no, (N_BOOTSTRAP, no), generator=gen)
+    ic_idx = torch.randint(0, nc, (N_BOOTSTRAP, nc), generator=gen)
+    ho, hc = e_head_o[io_idx].sum(1), e_head_c[ic_idx].sum(1)
+    do, dc = e_id_o[io_idx].sum(1), e_id_c[ic_idx].sum(1)
+    ok = (ho > 0) & (do > 0)
+    vals = sorted(((hc / ho) - (dc / do))[ok].tolist())
+    if len(vals) < N_BOOTSTRAP // 2:
+        out["status"] = "cannot_determine"
+        return out
+    a = (1.0 - CI_LEVEL) / 2.0
+    out.update(ci_low=_pct(vals, a), ci_high=_pct(vals, 1.0 - a), n_bootstrap=len(vals))
+    out["status"] = _classify(out["ci_low"], out["ci_high"],
+                              "exceeds_blind_null", "below_blind_null")
+    return out
+
+
+def _dd_ci(eth_hi: torch.Tensor, esh_hi: torch.Tensor, eth_lo: torch.Tensor,
+           esh_lo: torch.Tensor, etp_hi: torch.Tensor, esp_hi: torch.Tensor,
+           etp_lo: torch.Tensor, esp_lo: torch.Tensor, seed_offset: int) -> Dict[str, Any]:
+    """C2's ATTRIBUTION statistic -- V3-EXQ-1079's positive-control contrast (1079 :84-91,
+    :755-758) carried into the GROWS direction as a difference of differences:
+
+        [d_act_head(0.9) - d_act_head(0.3)] - [d_act_pc(0.9) - d_act_pc(0.3)]
+
+    1079 split its SHRINKS label on whether the PC contrast moved too. The measured failure
+    this run was refused for (2026-09-24 red-team F2) is the GROWS analogue: the head's
+    contrast can be POSITIVE while the closed-form ridge ceiling's contrast is LARGER, so
+    the alpha gain belongs to the battery -- more linearly readable action information
+    reached z_world -- rather than to the head reading better. Null is 0. Rows are shared
+    across all four error vectors within a seed (both arms are row-aligned, asserted), so
+    the resample is JOINT.
+    """
+    n = int(eth_hi.shape[0])
+    dh = _d_from(eth_hi, esh_hi)
+    dl = _d_from(eth_lo, esh_lo)
+    ph = _d_from(etp_hi, esp_hi)
+    pl = _d_from(etp_lo, esp_lo)
+    out: Dict[str, Any] = {"dd": None, "ci_low": None, "ci_high": None,
+                           "head_delta": None, "pc_delta": None, "n_bootstrap": 0}
+    if None in (dh, dl, ph, pl) or n < MIN_BATTERY_ROWS:
+        out["status"] = "cannot_determine"
+        return out
+    out["head_delta"] = dh - dl
+    out["pc_delta"] = ph - pl
+    out["dd"] = out["head_delta"] - out["pc_delta"]
+    gen = torch.Generator(device="cpu")
+    gen.manual_seed(BOOTSTRAP_SEED + seed_offset)
+    idx = torch.randint(0, n, (N_BOOTSTRAP, n), generator=gen)
+
+    def _d(t: torch.Tensor, sw: torch.Tensor) -> torch.Tensor:
+        a, b = t[idx].sum(1), sw[idx].sum(1)
+        return (b - a) / (b + a)
+
+    den_ok = True
+    for t, sw in ((eth_hi, esh_hi), (eth_lo, esh_lo), (etp_hi, esp_hi), (etp_lo, esp_lo)):
+        if float((t[idx].sum(1) + sw[idx].sum(1)).min()) <= 0:
+            den_ok = False
+    if not den_ok:
+        out["status"] = "cannot_determine"
+        return out
+    vals = sorted(((_d(eth_hi, esh_hi) - _d(eth_lo, esh_lo))
+                   - (_d(etp_hi, esp_hi) - _d(etp_lo, esp_lo))).tolist())
+    a = (1.0 - CI_LEVEL) / 2.0
+    out.update(ci_low=_pct(vals, a), ci_high=_pct(vals, 1.0 - a), n_bootstrap=len(vals))
+    out["status"] = _classify(out["ci_low"], out["ci_high"],
+                              "head_gains_beyond_ceiling", "ceiling_gains_more")
+    return out
+
+
+def _pc_contrast_ci(etp_hi: torch.Tensor, esp_hi: torch.Tensor, etp_lo: torch.Tensor,
+                    esp_lo: torch.Tensor, seed_offset: int) -> Dict[str, Any]:
+    """V3-EXQ-1079's LITERAL positive-control contrast, pc_d_act(0.9) - pc_d_act(0.3),
+    recorded verbatim so the port is checkable against 1079 rather than only inferred
+    from the difference-of-differences above."""
+    return _contrast_ci(etp_hi, esp_hi, etp_lo, esp_lo, seed_offset=seed_offset)
+
+
 def _ridge_head(buf: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]) -> Any:
     """POSITIVE CONTROL (V3-EXQ-1079/1082 verbatim): z1_hat = z0 + [1, z0, a, z0 (x) a] @ W,
     ridge-fitted on the cell's own P0 buffer. Action-aware BY CONSTRUCTION, so it is the
@@ -629,25 +751,53 @@ def _run_cell(arm: str, alpha_world: float, seed: int) -> Dict[str, Any]:
         head = agent.e2.world_forward
         untrained = ag_b.e2.world_forward
 
-        # --- LOAD-BEARING: same-rows shuffle verdict, bar 1.0 (its true null) -----------
-        v_shuf = _shuffle_verdict(head, bz0, bacts, bz1, seed_offset=seed)
-        print(format_verdict(v_shuf, f"{arm} seed={seed} [LOAD-BEARING shuffle]"),
-              flush=True)
-        shuf_spread = _shuffle_draw_spread(head, bz0, bacts, bz1, seed_offset=seed)
-
-        # --- RECORDED: cross-battery inverted-map ratio, raw bar AND blind-null bar -----
-        v_cross = readiness_verdict(head, bz0, bacts, bz1, counterfactual_battery=cf,
-                                    min_rows=MIN_BATTERY_ROWS,
-                                    min_distinct_actions=MIN_DISTINCT_ACTIONS,
-                                    ratio_floor=RATIO_FLOOR, skill_floor=SKILL_FLOOR)
+        # --- LOAD-BEARING: cross-battery inverted-map ratio vs its ACTION-BLIND NULL ----
+        # (USER option B, 2026-09-24. The bar is the blind null, not 1.0: the two batteries
+        # are different row sets, so an action-blind predictor already moves the ratio by
+        # their difficulty difference. `readiness_verdict` is handed ratio_floor=blind_null
+        # so the gate's MECH-573 skill clause is retained and only the bar is re-denominated.)
         cross_ratio, cross_mse_o, cross_mse_c = battery_pair_ratio(
             head, (bz0, bacts, bz1), cf)
         id_orig = identity_predictor_mse(bz0, bz1)
         id_cf = identity_predictor_mse(cf[0], cf[2])
         blind_null = (id_cf / id_orig) if id_orig > 0 else None
+        with torch.no_grad():
+            e_head_o = per_row_squared_error(head(bz0, bacts), bz1).double()
+            e_head_c = per_row_squared_error(head(cf[0], cf[1]), cf[2]).double()
+            e_id_o = per_row_squared_error(bz0, bz1).double()
+            e_id_c = per_row_squared_error(cf[0], cf[2]).double()
+        vs_blind = _ratio_vs_blind_ci(e_head_o, e_head_c, e_id_o, e_id_c, seed_offset=seed)
+        v_blindbar = readiness_verdict(
+            head, bz0, bacts, bz1, counterfactual_battery=cf,
+            min_rows=MIN_BATTERY_ROWS, min_distinct_actions=MIN_DISTINCT_ACTIONS,
+            ratio_floor=(blind_null if blind_null is not None else RATIO_FLOOR),
+            skill_floor=SKILL_FLOOR)
+        print(format_verdict(v_blindbar,
+                             f"{arm} seed={seed} [LOAD-BEARING cross-battery vs blind null "
+                             f"{blind_null}]"), flush=True)
+        # LOAD-BEARING per-cell predicate: the gate says ready AND the CI on
+        # (cross_ratio - blind_null) excludes 0, so a point estimate cannot carry it alone.
+        reads_invmap = bool(v_blindbar.status == "ready"
+                            and vs_blind.get("ci_low") is not None
+                            and vs_blind["ci_low"] > 0.0)
+
+        # --- RECORDED, never gating: the autopsy's literal raw >1.0 bar ----------------
+        v_cross = readiness_verdict(head, bz0, bacts, bz1, counterfactual_battery=cf,
+                                    min_rows=MIN_BATTERY_ROWS,
+                                    min_distinct_actions=MIN_DISTINCT_ACTIONS,
+                                    ratio_floor=RATIO_FLOOR, skill_floor=SKILL_FLOOR)
         cross_reads_raw = bool(cross_ratio is not None and cross_ratio > RATIO_FLOOR)
         cross_reads_blind = bool(cross_ratio is not None and blind_null is not None
                                  and cross_ratio > blind_null)
+
+        # --- RECORDED, never gating: the same-rows shuffle verdict ---------------------
+        # Demoted from load-bearing on 2026-09-24: its ratio clause is d_act > 0 restated
+        # ((1+d_act)/(1-d_act) == S/T identically), and reanalysis
+        # reanalysis_sdppb5_off_head_action_read_alpha09_live_battery_20260924T171654Z
+        # already settled it from V3-EXQ-1082's landed per-row errors (ready 3/3 at 0.9).
+        # Kept because it is free and is what makes this artifact comparable to 1082.
+        v_shuf = _shuffle_verdict(head, bz0, bacts, bz1, seed_offset=seed)
+        shuf_spread = _shuffle_draw_spread(head, bz0, bacts, bz1, seed_offset=seed)
 
         # --- RECORDED: d_act (1082 verbatim), positive control, untrained head ----------
         et, es = _swap_errors(head, bz0, bacts, bz1)
@@ -655,7 +805,21 @@ def _run_cell(arm: str, alpha_world: float, seed: int) -> Dict[str, Any]:
         pc = _ridge_head(list(buf))
         pt, ps = _swap_errors(pc, bz0, bacts, bz1)
         d_pc = _d_act_ci(pt, ps, seed_offset=seed + 7)
-        # READINESS positive control on the SAME statistic as the load-bearing criterion.
+        # READINESS positive control on the SAME statistic the load-bearing criterion routes
+        # on (Step 3.5 same-statistic rule). C1 is now the cross-battery ratio vs its
+        # action-blind null, so the control must clear THAT bar, not the shuffle bar: an
+        # action-aware-by-construction ridge head fitted on the ORIGINAL env's transitions
+        # must degrade more than an action-blind predictor when the action map is inverted.
+        # If it cannot, this battery pair cannot test the question and a below-bar trained
+        # head is not evidence -> substrate_not_ready_requeue.
+        with torch.no_grad():
+            e_pc_o = per_row_squared_error(pc(bz0, bacts), bz1).double()
+            e_pc_c = per_row_squared_error(pc(cf[0], cf[1]), cf[2]).double()
+        pc_vs_blind = _ratio_vs_blind_ci(e_pc_o, e_pc_c, e_id_o, e_id_c,
+                                         seed_offset=seed + 41)
+        pc_cross_exceeds_blind = bool(pc_vs_blind.get("ci_low") is not None
+                                      and pc_vs_blind["ci_low"] > 0.0)
+        # The shuffle-form control is RECORDED alongside (it was the option-C readiness gate).
         v_pc_shuf = _shuffle_verdict(pc, bz0, bacts, bz1, seed_offset=seed + 7)
         ut, us = _swap_errors(untrained, bz0, bacts, bz1)
         mse_init = _battery_mse(untrained, bz0, bacts, bz1)
@@ -663,10 +827,11 @@ def _run_cell(arm: str, alpha_world: float, seed: int) -> Dict[str, Any]:
         with torch.no_grad():
             pv = persistence_verdict(head(bz0, bacts), bz1, bz0)
 
-        print(f"  [readout] {arm} seed={seed} alpha={alpha_world} "
-              f"shuffle_ratio={v_shuf.ratio} status={v_shuf.status} | "
+        print(f"  [readout] {arm} seed={seed} alpha={alpha_world} | LOAD-BEARING "
               f"cross_ratio={cross_ratio} blind_null={blind_null} "
-              f"raw>1={cross_reads_raw} vs_blind={cross_reads_blind} | "
+              f"delta={vs_blind['delta']} CI=[{vs_blind['ci_low']}, {vs_blind['ci_high']}] "
+              f"{vs_blind['status']} reads_invmap={reads_invmap} | RECORDED raw>1="
+              f"{cross_reads_raw} shuffle_ratio={v_shuf.ratio}/{v_shuf.status} | "
               f"d_act={d_head['d_act']} CI=[{d_head['ci_low']}, {d_head['ci_high']}] | "
               f"pc_shuf={v_pc_shuf.status} | postdeath={bat['n_postdeath_rows']}/"
               f"{bat_cf['n_postdeath_rows']}", flush=True)
@@ -674,7 +839,18 @@ def _run_cell(arm: str, alpha_world: float, seed: int) -> Dict[str, Any]:
         row: Dict[str, Any] = {
             "arm": arm, "alpha_world_requested": float(alpha_world),
             "alpha_world": float(agent.config.latent.alpha_world), "seed": seed,
-            # ---- LOAD-BEARING (same-rows shuffle form; null IS 1.0) ----
+            # ---- LOAD-BEARING: cross-battery inverted-map ratio vs its blind null ----
+            "reads_inverted_map": 1 if reads_invmap else 0,
+            "blindbar_status": v_blindbar.status,
+            "blindbar_reason": v_blindbar.reason,
+            "blindbar_ratio_floor_used": blind_null,
+            "blindbar_verdict_full": v_blindbar.to_dict(),
+            "cross_minus_blind": vs_blind["delta"],
+            "cross_minus_blind_ci_low": vs_blind["ci_low"],
+            "cross_minus_blind_ci_high": vs_blind["ci_high"],
+            "cross_minus_blind_status": vs_blind["status"],
+            "cross_minus_blind_n_bootstrap": vs_blind["n_bootstrap"],
+            # ---- RECORDED, never gates: same-rows shuffle form ----
             "shuffle_status": v_shuf.status,
             "shuffle_ratio": v_shuf.ratio,
             "shuffle_ratio_floor": float(RATIO_FLOOR),
@@ -703,6 +879,12 @@ def _run_cell(arm: str, alpha_world: float, seed: int) -> Dict[str, Any]:
             "pc_d_act": d_pc["d_act"], "pc_d_act_ci_low": d_pc["ci_low"],
             "pc_d_act_ci_high": d_pc["ci_high"], "pc_d_act_status": d_pc["status"],
             "pc_live": bool(d_pc["ci_low"] is not None and d_pc["ci_low"] > 0.0),
+            "pc_cross_ratio": pc_vs_blind["cross_ratio"],
+            "pc_cross_minus_blind": pc_vs_blind["delta"],
+            "pc_cross_minus_blind_ci_low": pc_vs_blind["ci_low"],
+            "pc_cross_minus_blind_ci_high": pc_vs_blind["ci_high"],
+            "pc_cross_minus_blind_status": pc_vs_blind["status"],
+            "pc_cross_exceeds_blind": 1 if pc_cross_exceeds_blind else 0,
             "pc_shuffle_status": v_pc_shuf.status,
             "pc_shuffle_ratio": v_pc_shuf.ratio,
             "pc_shuffle_reads": 1 if v_pc_shuf.status == "ready" else 0,
@@ -745,10 +927,12 @@ def _run_cell(arm: str, alpha_world: float, seed: int) -> Dict[str, Any]:
             # ---- per-row errors so every contrast is re-derivable post hoc ----
             "per_row_se_true": [float(x) for x in et.tolist()],
             "per_row_se_swap_mean": [float(x) for x in es.tolist()],
+            "per_row_se_true_pc": [float(x) for x in pt.tolist()],
+            "per_row_se_swap_mean_pc": [float(x) for x in ps.tolist()],
         }
         cell.stamp(row)
         _ZG.observe(agent)
-    print(f"verdict: {'PASS' if v_shuf.status == 'ready' else 'FAIL'}", flush=True)
+    print(f"verdict: {'PASS' if reads_invmap else 'FAIL'}", flush=True)
     return row
 
 
@@ -773,34 +957,61 @@ def _seed_analysis(rows: List[Dict[str, Any]], seed: int) -> Dict[str, Any]:
                encoder_equal=bool(hi["encoder_equal_to_battery_agent"]
                                   and lo["encoder_equal_to_battery_agent"]),
                pc_shuffle_reads=bool(hi["pc_shuffle_reads"] and lo["pc_shuffle_reads"]),
+               pc_cross_ok=bool(hi["pc_cross_exceeds_blind"]
+                                and lo["pc_cross_exceeds_blind"]),
                pc_live=bool(hi["pc_live"] and lo["pc_live"]))
-    res["valid"] = bool(res["encoder_equal"] and res["pc_shuffle_reads"])
-    # C1: the LOAD-BEARING readout at the operating point.
-    res["reads_at_operating_point"] = bool(hi["shuffle_status"] == "ready")
-    res["shuffle_status_hi"] = hi["shuffle_status"]
-    res["shuffle_status_lo"] = lo["shuffle_status"]
-    res["shuffle_ratio_hi"] = hi["shuffle_ratio"]
-    res["shuffle_ratio_lo"] = lo["shuffle_ratio"]
-    res["shuffle_ratio_delta"] = (
-        None if (hi["shuffle_ratio"] is None or lo["shuffle_ratio"] is None)
-        else hi["shuffle_ratio"] - lo["shuffle_ratio"])
-    # C2: do the arms differ? Paired joint bootstrap on d_act(0.9) - d_act(0.3), the
-    # lineage's own cross-alpha contrast statistic (V3-EXQ-1079).
+    # Validity is keyed on the control for the LOAD-BEARING statistic (pc_cross_ok); the
+    # shuffle-form control is recorded but no longer gates, since it is no longer C1's form.
+    res["valid"] = bool(res["encoder_equal"] and res["pc_cross_ok"])
+
+    # ---- C1 (LOAD-BEARING): the inverted-map ratio vs its action-blind null at 0.9 ----
+    res["reads_inverted_map_at_operating_point"] = bool(hi["reads_inverted_map"])
+    for tag, cell in (("hi", hi), ("lo", lo)):
+        res[f"cross_ratio_{tag}"] = cell["cross_ratio"]
+        res[f"cross_blind_null_{tag}"] = cell["cross_blind_null"]
+        res[f"cross_minus_blind_{tag}"] = cell["cross_minus_blind"]
+        res[f"cross_minus_blind_ci_low_{tag}"] = cell["cross_minus_blind_ci_low"]
+        res[f"cross_minus_blind_ci_high_{tag}"] = cell["cross_minus_blind_ci_high"]
+        res[f"cross_minus_blind_status_{tag}"] = cell["cross_minus_blind_status"]
+        res[f"blindbar_status_{tag}"] = cell["blindbar_status"]
+
+    # ---- C2: do the arms differ on the head's action read? (joint paired bootstrap) ----
     if aligned:
         c = _contrast_ci(_t(hi, "per_row_se_true"), _t(hi, "per_row_se_swap_mean"),
                          _t(lo, "per_row_se_true"), _t(lo, "per_row_se_swap_mean"),
                          seed_offset=seed + 57)
+        # V3-EXQ-1079's LITERAL positive-control contrast, recorded verbatim.
+        pc = _pc_contrast_ci(_t(hi, "per_row_se_true_pc"), _t(hi, "per_row_se_swap_mean_pc"),
+                             _t(lo, "per_row_se_true_pc"), _t(lo, "per_row_se_swap_mean_pc"),
+                             seed_offset=seed + 91)
+        # ATTRIBUTION (1079's split, GROWS direction): did the HEAD gain beyond the ceiling?
+        dd = _dd_ci(_t(hi, "per_row_se_true"), _t(hi, "per_row_se_swap_mean"),
+                    _t(lo, "per_row_se_true"), _t(lo, "per_row_se_swap_mean"),
+                    _t(hi, "per_row_se_true_pc"), _t(hi, "per_row_se_swap_mean_pc"),
+                    _t(lo, "per_row_se_true_pc"), _t(lo, "per_row_se_swap_mean_pc"),
+                    seed_offset=seed + 113)
     else:
-        c = {"delta": None, "ci_low": None, "ci_high": None,
-             "status": "cannot_determine", "n_rows": 0, "n_bootstrap": 0}
+        blank = {"delta": None, "ci_low": None, "ci_high": None,
+                 "status": "cannot_determine", "n_rows": 0, "n_bootstrap": 0}
+        c = dict(blank)
+        pc = dict(blank)
+        dd = {"dd": None, "ci_low": None, "ci_high": None, "head_delta": None,
+              "pc_delta": None, "status": "cannot_determine", "n_bootstrap": 0}
     res["alpha_contrast"] = c
+    res["alpha_contrast_pc"] = pc
+    res["alpha_contrast_attribution"] = dd
     res["arms_differ"] = bool(c["status"] in ("grows", "shrinks"))
-    # RECORDED cross-battery readouts at the operating point.
-    res["cross_ratio_hi"] = hi["cross_ratio"]
-    res["cross_blind_null_hi"] = hi["cross_blind_null"]
+    res["head_gains_beyond_ceiling"] = bool(dd["status"] == "head_gains_beyond_ceiling")
+    res["ceiling_gains_more"] = bool(dd["status"] == "ceiling_gains_more")
+
+    # ---- RECORDED, never gates: the autopsy's literal raw bar, and bar agreement ----
     res["cross_reads_raw_hi"] = bool(hi["cross_reads_raw_bar_1p0"])
     res["cross_reads_vs_blind_hi"] = bool(hi["cross_reads_vs_blind_null"])
     res["bars_agree_hi"] = bool(res["cross_reads_raw_hi"] == res["cross_reads_vs_blind_hi"])
+    res["shuffle_status_hi"] = hi["shuffle_status"]
+    res["shuffle_status_lo"] = lo["shuffle_status"]
+    res["shuffle_ratio_hi"] = hi["shuffle_ratio"]
+    res["shuffle_ratio_lo"] = lo["shuffle_ratio"]
     return res
 
 
@@ -823,20 +1034,28 @@ def run_experiment(dry_run: bool = False) -> Tuple[Dict[str, Any], float]:
     per_seed = [_seed_analysis(rows, s) for s in seeds]
     valid = [s for s in per_seed if s["valid"]]
     for s in per_seed:
-        print(f"  [seed] {s['seed']} valid={s['valid']} reads@0.9={s.get('reads_at_operating_point')} "
-              f"shuf_hi={s.get('shuffle_ratio_hi')} shuf_lo={s.get('shuffle_ratio_lo')} | "
-              f"alpha_contrast={s.get('alpha_contrast', {}).get('status')} "
-              f"delta={s.get('alpha_contrast', {}).get('delta')} | "
-              f"cross_hi={s.get('cross_ratio_hi')} blind={s.get('cross_blind_null_hi')} "
-              f"raw>1={s.get('cross_reads_raw_hi')} vs_blind={s.get('cross_reads_vs_blind_hi')} "
-              f"bars_agree={s.get('bars_agree_hi')}", flush=True)
+        att = s.get("alpha_contrast_attribution") or {}
+        print(f"  [seed] {s['seed']} valid={s['valid']} "
+              f"C1_invmap>blind@0.9={s.get('reads_inverted_map_at_operating_point')} "
+              f"(cross={s.get('cross_ratio_hi')} blind={s.get('cross_blind_null_hi')} "
+              f"delta={s.get('cross_minus_blind_hi')} "
+              f"CI=[{s.get('cross_minus_blind_ci_low_hi')}, "
+              f"{s.get('cross_minus_blind_ci_high_hi')}]) | "
+              f"C2 alpha_contrast={s.get('alpha_contrast', {}).get('status')} "
+              f"head_delta={att.get('head_delta')} pc_delta={att.get('pc_delta')} "
+              f"dd={att.get('dd')} attribution={att.get('status')} | RECORDED raw>1="
+              f"{s.get('cross_reads_raw_hi')} bars_agree={s.get('bars_agree_hi')} "
+              f"shuf_hi={s.get('shuffle_ratio_hi')}", flush=True)
 
     n_valid = len(valid)
-    n_reads = sum(1 for s in valid if s["reads_at_operating_point"])
+    n_reads = sum(1 for s in valid if s["reads_inverted_map_at_operating_point"])
     n_differ = sum(1 for s in valid if s["arms_differ"])
+    n_head_gains = sum(1 for s in valid if s["head_gains_beyond_ceiling"])
+    n_ceiling_gains = sum(1 for s in valid if s["ceiling_gains_more"])
     n_aligned = sum(1 for s in per_seed if s.get("rows_aligned"))
     n_enc = sum(1 for s in per_seed if s.get("encoder_equal"))
     n_pc_shuf = sum(1 for s in per_seed if s.get("pc_shuffle_reads"))
+    n_pc_cross = sum(1 for s in per_seed if s.get("pc_cross_ok"))
     n_pc_dact = sum(1 for s in per_seed if s.get("pc_live"))
 
     worst_rows, worst_rows_cell = _worst(rows, "n_rows_battery")
@@ -901,12 +1120,20 @@ def run_experiment(dry_run: bool = False) -> Tuple[Dict[str, Any], float]:
          "measured": float(n_enc), "threshold": float(SEEDS_REQUIRED), "direction": "lower",
          "control": "same seed -> same init; encoder untrained in P0",
          "met": n_enc >= SEEDS_REQUIRED},
+        {"name": "positive_control_cross_exceeds_blind_null_seeds", "description":
+         "READINESS, SAME STATISTIC AS THE LOAD-BEARING CRITERION (C1): seeds where a ridge "
+         "action-aware predictor fitted on each arm's own P0 buffer has its CROSS-BATTERY "
+         "inverted-map ratio above the action-blind null on the same pair -- CI lower on "
+         "(pc_cross_ratio - blind_null) > 0 -- in BOTH arms. This is the bar C1 routes on, "
+         "measured on a head that is action-aware BY CONSTRUCTION. If even that head cannot "
+         "clear it, the battery PAIR cannot test inversion-sensitivity and a below-bar "
+         "trained head is not evidence of H-difficulty-only",
+         "measured": float(n_pc_cross), "threshold": float(SEEDS_REQUIRED),
+         "direction": "lower", "control": "ridge z0 + [1, z0, a, z0 x a] @ W",
+         "met": n_pc_cross >= SEEDS_REQUIRED},
         {"name": "positive_control_shuffle_reads_seeds", "description":
-         "READINESS, SAME STATISTIC AS THE LOAD-BEARING CRITERION: seeds where a ridge "
-         "action-aware predictor fitted on each arm's own P0 buffer returns shuffle-form "
-         "status 'ready' (ratio > 1.0) on that arm's battery, in BOTH arms. If an "
-         "action-aware-by-construction head cannot clear this bar on this battery, the "
-         "battery cannot test the question and a below-bar head is not evidence",
+         "RECORDED (was the option-C readiness gate; no longer C1's form): seeds where the "
+         "ridge control returns same-rows shuffle status 'ready' in both arms",
          "measured": float(n_pc_shuf), "threshold": float(SEEDS_REQUIRED),
          "direction": "lower", "control": "ridge z0 + [1, z0, a, z0 x a] @ W",
          "met": n_pc_shuf >= SEEDS_REQUIRED},
@@ -931,30 +1158,54 @@ def run_experiment(dry_run: bool = False) -> Tuple[Dict[str, Any], float]:
     c1_met = bool(all_pre_met and n_reads >= SEEDS_REQUIRED)
     c2_met = bool(all_pre_met and c2_precondition["met"] and n_differ >= SEEDS_REQUIRED)
 
+    # LABELS ARE WRITTEN TO BE TRUE IN THE STATE THEY FIRE (2026-09-24 red-team F3 fix).
+    # In particular, C1 failing does NOT mean the head is action-blind -- reanalysis
+    # ...20260924T171654Z already established it reads its action at 0.9 on 3/3 seeds. It
+    # means the INVERTED-MAP readout specifically does not clear its action-blind null.
     if not all_pre_met:
         label, outcome = "substrate_not_ready_requeue", "FAIL"
     elif c1_met and c2_met:
-        label, outcome = "inverted_map_readout_confirms_action_read_at_operating_point", "PASS"
+        # C2's LABEL SPLIT on the positive control (V3-EXQ-1079 :84-91, :755-758, GROWS
+        # direction). Counts are unchanged; only the attribution differs.
+        if n_head_gains >= SEEDS_REQUIRED:
+            label = "inverted_map_exceeds_blind_null_and_head_gains_beyond_ceiling"
+        elif n_ceiling_gains >= SEEDS_REQUIRED:
+            label = "inverted_map_exceeds_blind_null_alpha_gain_attributable_to_battery"
+        else:
+            label = "inverted_map_exceeds_blind_null_alpha_attribution_undetermined"
+        outcome = "PASS"
     elif c1_met:
-        label, outcome = "action_read_present_at_0p9_but_alpha_contrast_undetermined", "FAIL"
+        label, outcome = "inverted_map_exceeds_blind_null_alpha_contrast_undetermined", "FAIL"
     elif n_reads == 0 and n_valid >= SEEDS_REQUIRED:
-        label, outcome = "action_read_absent_at_operating_point_despite_d_act", "FAIL"
+        label, outcome = "inverted_map_ratio_within_action_blind_null_at_operating_point", "FAIL"
     else:
         label, outcome = "inverted_map_readout_undetermined", "FAIL"
 
     criteria = [
-        {"name": "C1_reads_action_at_operating_point", "load_bearing": True,
+        {"name": "C1_inverted_map_ratio_exceeds_blind_null", "load_bearing": True,
          "measured": float(n_reads), "threshold": float(SEEDS_REQUIRED),
-         "description": "valid seeds whose ARM_ALPHA_0p9 cell returns same-rows "
-                        "action_shuffle readiness status 'ready' (ratio > %.2f AND skill > "
-                        "%.2f). Rejects the autopsy's null clause N1." % (RATIO_FLOOR,
-                                                                         SKILL_FLOOR),
+         "description": "valid seeds whose ARM_ALPHA_0p9 cell has the CROSS-BATTERY "
+                        "inverted-map ratio above its ACTION-BLIND NULL on the same battery "
+                        "pair -- readiness_verdict(counterfactual_battery=cf, "
+                        "ratio_floor=blind_null, skill_floor=%.2f) == 'ready' AND the "
+                        "two-sample bootstrap CI on (cross_ratio - blind_null) excluding 0. "
+                        "Rejects null clause N1 as re-pointed by the user (option B)."
+                        % SKILL_FLOOR,
          "passed": c1_met},
         {"name": "C2_alpha_arms_differ", "load_bearing": True,
          "measured": float(n_differ), "threshold": float(SEEDS_REQUIRED),
          "description": "valid, row-aligned seeds whose paired joint bootstrap CI on "
                         "d_act(0.9) - d_act(0.3) excludes 0. Rejects null clause N2.",
          "passed": c2_met},
+        {"name": "C2b_alpha_gain_attributable_to_head", "load_bearing": False,
+         "measured": float(n_head_gains), "threshold": float(SEEDS_REQUIRED),
+         "description": "ATTRIBUTION, splits C2's label but does NOT gate (V3-EXQ-1079's "
+                        "positive-control rule, GROWS direction): valid seeds whose "
+                        "difference-of-differences CI -- [d_act_head(0.9)-d_act_head(0.3)] "
+                        "minus [d_act_pc(0.9)-d_act_pc(0.3)] -- has lower bound > 0, i.e. "
+                        "the head gained beyond the closed-form ridge ceiling. When the "
+                        "ceiling gains MORE, the alpha contrast belongs to the battery.",
+         "passed": bool(n_head_gains >= SEEDS_REQUIRED)},
         {"name": "C3_cross_battery_bars_agree", "load_bearing": False,
          "measured": float(sum(1 for s in valid if s.get("bars_agree_hi"))),
          "threshold": float(SEEDS_REQUIRED),
@@ -966,35 +1217,47 @@ def run_experiment(dry_run: bool = False) -> Tuple[Dict[str, Any], float]:
     ]
 
     combination_rule = (
-        "USER DECISION option C (2026-09-24, resolves GFLAG-0470's contested disposition; "
-        "/governance applies the flag). LOAD-BEARING readout is the SAME-ROWS "
-        "action_shuffle_ratio verdict from readiness_verdict(counterfactual_battery=None) "
-        "at ratio_floor=%.2f and skill_floor=%.2f -- the one form whose true null IS 1.0. "
-        "The autopsy's declared null is a DISJUNCTION, so PASS must reject BOTH clauses: "
-        "C1 (N1) = shuffle status 'ready' at ARM_ALPHA_0p9 on >= %d valid seeds; C2 (N2) = "
-        "paired joint bootstrap (%d resamples, %.0f%% CI) on d_act(0.9) - d_act(0.3) "
-        "excluding 0 on >= %d valid, row-aligned seeds. outcome PASS iff C1 AND C2; C1 only "
-        "-> action_read_present_at_0p9_but_alpha_contrast_undetermined; C1 failing with 0 "
-        "reading seeds -> action_read_absent_at_operating_point_despite_d_act (the "
-        "autopsy's own N1, a real finding); else undetermined. Any precondition unmet -> "
-        "substrate_not_ready_requeue. A seed is valid iff both arms' encoders match their "
-        "battery agents AND the ridge positive control clears the SAME shuffle bar in both "
-        "arms. rows_aligned is scoped to C2 alone (applies_to) so an unpairable contrast "
-        "cannot vacate C1. RECORDED AND NEVER GATING: the cross-battery inverted-map ratio, "
-        "its raw >1.0 verdict (so the autopsy's literal declared null stays evaluable), its "
-        "action-blind null on the same battery pair, the shuffle draw spread over %d "
-        "permutations, d_act, skill_vs_identity, model_r2, persistence and the untrained "
-        "head."
-        % (RATIO_FLOOR, SKILL_FLOOR, SEEDS_REQUIRED, N_BOOTSTRAP, 100 * CI_LEVEL,
+        "USER DECISION: option C first (2026-09-24, chip-20260924-sdppb5-invmap-ratio-bar-"
+        "decision), then RE-POINTED to option B (2026-09-24, chip-20260924-sdppb5-invmap-"
+        "loadbearing-recoverable, rec-20260924-5812c302) after the Step 4.5 red-team showed "
+        "option C's load-bearing criterion was already answered by V3-EXQ-1082. "
+        "LOAD-BEARING readout is now the CROSS-BATTERY inverted-map ratio measured against "
+        "its ACTION-BLIND NULL on the same battery pair: readiness_verdict(head, orig, "
+        "counterfactual_battery=inverted, ratio_floor=blind_null, skill_floor=%.2f) == "
+        "'ready' AND a two-sample bootstrap (%d resamples, %.0f%% CI; original and "
+        "inverted rows resampled INDEPENDENTLY because they are different row sets) on "
+        "(cross_ratio - blind_null) excluding 0. The autopsy's declared null is a "
+        "DISJUNCTION, so PASS must reject BOTH clauses: C1 (N1, re-pointed) = that "
+        "predicate at ARM_ALPHA_0p9 on >= %d valid seeds; C2 (N2) = paired joint bootstrap "
+        "on d_act(0.9) - d_act(0.3) excluding 0 on >= %d valid, row-aligned seeds. outcome "
+        "PASS iff C1 AND C2. C2's LABEL is SPLIT on V3-EXQ-1079's positive-control rule "
+        "carried into the GROWS direction (1079 :84-91, :755-758): the gain is attributed "
+        "to the HEAD only when the difference-of-differences CI -- head contrast minus "
+        "ridge-ceiling contrast -- has lower bound > 0 on >= %d valid seeds; when the "
+        "ceiling gains MORE the label says the alpha gain is the BATTERY's. Counts are "
+        "unchanged by the split. A seed is valid iff both arms' encoders match their "
+        "battery agents AND the ridge positive control clears the shuffle bar in both arms. "
+        "rows_aligned is scoped to C2 alone (applies_to) so an unpairable contrast cannot "
+        "vacate C1. Any precondition unmet -> substrate_not_ready_requeue. RECORDED AND "
+        "NEVER GATING: the raw >1.0 verdict on the cross-battery ratio (so the autopsy's "
+        "literal declared null stays evaluable), the SAME-ROWS action_shuffle verdict and "
+        "its %d-draw spread (demoted from load-bearing -- its ratio clause is d_act > 0 "
+        "restated and reanalysis ...20260924T171654Z settled it from 1082), d_act, "
+        "skill_vs_identity, model_r2, persistence and the untrained head."
+        % (SKILL_FLOOR, N_BOOTSTRAP, 100 * CI_LEVEL, SEEDS_REQUIRED, SEEDS_REQUIRED,
            SEEDS_REQUIRED, N_SHUFFLE_DRAWS))
 
-    ratios = [r["shuffle_ratio"] for r in rows if r["shuffle_ratio"] is not None]
+    ratios = [r["cross_minus_blind"] for r in rows if r["cross_minus_blind"] is not None]
     widths = [s["alpha_contrast"]["ci_high"] - s["alpha_contrast"]["ci_low"]
               for s in valid if s.get("alpha_contrast", {}).get("ci_low") is not None
               and s["alpha_contrast"].get("ci_high") is not None]
+    cb_widths = [r["cross_minus_blind_ci_high"] - r["cross_minus_blind_ci_low"]
+                 for r in rows if r["cross_minus_blind_ci_low"] is not None
+                 and r["cross_minus_blind_ci_high"] is not None]
     non_degenerate = bool(
         all_pre_met and len(set(round(v, 12) for v in ratios)) > 1
-        and len(widths) > 0 and all(w > 0 for w in widths))
+        and len(widths) > 0 and all(w > 0 for w in widths)
+        and len(cb_widths) > 0 and all(w > 0 for w in cb_widths))
 
     def _f(x: Any) -> Optional[float]:
         try:
@@ -1005,9 +1268,12 @@ def run_experiment(dry_run: bool = False) -> Tuple[Dict[str, Any], float]:
 
     flat: Dict[str, Any] = {
         "n_cells": len(rows), "n_valid_seeds": n_valid,
-        "n_seeds_reads_at_operating_point": n_reads,
+        "n_seeds_inverted_map_exceeds_blind_null": n_reads,
         "n_seeds_arms_differ": n_differ,
+        "n_seeds_head_gains_beyond_ceiling": n_head_gains,
+        "n_seeds_ceiling_gains_more": n_ceiling_gains,
         "n_seeds_rows_aligned": n_aligned,
+        "n_seeds_pc_cross_exceeds_blind": n_pc_cross,
         "n_seeds_pc_shuffle_reads": n_pc_shuf,
         "n_seeds_pc_d_act_live": n_pc_dact,
         "n_seeds_cross_reads_raw_bar": sum(1 for s in valid
@@ -1017,13 +1283,17 @@ def run_experiment(dry_run: bool = False) -> Tuple[Dict[str, Any], float]:
         "n_seeds_cross_bars_agree": sum(1 for s in valid if s.get("bars_agree_hi")),
         "all_preconditions_met": 1 if all_pre_met else 0,
         "gate_canary_ok": 1 if canary.get("ok") else 0,
-        "c1_reads_at_operating_point": 1 if c1_met else 0,
+        "c1_inverted_map_exceeds_blind_null": 1 if c1_met else 0,
         "c2_alpha_arms_differ": 1 if c2_met else 0,
         "verdict_pass": 1 if outcome == "PASS" else 0,
         "verdict_c1_only": 1 if label ==
-        "action_read_present_at_0p9_but_alpha_contrast_undetermined" else 0,
-        "verdict_read_absent": 1 if label ==
-        "action_read_absent_at_operating_point_despite_d_act" else 0,
+        "inverted_map_exceeds_blind_null_alpha_contrast_undetermined" else 0,
+        "verdict_within_blind_null": 1 if label ==
+        "inverted_map_ratio_within_action_blind_null_at_operating_point" else 0,
+        "verdict_head_gains": 1 if label ==
+        "inverted_map_exceeds_blind_null_and_head_gains_beyond_ceiling" else 0,
+        "verdict_gain_is_battery": 1 if label ==
+        "inverted_map_exceeds_blind_null_alpha_gain_attributable_to_battery" else 0,
         "verdict_undetermined": 1 if label == "inverted_map_readout_undetermined" else 0,
         "verdict_not_ready": 1 if label == "substrate_not_ready_requeue" else 0,
         "shuffle_ratio_floor": float(RATIO_FLOOR),
@@ -1037,13 +1307,27 @@ def run_experiment(dry_run: bool = False) -> Tuple[Dict[str, Any], float]:
         flat[f"d_act_delta_09_minus_03_{tag}"] = _f(ac.get("delta"))
         flat[f"d_act_delta_ci_low_{tag}"] = _f(ac.get("ci_low"))
         flat[f"d_act_delta_ci_high_{tag}"] = _f(ac.get("ci_high"))
+        pcc = s.get("alpha_contrast_pc") or {}
+        flat[f"pc_d_act_delta_09_minus_03_{tag}"] = _f(pcc.get("delta"))
+        flat[f"pc_d_act_delta_ci_low_{tag}"] = _f(pcc.get("ci_low"))
+        flat[f"pc_d_act_delta_ci_high_{tag}"] = _f(pcc.get("ci_high"))
+        att = s.get("alpha_contrast_attribution") or {}
+        flat[f"head_minus_ceiling_dd_{tag}"] = _f(att.get("dd"))
+        flat[f"head_minus_ceiling_dd_ci_low_{tag}"] = _f(att.get("ci_low"))
+        flat[f"head_minus_ceiling_dd_ci_high_{tag}"] = _f(att.get("ci_high"))
+        flat[f"cross_minus_blind_alpha09_{tag}"] = _f(s.get("cross_minus_blind_hi"))
+        flat[f"cross_minus_blind_ci_low_alpha09_{tag}"] = _f(s.get("cross_minus_blind_ci_low_hi"))
+        flat[f"cross_minus_blind_ci_high_alpha09_{tag}"] = _f(s.get("cross_minus_blind_ci_high_hi"))
         flat[f"cross_ratio_alpha09_{tag}"] = _f(s.get("cross_ratio_hi"))
         flat[f"cross_blind_null_alpha09_{tag}"] = _f(s.get("cross_blind_null_hi"))
     for r in rows:
         tag = f"{r['arm'].lower()}_seed{r['seed']}"
         for k in ("shuffle_ratio", "shuffle_skill", "cross_ratio", "cross_blind_null",
+                  "cross_minus_blind", "cross_minus_blind_ci_low",
+                  "cross_minus_blind_ci_high",
                   "cross_ratio_minus_blind_null", "d_act", "d_act_ci_low", "d_act_ci_high",
-                  "pc_d_act", "pc_shuffle_ratio", "d_act_untrained_head", "model_r2",
+                  "pc_d_act", "pc_shuffle_ratio", "pc_cross_ratio",
+                  "pc_cross_minus_blind", "d_act_untrained_head", "model_r2",
                   "persistence_r2", "persistence_relative_skill", "skill_vs_identity",
                   "conv_rel_drop", "rms_dz_per_dim_battery", "rms_dz_per_dim_battery_cf",
                   "transition_l2_mean", "transition_l2_mean_cf",
@@ -1052,6 +1336,8 @@ def run_experiment(dry_run: bool = False) -> Tuple[Dict[str, Any], float]:
         flat[f"cross_reads_raw_bar_1p0_{tag}"] = int(r["cross_reads_raw_bar_1p0"])
         flat[f"cross_reads_vs_blind_null_{tag}"] = int(r["cross_reads_vs_blind_null"])
         flat[f"pc_shuffle_reads_{tag}"] = int(r["pc_shuffle_reads"])
+        flat[f"pc_cross_exceeds_blind_{tag}"] = int(r["pc_cross_exceeds_blind"])
+        flat[f"reads_inverted_map_{tag}"] = int(r["reads_inverted_map"])
     flat = {k: v for k, v in flat.items() if v is not None}
 
     manifest: Dict[str, Any] = {
@@ -1080,7 +1366,20 @@ def run_experiment(dry_run: bool = False) -> Tuple[Dict[str, Any], float]:
             "preconditions unmet, or shuffle ratios identical across cells / zero-width "
             "alpha-contrast CIs"),
         "gate_canary": canary,
+        "reanalysis_settling_the_recoverable_half": (
+            "reanalysis_sdppb5_off_head_action_read_alpha09_live_battery_20260924T171654Z"),
         "criterion_provenance": (
+            "TWO user decisions. Stop 1 (option C, chip-20260924-sdppb5-invmap-ratio-bar-"
+            "decision) load-bore the same-rows shuffle form at 1.0; the Step 4.5 red-team "
+            "showed that criterion is d_act > 0 restated and already answered by V3-EXQ-1082 "
+            "(this driver's 0.9 arm reproduced 1082's ARM_OFF bit-for-bit). Stop 2 "
+            "(chip-20260924-sdppb5-invmap-loadbearing-recoverable, rec-20260924-5812c302) "
+            "the USER chose '(2) then (1)': emit the reanalysis named above, then RE-POINT "
+            "the load-bearing criterion at the CROSS-BATTERY ratio vs its action-blind null "
+            "(option B), add V3-EXQ-1079's positive-control contrast and label split, and "
+            "fix the false label. GOV-REUSE-1 was re-run against the NEW statistic: 1 of "
+            "1076 manifests carries it and its rows are post-death, so the live-battery form "
+            "is not recoverable. Superseded first-decision text follows. "
             "Bar chosen by the USER (option C, 2026-09-24) on decision chip "
             "chip-20260924-sdppb5-invmap-ratio-bar-decision, raised because the 1082 "
             "autopsy's ~1.0 bar is the null of the SAME-ROWS shuffle form, not of the "
