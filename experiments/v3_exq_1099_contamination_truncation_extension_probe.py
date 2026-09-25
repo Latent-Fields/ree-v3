@@ -1,5 +1,17 @@
 """V3-EXQ-1099 -- contamination-footgun truncation EXTENSION probe. Diagnostic, claim-free.
 
+*** NOT QUEUED. DO NOT ADD A QUEUE ENTRY FOR THIS SCRIPT WITHOUT READING THE FILE BELOW. ***
+The Step 4.5 adversarial design review (Fable, 2026-09-25) returned BLOCKING, and the two decisive
+findings were re-verified from source by the authoring session. In short: V3-EXQ-883's contamination
+exposure lands entirely on its NO_ATTAINMENT arm, whose DV (`parent_goal_norm_final`) is exactly
+0.0 in BOTH arms by construction, so both of its pre-registered criteria are undiscriminating while
+the taxonomy would label the result `truncated_verdict_robust` -- i.e. a PASSED sensitivity test --
+and clear MECH-427 on it. Separately, V3-EXQ-435's baseline `evidence_direction` in the landed
+manifest is a hand-applied 2026-04-22 reclassification rather than the driver's own output, so
+`stock_reproduces_original` is False for 435 by construction. Resolving either changes what gets
+measured, which is a user decision, so the design was left as authored and the refusal recorded:
+  REE_assembly/evidence/planning/v3_exq_1099_contamination_extension_redteam_blocking_staged_20260925.md
+
 Same-pattern extension of V3-EXQ-1080, chipped by /governance 2026-09-24 once it ratified
 `failure_autopsy_V3-EXQ-1080_2026-09-24` (section 7, "Optional follow-on"). 1080 cleared the
 contamination caveat for 7 DIRECT claims by re-running 4 exposed targets with and without
@@ -187,7 +199,13 @@ DV is each target's own categorical verdict; the gate is not invariant under tha
 it changes the target's inputs. The action-diversity readout is a report, not a DV, and is
 excluded from this declaration on purpose.
 
-red-team (fable): see RED-TEAM line at the end of this docstring.
+red-team (fable, 2026-09-25): BLOCKING -- see the NOT QUEUED banner at the top of this
+docstring and the staged findings file it names. Findings F1 (435 baseline is a reclassification)
+and F2 (883's exposed arm has a structurally pinned DV) were both re-verified from source by the
+authoring session; F4/F5 (278's DV at its floor, and the gate inert in the phase-1 env that
+actually sets INV-054's verdict) were measured by the reviewer and not independently re-measured.
+No criterion was relaxed and no target dropped in response -- every available fix changes what gets
+measured, so the design is recorded as-authored pending the user's decision.
 """
 from __future__ import annotations
 
