@@ -6,29 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-1090",
-      "title": "MECH-449 endogenous safety-veto producer validation (running-scale calibrated, harm-ON vs harm-OFF control, ground-truth specificity)",
-      "script": "experiments/v3_exq_1090_mech449_endogenous_safety_veto_validation.py",
-      "priority": 50,
-      "machine_affinity": "any",
-      "estimated_minutes": 360,
-      "claim_id": "MECH-449",
-      "backlog_id": "EVB-1409",
-      "note": "Substrate validation (diagnostic, non_contributory) for the default-OFF MECH-449 endogenous safety producer (E3Config.use_gng_endogenous_safety; chip-20260918-mech449-endogenous-safety-veto-producer). A PASS satisfies EVB-1409/EXP-0796 (MECH-049) release_condition (b) ONLY; resetting that proposal is /governance's call. CALIBRATION PROVENANCE: orchestrator decisions (orchestrate-20260924-0808, .scratch/orch-20260924/QUESTIONS.md) DECIDED Q-MECH449 -> A (per-seed running harm scale, z-score vs EMA, veto at > +2 SD; three specificity checks; per-seed harm_range >= 0.02 precondition) and Q-MECH449-FLOOR -> A (sd floor = 0.02 / 2 = 0.01, derived; an untrained head is NOT flat in candidate space -- dry-run running raw sd ~0.005-0.007 -- so 0.005 would not bind). Numeric operationalisations confirmed by the orchestrator: C2 fire rate <= 0.25; C4 harm-off fire rate <= 0.01 on every control seed; C3 ground-truth (counterfactual one-step env deepcopy per distinct first action) vetoed-minus-non-vetoed hazard proximity > 0 with >= 5 mixed ticks; C1-C3 each on >= ceil(2/3 n_ok) precondition-met ON seeds; >= 3/5 ON seeds must meet the precondition else substrate_not_ready_requeue. PREMISE CORRECTION: the chip's 'harm pathway already discriminative' held on 1/3 seeds in the 603k regime; this run trains on the 603q ARM_BASE_IA_ONLY regime (V3-EXQ-866b re-run 2026-08-03: 3/3 seeds, harm_eval_range 0.115-0.470), with 5 ON seeds. Step 2.4 GOV-REUSE-1: decisive readout (endogenous n_safety_nogo_applied) cannot exist in any prior manifest -- the producer did not exist -> run. Step 2.5b re-derive brake: MECH-449 count 1 (937b) < 2. Step 2.5c: SD-PP-B5 (corrupting) overlaps only via ree_core/utils/config.py; its defect is confined to opt-in use_world_interventional, which this driver does not set -- dismissed. Degrading overlaps on agent.py::select_action noted: SD-091, mech005-betagate-decommit-counter, mech290-committed-trajectory-one-way-gate, suffering-derivative-comparator-refractory (603q base enables use_suffering_derivative_comparator, as 603q/866b did), SD-MECH267-CEM-SELECTION-FIX. DV-SYMMETRY: ON arm -- running-scale threshold count + within-tick paired ground-truth difference; not invariant to the manipulation (a uniform per-tick offset can move the count, which is why C2 bounds the rate and C3 is within-tick paired). OFF arm -- same DVs, tests the floor's specificity; would_fire_without_sd_floor recorded. Gate armed only in the 10-episode eval: use_go_nogo_constitution + use_f_eligibility_demotion with the channel-adaptive mean-relative floor. red-team (fable): CONTESTED -- F1 fixed (absolute 0.30 envelope floor all-admitted K=32 -> F-blind eval; now adaptive floor, dry run envelope ~16/32, never all-admit); F2 partly fixed (predicted-state headroom diagnostics recorded; does_not_fire label defers to them) and partly dismissed (precondition is over real states, veto excursion over predicted states that drift more -- not equal by construction); F3 dismissed (pre-registered + orchestrator-confirmed; frac_positive recorded); F4 fixed (unscored control / never-armed gate -> substrate_not_ready_requeue). Smoke PASS (dry run, armed branch + counterfactual exercised). Run on cloud (multinomial selection).",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-09-24T17:26:05Z"
-      },
-      "claim_ids": [
-        "MECH-449"
-      ],
-      "conditions": 2,
-      "episodes_per_run": 230,
-      "experiment_type": "v3_exq_1090_mech449_endogenous_safety_veto_validation",
-      "seeds": 5
-    }
-  ]
+  "items": []
 }
