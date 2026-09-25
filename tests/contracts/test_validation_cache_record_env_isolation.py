@@ -139,9 +139,26 @@ def test_s2_validation_cache_record_scrubs_and_skips_the_hook():
 
 # --------------------------------------------------------------------- behavioural
 
+# The sandbox must not inherit the ENCLOSING run's control env. This test is itself
+# run INSIDE precommit_contracts.sh (it is in tests/contracts), and every lander's
+# commit is prefixed with REE_PRECOMMIT_VALIDATION_CACHE_DISABLE=1 (orchestrator
+# notice 2026-09-25, R4 safety). Before this scrub that variable reached the
+# sandbox hook, whose extracted record_validation_cache_result() returns early on
+# it -- so no record was made, and all four b1 cases failed the non-vacuity
+# assert ("the record did not land on origin at all") on every such gate while
+# passing when run directly (chip-20260925-main-red-contracts-fix; reproduced by
+# exporting that one variable). The fix is here, in the TEST: the gate honouring
+# DISABLE inside a real lander's hook is correct behaviour. Scrubbed as whole
+# families, not by name, so the next REE_PRECOMMIT_* knob or inherited GIT_*
+# (GIT_CONFIG_PARAMETERS, GIT_AUTHOR_*, GIT_EDITOR, ...) cannot leak in either;
+# R4_TEST_IN_GATE is this file's own nested-gate marker.
+_SCRUBBED_ENV_PREFIXES = ("GIT_", "REE_PRECOMMIT_")
+_SCRUBBED_ENV_NAMES = ("R4_TEST_IN_GATE",)
+
+
 def _git_env():
     env = {k: v for k, v in os.environ.items()
-           if k not in ("GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE")}
+           if not k.startswith(_SCRUBBED_ENV_PREFIXES) and k not in _SCRUBBED_ENV_NAMES}
     env.update({"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"})
     return env
 

@@ -280,6 +280,56 @@ STATUS AT THE TIME OF THIS NOTE: V3-EXQ-1067 was `claimed` by DLAPTOP
 written, which is why the verdict was reached by reading the driver rather than by
 editing it. Nothing in the script was touched. No manifest yet, so the
 28-landed-manifest evidence-direction breakdown above is again unchanged.
+
+FAMILY GROWTH (2026-09-25). One new member: V3-EXQ-1107
+(`v3_exq_1107_sd032a_trained_mode_reversal_drive.py`, ree-v3 `70fb624`,
+chip-20260925-mode-switch-trained-agent-run), the SD-032a trained-agent mode-reversal
+diagnostic: external_task_drive OFF vs ON on the 935a curriculum. It arrived with
+`_FROZEN_FAMILY_SIZE` still at 35, so trunk's contract gate was red from `70fb624`
+(2026-09-25T15:10:25Z) until this note (chip-20260925-main-red-contracts-fix). VERDICT:
+a fixed goal is INTENDED -- no retrofit, pin 35 -> 36.
+
+Checked directly rather than assumed, same four questions as the 934/935/935a/1067 notes
+above. (1) 1107 builds the curriculum ONCE per seed (`_run_seed` drives one `agent`
+through run_stage0_nursery / run_stage0b_consolidation / run_p0 / run_hazard_avoidance
+/ run_p1 / run_p2) and evaluates both arms -- ARM_DRIVE_OFF and ARM_DRIVE_ON, at every
+training checkpoint and at the final eval -- from `_clone_for_arm()` copies of that
+single agent (`_run_pair`), which carry `goal_state` across explicitly
+(`agent.goal_state.load_state_dict(trained_agent.goal_state.state_dict())`, VERBATIM
+from 935a apart from the drive toggle). So both arms of a seed enter measurement with a
+BIT-IDENTICAL frozen z_goal, the same env seed and the same RNG state. (2) It sets
+neither `goal_weight` nor `residue.benefit_terrain_live_producer`. (3) It calls neither
+`update_z_goal` nor `_set_goal_pipeline_frozen`. The freeze is therefore the deliberate
+inherited state, and per the family's own convention 1107 carries no comment of its own
+about the z_goal freeze as such.
+
+ONE NEW SHAPE, stated so it is not mistaken for a goal write or for a defect. 1107 is
+the first member to feed the NATIVE drive scalar while leaving z_goal frozen: every eval
+step it sets `agent.goal_state._last_drive_level` (SD-012 clip(1 - energy)) -- red-team
+F1's repair, because that scalar's only writer is `update_z_goal`, so under a frozen
+goal it sat at 0 in 935a's harness too and made a return to external_task
+arithmetically impossible in the OFF arm. That is not a z_goal write:
+`validate_experiments._writes_z_goal_directly` correctly does not count it (none of its
+four discharges -- update_z_goal, a goal-receiver .update, cue_pull, a `_z_goal`
+assignment -- fires), which is why 1107 is IN the family rather than exempted from it.
+
+(4) The frozen goal sits on the causal path of the ON arm (external_task_drive reads
+`goal_proximity`, and 935a's goal gate requires an active z_goal) -- 934's "one respect
+in which it is stronger", inherited verbatim. Both containment arguments carry over:
+(i) it is a fixed TARGET recomputed per tick against the live z_world, not a frozen
+SIGNAL; (ii) the goal state is identical across the two arms of a seed, so it cannot
+produce a between-arm difference except through the drive itself, which IS the
+manipulated variable. The load-bearing criterion (C1, ARM_DRIVE_ON REVERSING on >= 2/3
+testable seeds) and the structural control (C2, ARM_DRIVE_OFF ONE_WAY) are both
+within-arm. Driving or re-freezing the goal would break the design rather than repair
+it: 1107 exists to ask whether 935a's TRAINED agent, in 935a's measurement state, needs
+the drive. Like 1067 it GATES on the frozen goal's magnitude (P2 guard,
+`z_goal_norm_at_contact_peak > P2_ZGOAL_GATE` = 0.4) and records it
+(`ZGoalStreamAccumulator`, `_ZG.observe()` at the trained agent and at every clone).
+
+STATUS AT THE TIME OF THIS NOTE: 1107's manifest landed 2026-09-25T17:53:06Z,
+`outcome=FAIL`, `evidence_direction=non_contributory`. Nothing in the script was
+touched.
 """
 import ast
 import sys
@@ -722,7 +772,13 @@ def test_scaffold_hands_off_with_the_goal_consumers_unfrozen():
 # is INTENDED anyway, because no criterion is a between-arm contrast: C1-C3 are
 # within-arm (C3 within-tick paired against an env ground truth) and C4 is an absolute
 # bound on the control. Full derivation in the FAMILY GROWTH (2026-09-24) addendum.
-_FROZEN_FAMILY_SIZE = 35
+#
+# 35 -> 36 (2026-09-25): V3-EXQ-1107, the SD-032a trained-agent mode-reversal
+# diagnostic (external_task_drive OFF vs ON on the 935a curriculum). The clone-per-arm
+# shape: one curriculum per seed, both arms from goal_state-carrying _clone_for_arm
+# copies. It feeds the native drive_level scalar each eval step but never writes z_goal.
+# A fixed goal is INTENDED. Full derivation in the FAMILY GROWTH (2026-09-25) addendum.
+_FROZEN_FAMILY_SIZE = 36
 
 
 def test_frozen_z_goal_family_size_is_pinned():
