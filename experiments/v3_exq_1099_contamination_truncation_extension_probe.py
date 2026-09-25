@@ -192,8 +192,19 @@ PRE-REGISTERED (constants below, fixed before any real run):
       sensitive but NONE attributable -> contamination_sensitivity_present_but_not_attributable_adjudicate_drift_first
       1 attributable                  -> contamination_isolated_sensitivity_reruns_owed
       >= 2 attributable               -> contamination_prevalence_high_all_reruns_owed
-  READINESS = positive control met AND all MIN_DETERMINABLE_CLAIMS (3) of the mandatory claims
-      have at least one DETERMINABLE target. 1080 counted determinable TARGETS, which is the
+  READINESS = positive control met AND at least MIN_ANSWERABLE_CLAIMS (2) of the mandatory claims
+      are ANSWERABLE on this instrument AND every answerable one has a target able to CLEAR it.
+      Two refinements over a raw target count, both forced by measurement. (i) A target can be
+      determinable (its instrument worked) yet unable to answer its claim -- that is exactly
+      `insensitive_by_construction`, and MECH-427's only target measures `decoupled`, so requiring
+      all three claims would make readiness UNREACHABLE BY CONSTRUCTION. An unanswerable claim is
+      therefore SCOPED OUT of the denominator with its reason recorded in `claims_not_covered`,
+      which is the sanctioned remedy for a structurally unsatisfiable gate (scope the gate, never
+      lower the threshold) and avoids the V3-EXQ-785 defect where one impossible precondition
+      vacates every other arm's valid finding. (ii) The floor keeps the gate FALSIFIABLE: ready
+      needs >= 2 answerable claims AND every answerable one covered, so the run cannot pass by
+      declaring everything unanswerable, and it still FAILS if 231a goes degenerate (MECH-106
+      uncovered) or if both 278 and 435 do (INV-054 uncovered). 1080 counted determinable TARGETS, which is the
       same thing when each target carries its own claim -- it is not here, because INV-054 is
       carried by TWO targets (278 and 435) and 435 is expected a priori to be degenerate in
       both arms. Counting targets would let one foreseeably-degenerate target vacate the
@@ -322,10 +333,15 @@ ANCHOR_REACHABILITY_EXEMPT = ("control predicate is the death-fraction statistic
 
 # ---- pre-registered constants (never derived from this run's own statistics) ----
 MATERIAL_DEATH_FRAC = 0.10
-# Readiness counts mandatory CLAIMS covered by >= 1 determinable target, not raw targets --
-# INV-054 is carried by two targets and 435 is expected degenerate. See the READINESS note in
-# the module docstring for why this is 1080's bar translated, not relaxed.
-MIN_DETERMINABLE_CLAIMS = 3
+# Readiness counts mandatory CLAIMS that are ANSWERABLE on this instrument and covered by a target
+# able to CLEAR them -- not raw determinable targets. A claim whose every target is
+# insensitive_by_construction is SCOPED OUT of the denominator with its reason recorded, rather
+# than failing it: that is the sanctioned remedy for a structurally unsatisfiable gate (scope the
+# gate, never lower the threshold). MECH-427 measures `decoupled`, so requiring all 3 would make
+# readiness unreachable by construction -- the V3-EXQ-785 defect. This floor applies to the SCOPED
+# set and keeps the gate falsifiable: ready needs >= this many answerable claims AND every
+# answerable one covered, so the run cannot pass by declaring everything unanswerable.
+MIN_ANSWERABLE_CLAIMS = 2
 CONTROL_EPISODES = 20
 CONTROL_STEPS = 150
 CONTROL_STOCK_DEATH_FLOOR = 0.5
@@ -782,11 +798,30 @@ def _run_435(dry: bool) -> Dict[str, Any]:
 def _run_883(dry: bool) -> Dict[str, Any]:
     m = _mod("v3_exq_883_mech427_cross_level_subgoal_credit")
     orig = m.arm_cell
+    orig_cell = m._run_cell
     m.arm_cell = _gate_tagged_arm_cell(orig, _STATE.force_gate)
+
+    def _tagged_run_cell(arm, seed, *a, **k):
+        # Tag every episode opened inside this cell with its exact (arm, seed) identity, so the
+        # coupling detector can pair DV rows to episodes BY NAME instead of by position. Position
+        # does not work: a dying episode is recorded at its own `done` tick while a surviving one
+        # is only recorded by `_flush_live()` at the end of the cell, so the episode list is in
+        # COMPLETION order, not creation order. The first draft of the detector assumed positional
+        # pairing and mis-attributed NO_ATTAINMENT's step-7 death to ATTAINED -- caught by reading
+        # its own per-cell detail output in the dry run (it had failed safe, reporting `coupled`).
+        prev = _STATE.phase
+        _STATE.phase = f"{arm}::seed{seed}"
+        try:
+            return orig_cell(arm, seed, *a, **k)
+        finally:
+            _STATE.phase = prev
+
+    m._run_cell = _tagged_run_cell
     try:
         res, _zg = m.run(dry_run=dry)
     finally:
         m.arm_cell = orig
+        m._run_cell = orig_cell
     v = _verdict_from(res.get("outcome") or res.get("status"),
                       res.get("evidence_direction"),
                       res.get("evidence_direction_per_claim"),
@@ -841,15 +876,26 @@ def _coupling_883(per_arm: Dict[str, Any]) -> Dict[str, Any]:
     keyed: Dict[str, Dict[Any, Dict[str, Any]]] = {}
     for arm in ARMS:
         rows = per_arm[arm]["verdict"].get("dv_rows") or []
-        eps = [e for e in _STATE.episodes.get(f"883::{arm}", []) if e["hf"]]
-        if not rows or len(rows) != len(eps):
-            out["reason"] = (f"{arm}: {len(rows)} DV rows vs {len(eps)} hazard-free episodes -- "
-                             "the one-env-per-cell positional pairing no longer holds")
+        if not rows:
+            out["reason"] = f"{arm}: the target returned no DV rows"
             return out
-        keyed[arm] = {(r.get("arm"), r.get("seed")): {
-            "dv": r.get("dv"),
-            "exposed": bool(e["cause"] == "health_depleted" or e["contacts"] > 0),
-            "steps": e["steps"], "contacts": e["contacts"]} for r, e in zip(rows, eps)}
+        by_phase: Dict[str, List[Dict[str, Any]]] = {}
+        for e in _STATE.episodes.get(f"883::{arm}", []):
+            if e["hf"]:
+                by_phase.setdefault(e["phase"], []).append(e)
+        keyed[arm] = {}
+        for r in rows:
+            tag = f"{r.get('arm')}::seed{r.get('seed')}"
+            eps = by_phase.get(tag) or []
+            if len(eps) != 1:
+                out["reason"] = (f"{arm}: cell {tag} recorded {len(eps)} hazard-free episodes, "
+                                 "expected exactly 1 -- the per-cell tagging no longer holds")
+                return out
+            e = eps[0]
+            keyed[arm][(r.get("arm"), r.get("seed"))] = {
+                "dv": r.get("dv"),
+                "exposed": bool(e["cause"] == "health_depleted" or e["contacts"] > 0),
+                "steps": e["steps"], "contacts": e["contacts"]}
     if set(keyed[ARM_STOCK]) != set(keyed[ARM_OPTOUT]):
         out["reason"] = "the two arms did not run the same (arm, seed) cell set"
         return out
@@ -1295,12 +1341,24 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
     # A target that is insensitive_by_construction is DETERMINABLE (its instrument worked) but
     # cannot answer its claim, so it counts for neither coverage nor clearance (decision B).
     clearing = [c for c in det if c["can_clear_its_claim"]]
+    insensitive = [c for c in det if c["classification"] == "insensitive_by_construction"]
     claims_determinable = {claim: [c["queue_id"] for c in clearing if claim in c["direct_claims"]]
                            for claim in AUDITED_CLAIM_IDS}
-    n_claims_covered = sum(1 for v in claims_determinable.values() if v)
-    ready = control_ok and n_claims_covered >= MIN_DETERMINABLE_CLAIMS
+    # UNANSWERABLE: the claim has targets, they all ran, and every one is
+    # insensitive_by_construction -- the exposure could not have moved its verdict either way.
+    # Scoped OUT of the readiness denominator (reason recorded in claims_not_covered), never
+    # counted as a readiness FAILURE. See MIN_ANSWERABLE_CLAIMS.
+    unanswerable_claims = []
+    for claim in AUDITED_CLAIM_IDS:
+        own = [c for c in cells if claim in c["direct_claims"]]
+        if own and all(c["classification"] == "insensitive_by_construction" for c in own):
+            unanswerable_claims.append(claim)
+    answerable_claims = [c for c in AUDITED_CLAIM_IDS if c not in unanswerable_claims]
+    n_claims_covered = sum(1 for c in answerable_claims if claims_determinable[c])
+    ready = (control_ok
+             and len(answerable_claims) >= MIN_ANSWERABLE_CLAIMS
+             and n_claims_covered == len(answerable_claims))
     n_sens = len(sens)
-    insensitive = [c for c in det if c["classification"] == "insensitive_by_construction"]
 
     # ATTRIBUTION (orchestrator decision 2026-09-25). The routing grid must READ
     # stock_reproduces_original and monostrategy_suspect, not ignore them: a target whose STOCK
@@ -1475,7 +1533,8 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
             "threshold_not_applicable": "categorical equality of the target's own verdict tuple",
         })
     non_degen = {"C_PREV_no_verdict_sensitive_target":
-                 bool(n_claims_covered >= MIN_DETERMINABLE_CLAIMS)}
+                 bool(len(answerable_claims) >= MIN_ANSWERABLE_CLAIMS
+                      and n_claims_covered == len(answerable_claims))}
     for c in cells:
         non_degen[f"{c['target']}::stock_dv_death_frac_below_material"] = c["determinable"]
         non_degen[f"{c['target']}::verdict_unchanged_stock_vs_optout"] = c["determinable"]
@@ -1484,6 +1543,8 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
         "ready": int(ready), "control_ok": int(control_ok),
         "n_targets_determinable": len(det),
         "n_mandatory_claims_covered": n_claims_covered,
+        "n_claims_answerable": len(answerable_claims),
+        "n_claims_unanswerable_by_instrument": len(unanswerable_claims),
         "n_verdict_sensitive": n_sens,
         "n_materially_truncated": len(trunc),
         "n_historical_not_reproduced": len(not_reproduced),
@@ -1551,9 +1612,10 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
         "dry_run": bool(dry),
         "readout": readout,
         "criteria": criteria,
-        "combination_rule": ("PASS iff ready (positive control met AND all "
-                             f"{MIN_DETERMINABLE_CLAIMS} mandatory claims covered by >= 1 "
-                             "determinable target) AND C_PREV "
+        "combination_rule": ("PASS iff ready (positive control met AND at least "
+                             f"{MIN_ANSWERABLE_CLAIMS} mandatory claims answerable on this "
+                             "instrument AND every answerable one covered by a target able to "
+                             "clear it) AND C_PREV "
                              "(zero verdict-sensitive targets). Per-target dv_death_frac / "
                              "verdict criteria are reported, not combined. The action-diversity "
                              "readout is REPORT-ONLY and enters no criterion."),
@@ -1603,6 +1665,17 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
             "historical_verdict_not_reproduced": not_reproduced,
             "per_claim_disposition": per_claim_disposition,
             "claims_determinable_targets": claims_determinable,
+            "claims_answerable_on_this_instrument": answerable_claims,
+            "claims_unanswerable_on_this_instrument": unanswerable_claims,
+            "readiness_scoping_note": (
+                "A claim every one of whose targets is insensitive_by_construction is SCOPED OUT "
+                "of the readiness denominator rather than failing it -- the exposure could not "
+                "have moved its verdict either way, so requiring it would make readiness "
+                "unreachable by construction (the V3-EXQ-785 whole-run-AND defect). The gate "
+                f"stays falsifiable: ready needs >= {MIN_ANSWERABLE_CLAIMS} answerable claims AND "
+                "every answerable one covered, so it cannot pass by declaring everything "
+                "unanswerable. Scoped-out claims appear in claims_not_covered with their reason, "
+                "never silently dropped."),
             "per_claim_disposition_note": (
                 "populated from each claim's OWN determinable targets whatever the run-level "
                 "readiness verdict, so one target's degeneracy cannot vacate another's "
@@ -1632,9 +1705,10 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
         "non_degenerate": bool(ready),
         "degeneracy_reason": (None if ready else
                               "positive control failed, or fewer than "
-                              f"{MIN_DETERMINABLE_CLAIMS} of the mandatory claims "
-                              f"{AUDITED_CLAIM_IDS} had a determinable target "
-                              f"(covered: {n_claims_covered})"),
+                              f"{MIN_ANSWERABLE_CLAIMS} of {AUDITED_CLAIM_IDS} were answerable "
+                              f"on this instrument (answerable: {answerable_claims}), or an "
+                              f"answerable claim had no target able to clear it "
+                              f"(covered {n_claims_covered}/{len(answerable_claims)})"),
         "positive_control": control,
         "probe_cells": cells,
         "episode_termination_stock_hf_all_targets": all_term.stats(),
@@ -1693,7 +1767,7 @@ def main() -> Any:
         ],
         "arms": list(ARMS),
         "material_death_frac": MATERIAL_DEATH_FRAC,
-        "min_determinable_claims": MIN_DETERMINABLE_CLAIMS,
+        "min_answerable_claims": MIN_ANSWERABLE_CLAIMS,
         "audited_claim_ids": AUDITED_CLAIM_IDS,
         "monostrategy_modal_share": MONOSTRATEGY_MODAL_SHARE,
         "control": {"episodes": CONTROL_EPISODES, "steps": CONTROL_STEPS,
@@ -1716,7 +1790,8 @@ def main() -> Any:
     print(f"outcome: {manifest['outcome']}", flush=True)
     print(f"label: {manifest['interpretation']['label']}", flush=True)
     print(f"determinable={r['n_targets_determinable']} "
-          f"claims_covered={r['n_mandatory_claims_covered']}/{MIN_DETERMINABLE_CLAIMS} "
+          f"claims_covered={r['n_mandatory_claims_covered']}/{r['n_claims_answerable']} "
+          f"(answerable; {r['n_claims_unanswerable_by_instrument']} unanswerable) "
           f"sensitive={r['n_verdict_sensitive']} "
           f"truncated={r['n_materially_truncated']} insensitive={r['n_insensitive_by_construction']} "
           f"control_ok={r['control_ok']} "
