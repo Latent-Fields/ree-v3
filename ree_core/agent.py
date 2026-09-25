@@ -3505,6 +3505,13 @@ class REEAgent(nn.Module):
         # MECH-320 action/no-op split cached in the tonic_vigor block.
         self._last_control_vector: dict = {}
         self._cv_vigor: Optional[dict] = None
+        # MECH-039 two-part veto readout (read-only per-step telemetry; written
+        # only when config.use_mech039_veto_readout). _veto_readout_last holds
+        # the most recent step's record; _veto_readout_state the accumulated
+        # onset counts and onset -> mode-switch latencies. See
+        # _record_veto_readout / get_veto_readout.
+        self._veto_readout_last: Dict[str, Any] = {}
+        self._veto_readout_state: Dict[str, Any] = self._new_veto_readout_state()
         # MECH-090: step index within committed trajectory (Layer 1 trajectory stepping).
         # Incremented each committed step so a0->a1->a2->... is executed in sequence.
         self._committed_step_idx: int = 0
@@ -4163,6 +4170,12 @@ class REEAgent(nn.Module):
         if self.salience is not None:
             self.salience.reset()
         self._salience_last_tick = None
+        # MECH-039 veto readout: the coordinator mode just reset, so an onset
+        # still waiting for a mode switch is right-censored at this boundary.
+        # Accumulated counts / latencies persist (per-seed, like the MECH-449
+        # safety scale); only the per-episode edge trackers re-arm.
+        if getattr(self.config, "use_mech039_veto_readout", False):
+            self._veto_readout_episode_boundary()
 
         # SD-091/MECH-481: reset coalition controller on episode boundary.
         if self.coalition is not None:
@@ -4746,6 +4759,340 @@ class REEAgent(nn.Module):
             "n_t3_events": int(self._pag_desc_n_t3_events),
             "n_h_events": int(self._pag_desc_n_h_events),
         }
+
+    # ------------------------------------------------------------------
+    # MECH-039 two-part veto readout (config.use_mech039_veto_readout)
+    # ------------------------------------------------------------------
+    # User decision rec-20260925-3b215584 (option 1). The hard-veto /
+    # interrupt channel of MECH-039 is read from EXISTING producers, split in
+    # two parts that are recorded separately:
+    #   INTERRUPT -- producers wired into the SalienceCoordinator, the only
+    #                ones able to FORCE a multi-channel transition:
+    #                SD-035 CeA (cea_mode_prior / cea_fast_prime, MECH-046)
+    #                and SD-037 override_signal.
+    #   CONTROL   -- local vetoes with no coordinator path: MECH-279 PAG
+    #                freeze, ARC-108 JOB-2(d) habenula de-commit abort, and
+    #                MECH-449 endogenous safety No-Go.
+    # The claim's distinctive prediction (a veto onset produces a fast, forced
+    # multi-channel jump) is tested on INTERRUPT onsets; CONTROL onsets are the
+    # within-channel control that should NOT produce it (red-team D5). The
+    # onset -> next mode_switch_trigger latency is the MECH-046
+    # time-to-mode-switch DV, recorded once and shared by both claims.
+    # Strictly read-only: reads producer state after it was computed, draws no
+    # RNG, calls no mutating method. Every call site is gated on the flag.
+
+    @staticmethod
+    def _new_veto_readout_state() -> Dict[str, Any]:
+        return {
+            "n_steps": 0,
+            "n_e3_ticks": 0,
+            "n_coord_ticks": 0,
+            "n_mode_switches": 0,
+            "n_mode_switches_without_pending_onset": 0,
+            "n_interrupt_onsets": 0,
+            "n_control_onsets": 0,
+            "n_producer_onsets": {
+                "cea": 0,
+                "override": 0,
+                "freeze": 0,
+                "habenula": 0,
+                "gng_safety": 0,
+            },
+            "n_producer_active_steps": {
+                "cea": 0,
+                "override": 0,
+                "freeze": 0,
+                "habenula": 0,
+                "gng_safety": 0,
+            },
+            "n_gng_all_unsafe_ticks": 0,
+            # onset -> next coordinator mode_switch_trigger, per part. Measured
+            # from the FIRST onset since the last switch (a repeat onset while
+            # one is pending does not restart the clock).
+            "switch_latency_steps": {"interrupt": [], "control": []},
+            "switch_latency_coord_ticks": {"interrupt": [], "control": []},
+            # onsets that reached an episode boundary with no switch
+            "n_censored_onsets": {"interrupt": 0, "control": 0},
+            # -- private edge trackers (re-armed at each episode boundary) --
+            "_prev_active": {
+                "cea": False,
+                "override": False,
+                "freeze": False,
+                "gng_safety": False,
+                "interrupt": False,
+                "control": False,
+            },
+            "_pending": {"interrupt": None, "control": None},
+            "_gng_prev": None,
+        }
+
+    def reset_veto_readout(self) -> None:
+        """Clear all MECH-039 veto-readout counters and the last record."""
+        self._veto_readout_state = self._new_veto_readout_state()
+        self._veto_readout_last = {}
+
+    def get_veto_readout(self) -> Dict[str, Any]:
+        """MECH-039 two-part veto readout: {"last": <step record>, "summary": <counts>}.
+
+        ``last`` is the most recent step's record (a copy). It is complete for
+        a step once update_residue() has run for it (the habenula abort is
+        post-action). ``summary`` holds onset counts per part and per
+        producer, the onset -> mode-switch latency lists, and censored-onset
+        counts. Empty / zero when config.use_mech039_veto_readout is False.
+        """
+        st = self._veto_readout_state
+        summary = {k: v for k, v in st.items() if not k.startswith("_")}
+        summary = {
+            k: (dict(v) if isinstance(v, dict) else v) for k, v in summary.items()
+        }
+        for k in ("switch_latency_steps", "switch_latency_coord_ticks"):
+            summary[k] = {p: list(v) for p, v in st[k].items()}
+        summary["pending_onsets"] = {
+            p: (dict(v) if v is not None else None)
+            for p, v in st["_pending"].items()
+        }
+        last = dict(self._veto_readout_last)
+        for k in ("coord_operating_mode", "channels"):
+            if isinstance(last.get(k), dict):
+                last[k] = dict(last[k])
+        return {"last": last, "summary": summary}
+
+    def _veto_readout_episode_boundary(self) -> None:
+        st = self._veto_readout_state
+        for part in ("interrupt", "control"):
+            if st["_pending"][part] is not None:
+                st["n_censored_onsets"][part] += 1
+            st["_pending"][part] = None
+        for k in st["_prev_active"]:
+            st["_prev_active"][k] = False
+
+    def _veto_readout_mark_onset(self, part: str) -> None:
+        st = self._veto_readout_state
+        if part == "interrupt":
+            st["n_interrupt_onsets"] += 1
+        else:
+            st["n_control_onsets"] += 1
+        if st["_pending"][part] is None:
+            st["_pending"][part] = {
+                "step": int(st["n_steps"]),
+                "coord_ticks": int(st["n_coord_ticks"]),
+            }
+
+    def _record_veto_readout(
+        self, e3_tick: bool, site: str, forced_hold_still: bool = False
+    ) -> None:
+        """Assemble this step's MECH-039 veto record (read-only).
+
+        Called at every select_action() exit when the readout is on. ``site``
+        names the exit: "between_e3" (held / stepped action, no E3 tick),
+        "e3_shortcircuit" (ARC-071 committed-chunk short-circuit, E3 tick but
+        no coordinator / freeze tick) or "e3" (the full path).
+        """
+        st = self._veto_readout_state
+        st["n_steps"] += 1
+        step = int(st["n_steps"])
+        if e3_tick:
+            st["n_e3_ticks"] += 1
+        full = site == "e3"
+
+        # ---- INTERRUPT part (coordinator-wired producers; ticked in sense()) ----
+        cea_out = self._cea_last_output if self.cea is not None else None
+        cea_mode_prior = float(cea_out.mode_prior) if cea_out is not None else 0.0
+        cea_fast_prime = float(cea_out.fast_prime) if cea_out is not None else 0.0
+        cea_urgency_fire = bool(cea_out.urgency_fire) if cea_out is not None else False
+        cea_active = bool(cea_urgency_fire or cea_mode_prior != 0.0)
+        ov_sig = (
+            float(self.broadcast_override.override_signal)
+            if self.broadcast_override is not None
+            else 0.0
+        )
+        ov_thr = float(
+            getattr(self.config, "veto_readout_override_onset_threshold", 0.5)
+        )
+        override_active = bool(
+            self.broadcast_override is not None and ov_sig >= ov_thr
+        )
+        interrupt_active = bool(cea_active or override_active)
+
+        # ---- CONTROL part (local vetoes, no coordinator path) ----
+        pag_out = self._pag_last_output if self.pag_freeze_gate is not None else None
+        freeze_active = bool(pag_out.freeze_active) if pag_out is not None else False
+        orienting_active = bool(
+            self.defensive_orienting is not None
+            and self._orienting_last_output is not None
+            and self._orienting_last_output.orienting_active
+        )
+        gng_active = False
+        gng_all_unsafe = False
+        gng_fired_delta = 0
+        gng_nogo_delta = 0
+        gng_scored_this_step = False
+        if getattr(self.config.e3, "use_gng_endogenous_safety", False):
+            gs = self._gng_safety_state
+            cur = (
+                int(gs.get("n_signal_fired", 0)),
+                int(gs.get("n_safety_nogo_applied", 0)),
+                int(gs.get("n_ticks_scored", 0)),
+            )
+            prev = st["_gng_prev"] if st["_gng_prev"] is not None else cur
+            gng_fired_delta = cur[0] - prev[0]
+            gng_nogo_delta = cur[1] - prev[1]
+            gng_scored_this_step = cur[2] > prev[2]
+            st["_gng_prev"] = cur
+            # MECH-449 veto = a safety-No-Go applied INSIDE the eligible set.
+            gng_active = gng_nogo_delta > 0
+            # All-unsafe regime: every candidate crossed the floor, so the
+            # selector's last-resort fallback commits to a vetoed candidate
+            # (e3_selector go/no-go "avolition pole"): the veto is overridden.
+            _last = gs.get("last")
+            if gng_scored_this_step and _last is not None:
+                _fired = list(_last.get("fired", []))
+                gng_all_unsafe = bool(len(_fired) > 0 and all(_fired))
+            if gng_all_unsafe:
+                st["n_gng_all_unsafe_ticks"] += 1
+        # habenula abort fires post-action (update_residue); folded in there.
+        control_active = bool(freeze_active or gng_active)
+
+        # ---- coordinator (mode) state on this step ----
+        coord_ticked = bool(
+            full and self.salience is not None and self._salience_last_tick is not None
+        )
+        coord_mode = None
+        coord_switch = False
+        coord_op_mode: Optional[Dict[str, float]] = None
+        if self.salience is not None:
+            coord_mode = str(self.salience.current_mode)
+            if coord_ticked:
+                _slt = self._salience_last_tick
+                coord_switch = bool(_slt.get("mode_switch_trigger", False))
+                coord_op_mode = {
+                    str(k): float(v)
+                    for k, v in dict(_slt.get("operating_mode", {})).items()
+                }
+        if coord_ticked:
+            st["n_coord_ticks"] += 1
+
+        # ---- onsets (rising edges), per producer and per part ----
+        pa = st["_prev_active"]
+        onsets = {
+            "cea": cea_active and not pa["cea"],
+            "override": override_active and not pa["override"],
+            "freeze": freeze_active and not pa["freeze"],
+            "gng_safety": gng_active and not pa["gng_safety"],
+        }
+        for k, on in onsets.items():
+            if on:
+                st["n_producer_onsets"][k] += 1
+        for k, act in (
+            ("cea", cea_active),
+            ("override", override_active),
+            ("freeze", freeze_active),
+            ("gng_safety", gng_active),
+        ):
+            if act:
+                st["n_producer_active_steps"][k] += 1
+        interrupt_onset = interrupt_active and not pa["interrupt"]
+        control_onset = control_active and not pa["control"]
+        if interrupt_onset:
+            self._veto_readout_mark_onset("interrupt")
+        if control_onset:
+            self._veto_readout_mark_onset("control")
+        pa.update(
+            cea=cea_active,
+            override=override_active,
+            freeze=freeze_active,
+            gng_safety=gng_active,
+            interrupt=interrupt_active,
+            control=control_active,
+        )
+
+        # ---- onset -> mode switch latency (MECH-046 shared arm) ----
+        latency = {"interrupt": None, "control": None}
+        if coord_switch:
+            st["n_mode_switches"] += 1
+            any_pending = False
+            for part in ("interrupt", "control"):
+                pend = st["_pending"][part]
+                if pend is not None:
+                    any_pending = True
+                    lat = step - int(pend["step"])
+                    lat_ct = int(st["n_coord_ticks"]) - int(pend["coord_ticks"])
+                    st["switch_latency_steps"][part].append(lat)
+                    st["switch_latency_coord_ticks"][part].append(lat_ct)
+                    latency[part] = lat
+                    st["_pending"][part] = None
+            if not any_pending:
+                st["n_mode_switches_without_pending_onset"] += 1
+
+        # ---- other MECH-039 channels, read where they already exist ----
+        channels = {
+            "arousal_volatility": float(
+                getattr(self.e3, "volatility_estimate", 0.0) or 0.0
+            ),
+            "e3_steps_per_tick": int(self.clock.e3_steps_per_tick),
+            "beta_elevated": bool(self.beta_gate.is_elevated),
+            "commit_readiness": (
+                float(self.commit_readiness.get_readiness())
+                if self.commit_readiness is not None
+                else None
+            ),
+        }
+
+        self._veto_readout_last = {
+            "step": step,
+            "site": site,
+            "e3_tick": bool(e3_tick),
+            # INTERRUPT part
+            "cea_mode_prior": cea_mode_prior,
+            "cea_fast_prime": cea_fast_prime,
+            "cea_urgency_fire": cea_urgency_fire,
+            "cea_active": cea_active,
+            "override_signal": ov_sig,
+            "override_active": override_active,
+            "interrupt_active": interrupt_active,
+            "interrupt_onset": bool(interrupt_onset),
+            # CONTROL part
+            "freeze_active": freeze_active,
+            "freeze_gate_ticked": bool(full and pag_out is not None),
+            "forced_hold_still": bool(forced_hold_still),
+            "orienting_arrest_active": orienting_active,  # recorded, not in part
+            "habenula_abort_fired": False,  # set by update_residue
+            "gng_safety_active": gng_active,
+            "gng_safety_signal_fired_delta": int(gng_fired_delta),
+            "gng_safety_nogo_applied_delta": int(gng_nogo_delta),
+            "gng_safety_scored": bool(gng_scored_this_step),
+            "gng_safety_all_unsafe": bool(gng_all_unsafe),
+            "control_active": control_active,
+            "control_onset": bool(control_onset),
+            # coordinator
+            "coord_ticked": coord_ticked,
+            "coord_current_mode": coord_mode,
+            "coord_mode_switch_trigger": coord_switch,
+            "coord_operating_mode": coord_op_mode,
+            "switch_latency_steps_interrupt": latency["interrupt"],
+            "switch_latency_steps_control": latency["control"],
+            "channels": channels,
+        }
+
+    def _veto_readout_note_habenula(self) -> None:
+        """Fold a post-action habenula de-commit abort into this step's record."""
+        st = self._veto_readout_state
+        st["n_producer_onsets"]["habenula"] += 1
+        st["n_producer_active_steps"]["habenula"] += 1
+        rec = self._veto_readout_last
+        # A control-part onset unless the part was already active on this step
+        # (freeze / MECH-449 fired at select time) or on the previous step.
+        # _prev_active["control"] was already overwritten with this step's
+        # select-time value, so it is True exactly when the part was active
+        # at select time on this step.
+        if not st["_prev_active"]["control"]:
+            self._veto_readout_mark_onset("control")
+            if rec:
+                rec["control_onset"] = True
+        if rec:
+            rec["habenula_abort_fired"] = True
+            rec["control_active"] = True
+        st["_prev_active"]["control"] = True
 
     def gng_safety_diagnostics(self) -> Dict[str, Any]:
         """MECH-449 endogenous safety producer: accumulated counters (a copy).
@@ -8298,6 +8645,8 @@ class REEAgent(nn.Module):
             # MECH-165: record held/stepped action for exploration trajectory (every step)
             self._record_exploration_action(action)
             self._last_action = action
+            if getattr(self.config, "use_mech039_veto_readout", False):
+                self._record_veto_readout(e3_tick=False, site="between_e3")
             return action
 
         # ARC-071/MECH-090 E3-TICK RESELECTION SHORT-CIRCUIT
@@ -8351,6 +8700,10 @@ class REEAgent(nn.Module):
                     # MECH-165: mirror the between-tick branch's bookkeeping.
                     self._record_exploration_action(action)
                     self._last_action = action
+                    if getattr(self.config, "use_mech039_veto_readout", False):
+                        self._record_veto_readout(
+                            e3_tick=True, site="e3_shortcircuit"
+                        )
                     return action
 
         # SD-016 (MECH-152): pass cached terrain_weight so harm/goal scoring
@@ -11402,6 +11755,12 @@ class REEAgent(nn.Module):
                 # Closure detector failure must not break action selection.
                 pass
 
+        # MECH-039 two-part veto readout (read-only; default off -> skipped).
+        if getattr(self.config, "use_mech039_veto_readout", False):
+            self._record_veto_readout(
+                e3_tick=True, site="e3", forced_hold_still=_forced_hold_still
+            )
+
         return action
 
     def _compute_rho_t(self) -> float:
@@ -11925,6 +12284,8 @@ class REEAgent(nn.Module):
                         self.e3._persistent_committed_trajectory = None  # SD-084
                         self._ncl_hold_active = False
                         metrics["habenula_decommit_fired"] = torch.tensor(1.0)
+                        if getattr(self.config, "use_mech039_veto_readout", False):
+                            self._veto_readout_note_habenula()
 
             # MECH-205: populate VALENCE_SURPRISE on residue field
             if self.config.surprise_gated_replay:

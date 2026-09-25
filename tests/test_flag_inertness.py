@@ -3162,6 +3162,11 @@ KNOWN_UNPROBED = {
     "use_closure_commit_beta_coupling", "use_closure_env_completion_hook",
     "use_commit_readiness", "use_conditioned_safety_store",
     "use_control_vector_logging",
+    # MECH-039 two-part veto readout: read-only telemetry by design (it must
+    # NOT change the action stream). ON-vs-OFF bit-identity and the readout's
+    # liveness under firing producers are pinned in
+    # tests/contracts/test_mech039_veto_readout.py.
+    "use_mech039_veto_readout",
     "use_cross_module_consolidation", "use_curiosity_learning_progress",
     "use_curiosity_novelty", "use_curiosity_uncertainty", "use_dacc",
     "use_difficulty_gated_proposal_entropy", "use_e2_escape_affordance_linker",

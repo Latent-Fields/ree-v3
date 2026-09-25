@@ -5900,6 +5900,31 @@ class REEConfig:
     use_control_vector_logging: bool = False
 
     # ----------------------------------------------------------------
+    # MECH-039 two-part veto readout (user decision rec-20260925-3b215584,
+    # option 1; claim_synthesis_MECH-039_20260925.md + red-team 578e61dd0a).
+    # Read-only per-step telemetry of the hard-veto / interrupt channel, split
+    # into two separately recorded parts:
+    #   INTERRUPT part -- the only veto-shaped producers wired INTO the
+    #     SalienceCoordinator: SD-035 CeA cea_mode_prior / cea_fast_prime
+    #     (MECH-046) and SD-037 broadcast override_signal.
+    #   CONTROL part -- the local vetoes with no coordinator path: MECH-279
+    #     PAGFreezeGate freeze, ARC-108 JOB-2(d) habenula de-commit abort, and
+    #     MECH-449 endogenous safety No-Go (per-tick deltas + all-unsafe flag).
+    # Plus the coordinator mode state on the same step and the onset -> next
+    # mode_switch_trigger latency per part (the MECH-046 time-to-mode-switch
+    # arm, shared rather than duplicated). "Emergency" is NOT a coordinator
+    # mode here: it is a state the experiment elicits by hazard onset.
+    # Surfaced on REEAgent.get_veto_readout(). NO effect on scoring, selection
+    # or any producer: default False -> the record blocks are skipped entirely
+    # (bit-identical). Producers keep their own flags; this arms none of them.
+    use_mech039_veto_readout: bool = False
+    # Onset threshold for the continuous SD-037 override_signal (an EMA'd
+    # sigmoid, never exactly zero). Readout-only; mirrors the regulator's
+    # recruitment_threshold semantic (0.5). CeA onsets use CeA's own
+    # urgency_fire; freeze / habenula / MECH-449 onsets are boolean.
+    veto_readout_override_onset_threshold: float = 0.5
+
+    # ----------------------------------------------------------------
     # MECH-090 R-c conjunction: commit-entry predicate amendment from
     # rv-only to rv_low AND readiness_above_floor. Reading R-c per the
     # 2026-05-28 lit-pull synthesis (REE_assembly/evidence/literature/
@@ -9313,6 +9338,11 @@ class REEConfig:
         # ControlVector logging (rec-B four-signal adjudication 2026-06-07):
         # read-only default-OFF telemetry; bit-identical when False.
         use_control_vector_logging: bool = False,
+        # MECH-039 two-part veto readout: read-only default-OFF telemetry;
+        # bit-identical when False. Signature entry is load-bearing
+        # (from_dims silently swallows unknown kwargs).
+        use_mech039_veto_readout: bool = False,
+        veto_readout_override_onset_threshold: float = 0.5,
         # SD-055: differentiable CEM selection approximation
         use_differentiable_cem: bool = False,
         differentiable_cem_temperature: float = 1.0,
@@ -11063,6 +11093,10 @@ class REEConfig:
         config.latent.disagreement_bootstrap_mask_prob = disagreement_bootstrap_mask_prob
         config.latent.disagreement_learning_rate = disagreement_learning_rate
         config.use_control_vector_logging = use_control_vector_logging
+        config.use_mech039_veto_readout = use_mech039_veto_readout
+        config.veto_readout_override_onset_threshold = float(
+            veto_readout_override_onset_threshold
+        )
 
         # SD-081 (MECH-477): dual-system uncertainty arbitration. Lives on
         # E3Config because E3Selector.config IS the E3Config -- a REEConfig-level

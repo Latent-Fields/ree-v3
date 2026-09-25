@@ -318,7 +318,7 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
 
 ## Substrate feature index
 
-262 per-feature records, 161 feature IDs, in `docs/substrate/`. Read the
+263 per-feature records, 162 feature IDs, in `docs/substrate/`. Read the
 "when to follow a pointer" rule at the top of this file before deciding to skip one.
 - **SD-011** — 3 records, ~5,449 tok total.
 - **[SD-PP-1](docs/substrate/SD-PP-1-observation-reliability.md)** — precision.observation_reliability: evidence (sensory) precision producer (2026-09-22) *(~548 tok)*
@@ -465,6 +465,7 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
 - **MECH-027** — 2 records, ~2,443 tok total.
     - [precision-scaled commit temperature -- graded consumer for current_precision (2026-09-02)](docs/substrate/MECH-027-precision-scaled-commit-temperature.md) *(~1,159 tok)*
     - [Build 2: force_sleep_cycle_at_eval_boundary -- sleep-cycle interleave reachable inside an eval window (2026-09-02)](docs/substrate/MECH-027-build-2-force-sleep-cycle-at-eval.md) *(~1,283 tok)*
+- **[MECH-039](docs/substrate/MECH-039-two-part-veto-readout.md)** — Two-part veto readout: interrupt part (CeA + SD-037, coordinator-wired) vs control part (PAG freeze + habenula abort + MECH-449), onset -> mode-switch latency shared with MECH-046; instrument only, default off (2026-09-25) *(~1,050 tok)*
 - **[MECH-057b](docs/substrate/MECH-057b-hippocampal-completion-verification.md)** — agentic_extension.thought_loop_trajectory_promotion_gate: hippocampal sequence-completion verification gating trajectory promotion -- IMPLEMENTED (2026-09-14) *(~920 tok)*
 - **MECH-090** — 4 records, ~5,077 tok total.
     - [Layer 1 + MECH-091 Layer 2: Trajectory Stepping + Urgency Interrupt (2026-04-15)](docs/substrate/MECH-090-layer-1-mech-091-layer-2-trajectory.md) *(~610 tok)*
