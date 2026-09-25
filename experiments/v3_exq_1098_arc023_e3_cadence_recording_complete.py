@@ -130,7 +130,7 @@ can be queued the moment the falsifier is repaired. It is NOT queued, because AR
 tightened falsifier now carries THREE independently measured defects, and together they
 leave the run with one reachable verdict cell:
 
-  1. CONFIRMING leg (i) is confounded with reset traffic (GFLAG-0495, F1 above). Since
+  1. CONFIRMING leg (i) is confounded with reset traffic (GFLAG-0497, F1 above). Since
      a CONFIRM needs C1 to PASS, and C1 passes only at reset share roughly <= 0.02-0.08,
      CONFIRMING is gated on the MECH-091 harm trigger being nearly SILENT -- in an
      environment this lineage deliberately configures with num_hazards > 0 to LOAD that
@@ -148,7 +148,7 @@ cell does not discriminate. Spending the compute would produce a PARTIAL that ro
 MECH-091 -- which is knowable from the probe already recorded, at no compute cost. The
 falsifier needs repair first; that is a governance decision, not this driver's to make.
 
-u/h/s/n/w -- see the refusal record on EXP-0548 and GFLAG-0495.
+u/h/s/n/w -- see the refusal record on EXP-0548 and GFLAG-0497.
 """
 
 from __future__ import annotations
@@ -180,7 +180,7 @@ EXPERIMENT_TYPE = "v3_exq_1098_arc023_e3_cadence_recording_complete"
 QUEUE_ID = "V3-EXQ-1098"
 CLAIM_IDS: List[str] = ["ARC-023"]
 ARCHITECTURE_EPOCH = "ree_hybrid_guardrails_v1"
-RED_TEAM_VERDICT = "BLOCKING (fable, 2026-09-25): C1 confounded with reset traffic -- see GFLAG-0495"
+RED_TEAM_VERDICT = "BLOCKING (fable, 2026-09-25): C1 confounded with reset traffic -- see GFLAG-0497"
 RED_TEAM_DISPOSITIONS = {
     "F1_C1_measures_reset_traffic_not_period_tracking": (
         "VERIFIED and independently reproduced. With MultiRateClock's period held FIXED at "
@@ -196,7 +196,7 @@ RED_TEAM_DISPOSITIONS = {
         "(expected_fraction_lost_to_reset_truncation, "
         "clock_tracking_ratio_clock_terminated_only), which makes a C1 failure ATTRIBUTABLE. "
         "PART NOT FIXABLE HERE: C1 is the claim's pre-registered formula and is computed "
-        "verbatim. Raised as GFLAG-0495, not silently adjusted."),
+        "verbatim. Raised as GFLAG-0497, not silently adjusted."),
     "F2_confirming_fired_without_any_seed_satisfying_the_conjunction": (
         "VERIFIED, FIXED, regression-tested. _adjudicate took each criterion's seed-majority "
         "independently, so rows (T,T,F),(T,F,T),(F,T,T) returned "
