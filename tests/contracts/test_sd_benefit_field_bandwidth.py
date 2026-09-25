@@ -284,13 +284,13 @@ def test_c2_knob_reaches_the_density_read():
     away = centre.clone()
     away[0] += GRID_CELL_SEP
 
-    d_near = float(rf.compute_benefit_density(centre.unsqueeze(0))[0])
-    d_far = float(rf.compute_benefit_density(away.unsqueeze(0))[0])
+    d_near = float(rf.compute_benefit_density(centre.unsqueeze(0))[0].detach())
+    d_far = float(rf.compute_benefit_density(away.unsqueeze(0))[0].detach())
     assert d_far < 0.5 * d_near
 
     # The explicit override still wins -- pinned so wiring the constructor did
     # not accidentally hard-code the layer scale over the argument.
-    d_over = float(rf.compute_benefit_density(away.unsqueeze(0), bandwidth=1.0)[0])
+    d_over = float(rf.compute_benefit_density(away.unsqueeze(0), bandwidth=1.0)[0].detach())
     assert d_over > 0.99
 
 
@@ -341,8 +341,8 @@ def _measured_manifold_density(benefit_bw):
         )
     held_out = contact.clone()
     held_out[1] += GRID_CELL_SEP
-    d_contact = float(rf.compute_benefit_density(contact.unsqueeze(0))[0])
-    d_held = float(rf.compute_benefit_density(held_out.unsqueeze(0))[0])
+    d_contact = float(rf.compute_benefit_density(contact.unsqueeze(0))[0].detach())
+    d_held = float(rf.compute_benefit_density(held_out.unsqueeze(0))[0].detach())
     return d_contact, d_held
 
 
