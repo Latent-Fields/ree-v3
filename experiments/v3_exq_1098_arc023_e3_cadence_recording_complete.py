@@ -3,7 +3,12 @@
 
 SLEEP DRIVER: not applicable (no sleep loop used in this driver).
 
-RED-TEAM (Step 4.5): see RED_TEAM_VERDICT below.
+RED-TEAM (Step 4.5, model fable, ONE pass, not iterated): BLOCKING. Six findings; all
+six verified against source before acting, five fixed or already-recorded, and the
+sixth is a defect in the CLAIM'S OWN pre-registered criterion that this driver has no
+authority to change. Dispositions in RED_TEAM_DISPOSITIONS below.
+
+  NOT QUEUED AS A RESULT. See "WHY THIS IS NOT QUEUED" at the end of this docstring.
 
 WHAT THIS RUNS, AND WHY IT IS NOT A DISCRIMINATIVE PAIR
 ------------------------------------------------------
@@ -118,7 +123,32 @@ onset-gated resets must supply >= 0.13, and they measure 0.0075-0.0125 per step.
 Raised as GFLAG-0494; this driver reports the leg faithfully rather than adjusting
 it. Practical consequence: this run discriminates CONFIRMING vs PARTIAL.
 
-u/h/s/n/w -- see the queue entry `note`.
+WHY THIS IS NOT QUEUED (2026-09-25)
+----------------------------------
+The driver is complete, smoke-passing and validator-clean, and it is landed so that it
+can be queued the moment the falsifier is repaired. It is NOT queued, because ARC-023's
+tightened falsifier now carries THREE independently measured defects, and together they
+leave the run with one reachable verdict cell:
+
+  1. CONFIRMING leg (i) is confounded with reset traffic (GFLAG-0495, F1 above). Since
+     a CONFIRM needs C1 to PASS, and C1 passes only at reset share roughly <= 0.02-0.08,
+     CONFIRMING is gated on the MECH-091 harm trigger being nearly SILENT -- in an
+     environment this lineage deliberately configures with num_hazards > 0 to LOAD that
+     trigger. The confirming region and the ecological-load premise are in direct
+     tension.
+  2. FALSIFYING is effectively unreachable (GFLAG-0494): clock-driven share is clamped
+     at <= 1/beta_rate_min_steps = 0.20, so onset-gated resets must supply >= 0.13, and
+     they measure 0.0075-0.0125 per step.
+  3. The 4-way REQUIRED RECORDING split has only 2 live classes, because the completion
+     release threshold is unreachable as an identity and the NCL latch never arms
+     (docstring (b) above).
+
+So the reachable outcome space is essentially {PARTIAL}, and a run with one reachable
+cell does not discriminate. Spending the compute would produce a PARTIAL that routes to
+MECH-091 -- which is knowable from the probe already recorded, at no compute cost. The
+falsifier needs repair first; that is a governance decision, not this driver's to make.
+
+u/h/s/n/w -- see the refusal record on EXP-0548 and GFLAG-0495.
 """
 
 from __future__ import annotations
@@ -150,7 +180,61 @@ EXPERIMENT_TYPE = "v3_exq_1098_arc023_e3_cadence_recording_complete"
 QUEUE_ID = "V3-EXQ-1098"
 CLAIM_IDS: List[str] = ["ARC-023"]
 ARCHITECTURE_EPOCH = "ree_hybrid_guardrails_v1"
-RED_TEAM_VERDICT = "PENDING -- filled in at Step 4.5 before queueing"
+RED_TEAM_VERDICT = "BLOCKING (fable, 2026-09-25): C1 confounded with reset traffic -- see GFLAG-0495"
+RED_TEAM_DISPOSITIONS = {
+    "F1_C1_measures_reset_traffic_not_period_tracking": (
+        "VERIFIED and independently reproduced. With MultiRateClock's period held FIXED at "
+        "10 -- so tracking is perfect by construction and MECH-093 is not involved -- the "
+        "pre-registered ratio is 0.878 at reset share 0.02, 0.702 at 0.057, 0.520 at 0.102 "
+        "and 0.149 at 0.253 (independent resets); clustering shifts it up (0.860 at 0.051 "
+        "burst 3, 0.911 at 0.051 burst 6). Mechanism: advance() zeroes _e3_phase_step on a "
+        "reset tick (clock.py), so every step in a reset-terminated cycle contributes 1/K to "
+        "the expectation while being structurally unable to produce a clock-driven tick. "
+        "PART FIXED: the old phase_step_zeroed_by_reset counter was incremented in the same "
+        "branch as reset_driven, so it was identically equal to it and carried no "
+        "information; replaced by the cycle ledger "
+        "(expected_fraction_lost_to_reset_truncation, "
+        "clock_tracking_ratio_clock_terminated_only), which makes a C1 failure ATTRIBUTABLE. "
+        "PART NOT FIXABLE HERE: C1 is the claim's pre-registered formula and is computed "
+        "verbatim. Raised as GFLAG-0495, not silently adjusted."),
+    "F2_confirming_fired_without_any_seed_satisfying_the_conjunction": (
+        "VERIFIED, FIXED, regression-tested. _adjudicate took each criterion's seed-majority "
+        "independently, so rows (T,T,F),(T,F,T),(F,T,T) returned "
+        "arc023_confirmed_phase1_rate_separation / supports / PASS while every seed printed "
+        "verdict: FAIL. The claim reads 'on >= 2 of 3 seeds ... ALL of (i)(ii)(iii)', so the "
+        "conjunction is per seed. Now seeds_satisfying_all_three. Confirmed the new code "
+        "returns PARTIAL/FAIL on that exact counterexample, still CONFIRMS on a genuine "
+        "2-of-3 conjunction, and still tests FALSIFYING first."),
+    "F3_non_degeneracy_gate_satisfied_by_the_clock_episode_reset_artefact": (
+        "VERIFIED against clock.py reset() (_current_e3_steps = _e3_base_steps) and "
+        "agent.py:3916 (agent.reset() calls it). K is read BEFORE advance() while its only "
+        "writer runs AFTER, so each episode's first recorded K is the BASE period "
+        "unconditionally -- 30 such samples per seed, enough to make n_distinct >= 2 read "
+        "true on a run pinned at any other value. FIXED: the precondition now reads "
+        "..._n_distinct_steady, which excludes those samples; the episode-first samples and "
+        "a full per-value histogram are recorded so the gate is re-derivable."),
+    "F4_dv_headroom_punished_seed_agreement": (
+        "VERIFIED as an own-goal in this driver's own added precondition (not the claim's). "
+        "A cross-SEED range with a 0.01 floor would read met:false on 0.200/0.204/0.208 -- "
+        "the shape of a clean, precise confirming run -- and the indexer's numeric recompute "
+        "would then flag precondition_unmet and block scoring. FIXED: the denominator is now "
+        "the range of per-episode shares POOLED over all seeds, and an undetermined case "
+        "(fewer than 2 pooled episodes) is scoped out as cannot-determine rather than "
+        "reported as a failure."),
+    "F5_readiness_does_not_move_evidence_direction": (
+        "PARTLY ACCEPTED, no change. The manifest can carry weakens/supports alongside "
+        "non_degenerate:false, but the indexer excludes a non_degenerate:false run from "
+        "scoring (scoring_excluded: degenerate), so it is contained. The reviewer's second "
+        "half -- that the FALSIFY leg is unreachable at this config, leaving reachable "
+        "directions {supports, mixed} -- is accurate and was already measured and raised by "
+        "this session as GFLAG-0494 before the review ran."),
+    "F6_small_numerator_and_attribution_leaks": (
+        "ACCEPTED, magnitude ~n_episodes/n. The per-episode cache-miss regeneration was "
+        "already recorded (e3_invocations_without_clock_tick). The stale-_window leak across "
+        "an episode boundary is FIXED (mark_episode_start clears it). A harm reset requested "
+        "on an episode's final step stays counted in requests_by_class, which is correct -- "
+        "it WAS requested; the tick it would have produced is correctly absent."),
+}
 
 SEEDS: Tuple[int, ...] = (11, 23, 37)
 
@@ -186,6 +270,24 @@ PROBE_REFERENCE = {
 }
 
 _ZG = ZGoalStreamAccumulator()
+
+
+def _worst_ct_ratio(rows: List[Dict[str, Any]]) -> float:
+    """Worst (largest-deviation-from-1) clock-terminated-only tracking ratio.
+
+    NON-GATING. Paired with the pre-registered ratio so a reader can attribute a
+    C1 failure: if the pre-registered ratio fails while THIS sits near 1.0, the
+    entire shortfall is reset truncation discarding partial cycles, not the clock
+    failing to honour its arousal-set period.
+    """
+    worst, best_dev = 0.0, -1.0
+    for r in rows:
+        v = r.get("clock_tracking_ratio_clock_terminated_only")
+        val = float(v) if v is not None else 0.0
+        dev = abs(val - 1.0)
+        if dev > best_dev:
+            best_dev, worst = dev, val
+    return worst
 
 
 def _worst_ratio_deviation(rows: List[Dict[str, Any]]) -> float:
@@ -243,7 +345,10 @@ def _evaluate_seed(row: Dict[str, Any], e2_share: float) -> Dict[str, Any]:
         "excess_all_triggers": excess_all,
         "measured_all_trigger_share": share_all,
         "steps_recorded": int(row["steps_recorded"]),
-        "period_non_degenerate": int(row["current_e3_steps_n_distinct"]) >= MIN_DISTINCT_PERIODS,
+        # STEADY, not raw: the raw set always contains clock.reset()'s base period
+        # (one sample per episode), which would satisfy this gate by artefact.
+        "period_non_degenerate": (
+            int(row["current_e3_steps_n_distinct_steady"]) >= MIN_DISTINCT_PERIODS),
     }
 
 
@@ -275,6 +380,7 @@ def _run_seed(seed: int, warmup_episodes: int, eval_episodes: int,
             _flat, obs_dict = env_eval.reset()
             agent.reset()
             harness.reset()
+            rec.mark_episode_start()
             for _t in range(int(steps_per_episode)):
                 with torch.no_grad():
                     result = harness.step(obs_dict)
@@ -291,6 +397,12 @@ def _run_seed(seed: int, warmup_episodes: int, eval_episodes: int,
 
     e2_share = float(row["e2_configured_share"])
     row["criteria"] = _evaluate_seed(row, e2_share)
+    print("  [seed %d] leg(i) attribution: expected_lost_to_reset_truncation=%.1f%% "
+          "ratio_clock_terminated_only=%s"
+          % (seed, 100.0 * float(row.get("expected_fraction_lost_to_reset_truncation") or 0.0),
+             ("%.4f" % row["clock_tracking_ratio_clock_terminated_only"])
+             if row.get("clock_tracking_ratio_clock_terminated_only") is not None else "n/a"),
+          flush=True)
     seed_pass = (row["criteria"]["C1_clock_tracking"]
                  and row["criteria"]["C2_e3_slower_than_e2"]
                  and row["criteria"]["C3_reset_share_bounded"])
@@ -317,11 +429,20 @@ def _adjudicate(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     n_fals = sum(1 for c in crit if c["FALSIFY_gated_share_ge_e2"])
     n_excess = sum(1 for c in crit if c["excess_all_triggers"])
     n_period_ok = sum(1 for c in crit if c["period_non_degenerate"])
+    # PER-SEED CONJUNCTION. The claim reads "on >= 2 of 3 seeds ... (i) AND (ii)
+    # AND (iii)", so the conjunction is taken WITHIN a seed and the majority over
+    # seeds. Counting each criterion's majority independently is NOT the same test
+    # and is strictly weaker: rows (T,T,F), (T,F,T), (F,T,T) give every criterion a
+    # 2-of-3 majority while NO seed satisfies all three, so the independent form
+    # returns CONFIRMING/supports on a run where every seed printed verdict: FAIL.
+    n_conf = sum(1 for c in crit
+                 if c["C1_clock_tracking"] and c["C2_e3_slower_than_e2"]
+                 and c["C3_reset_share_bounded"])
 
     if n_fals >= SEED_MAJORITY:
         label = "arc023_falsified_e3_not_realized_as_slowest_loop"
         direction, outcome = "weakens", "FAIL"
-    elif n_c1 >= SEED_MAJORITY and n_c2 >= SEED_MAJORITY and n_c3 >= SEED_MAJORITY:
+    elif n_conf >= SEED_MAJORITY:
         label = "arc023_confirmed_phase1_rate_separation"
         direction, outcome = "supports", "PASS"
     else:
@@ -344,6 +465,7 @@ def _adjudicate(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
             "n_seeds": n, "seed_majority_required": SEED_MAJORITY,
             "C1_clock_tracking": n_c1, "C2_e3_slower_than_e2": n_c2,
             "C3_reset_share_bounded": n_c3,
+            "seeds_satisfying_all_three": n_conf,
             "FALSIFY_gated_share_ge_e2": n_fals,
             "excess_all_triggers": n_excess,
             "period_non_degenerate": n_period_ok,
@@ -363,12 +485,19 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
 
     e2_share = float(rows[0]["e2_configured_share"])
     worst_steps = min(int(r["steps_recorded"]) for r in rows)
-    worst_periods = min(int(r["current_e3_steps_n_distinct"]) for r in rows)
+    worst_periods = min(int(r["current_e3_steps_n_distinct_steady"]) for r in rows)
     periods_distinct = 3  # asserted in build_agent; recorded for re-derivability
-    _shares = [float(r["e3_share_realized"]) for r in rows]
-    # Single seed -> no cross-seed range exists; the precondition is scoped out
-    # (not failed) in that case. See dv_headroom entry below.
-    dv_range = (max(_shares) - min(_shares)) if len(_shares) >= 2 else 0.0
+    # dv_headroom denominator. An earlier draft used the CROSS-SEED range of
+    # e3_share_realized, which is an own-goal: three seeds converging tightly
+    # (0.200/0.204/0.208) is PRECISION, not a pinned DV, yet it would read
+    # range 0.008 < 0.01 -> met:false -> `precondition_unmet` at the indexer, which
+    # blocks scoring on exactly the cleanest confirming shape. Pool the PER-EPISODE
+    # shares instead: that measures whether the statistic can move at all, which is
+    # the actual headroom question, and it is well defined at one seed.
+    _ep_shares: List[float] = []
+    for r in rows:
+        _ep_shares.extend([float(x) for x in r.get("per_episode_e3_share_realized", [])])
+    dv_range = (max(_ep_shares) - min(_ep_shares)) if len(_ep_shares) >= 2 else 0.0
 
     preconditions = [
         {
@@ -389,8 +518,11 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
                             "PASS on C1 is vacuous"),
             "measured": float(worst_periods), "threshold": float(MIN_DISTINCT_PERIODS),
             "direction": "lower",
-            "control": "WORST seed's n_distinct(_current_e3_steps) over its recorded steps",
-            "offending_cell": min(rows, key=lambda r: r["current_e3_steps_n_distinct"])["seed"],
+            "control": ("WORST seed's n_distinct(_current_e3_steps) EXCLUDING each episode's "
+                        "first sample, which is clock.reset()'s base period by construction "
+                        "and would otherwise satisfy this gate by artefact"),
+            "offending_cell": min(
+                rows, key=lambda r: r["current_e3_steps_n_distinct_steady"])["seed"],
             "met": worst_periods >= MIN_DISTINCT_PERIODS,
         },
         {
@@ -406,18 +538,23 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
             # directions, which is what this precondition asserts is still true.
             "name": "dv_headroom_e3_share_realized_range",
             "kind": "readiness",
-            "description": ("C2's DV (e3_share_realized) must show non-trivial cross-seed "
-                            "range, else the 0.08 absolute gap bar cuts a pinned statistic"),
+            "description": ("C2's DV (e3_share_realized) must show non-trivial realised range "
+                            "across measurement episodes, else the 0.08 absolute gap bar cuts "
+                            "a pinned statistic"),
             "measured": float(dv_range), "threshold": 0.01,
             "direction": "lower",
-            "control": ("cross-seed realised range of e3_share_realized, the statistic C2's "
-                        "bar cuts; bar-equivalent value is e2_share - 0.08 = %.4f, which "
-                        "942 (0.153/0.169/0.394) and this lineage's probe (0.2300/0.3600) "
-                        "both straddle" % (e2_share - SHARE_GAP_MIN)),
-            "met": (dv_range >= 0.01),
-            "scoped_out": (len(rows) < 2),
-            "applies_note": ("cross-seed range is undefined for a single seed; scoped out "
-                             "under --dry-run rather than failed by it"),
+            "control": ("realised range of e3_share_realized POOLED over all measurement "
+                        "episodes of all seeds (NOT the cross-seed range -- seed agreement is "
+                        "precision, not a pinned DV); bar-equivalent value is "
+                        "e2_share - 0.08 = %.4f, which 942 (0.153/0.169/0.394) and this "
+                        "lineage's probe (0.2300/0.3600) both straddle"
+                        % (e2_share - SHARE_GAP_MIN)),
+            "met": (dv_range >= 0.01) or (len(_ep_shares) < 2),
+            "n_episodes_pooled": len(_ep_shares),
+            "scoped_out": (len(_ep_shares) < 2),
+            "applies_note": ("a realised RANGE is undefined with fewer than 2 pooled "
+                             "episodes (--dry-run); scoped out as cannot-determine rather "
+                             "than reported as a failed precondition"),
         },
         {
             "name": "min_steps_per_seed",
@@ -451,6 +588,11 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
     )
 
     criteria_list = [
+        {"name": "CONFIRMING_conjunction_per_seed", "load_bearing": True,
+         "passed": verdict["seed_counts"]["seeds_satisfying_all_three"] >= SEED_MAJORITY,
+         "measured": verdict["seed_counts"]["seeds_satisfying_all_three"],
+         "threshold": SEED_MAJORITY, "unit": "seeds",
+         "note": "C1 AND C2 AND C3 within a single seed, then majority over seeds"},
         {"name": "C1_clock_tracking", "load_bearing": True,
          "passed": verdict["seed_counts"]["C1_clock_tracking"] >= SEED_MAJORITY,
          "measured": verdict["seed_counts"]["C1_clock_tracking"],
@@ -560,6 +702,12 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
 
     manifest["readout"] = flat_readout({
         "dv_headroom_e3_share_realized_range": float(dv_range),
+        "n_seeds_satisfying_all_three": verdict["seed_counts"]["seeds_satisfying_all_three"],
+        # leg (i) attribution -- non-gating, see the lineage cycle-ledger comment
+        "expected_fraction_lost_to_reset_truncation_max": max(
+            float(r.get("expected_fraction_lost_to_reset_truncation") or 0.0) for r in rows),
+        "clock_tracking_ratio_clock_terminated_only_worst": _worst_ct_ratio(rows),
+        "current_e3_steps_n_distinct_steady_worst": worst_periods,
         "n_seeds": len(rows),
         # WORST cell, not the mean and not the best: C1's verdict is a per-seed
         # worst-case claim, and the indexer recomputes `met` from the number we
@@ -572,7 +720,6 @@ def run_experiment(dry_run: bool = False) -> Dict[str, Any]:
         "e3_share_gated_max": max(float(r["e3_share_gated"]) for r in rows),
         "clock_driven_share_mean": sum(float(r["clock_driven_share"]) for r in rows) / len(rows),
         "e2_configured_share": e2_share,
-        "current_e3_steps_n_distinct_worst": worst_periods,
         "steps_recorded_worst": worst_steps,
         "completion_signal_max": max(float(r["completion_signal_max"]) for r in rows),
         "n_seeds_C1": verdict["seed_counts"]["C1_clock_tracking"],

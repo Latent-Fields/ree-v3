@@ -413,10 +413,53 @@ class CadenceRecorder:
         self.requests_by_class["unknown"] = 0
         self.requests_by_site: Dict[str, int] = {}
         self.steps = 0
-        self.phase_step_zeroed_by_reset = 0   # leg (i) interference diagnostic
+        # CYCLE LEDGER -- the leg (i) attribution instrument.
+        #
+        # An earlier draft of this module carried a `phase_step_zeroed_by_reset`
+        # counter billed as the "leg (i) interference diagnostic". It was
+        # incremented in the SAME branch as `reset_driven`, so it was identically
+        # equal to it and carried ZERO information. Removed rather than kept,
+        # because the quantity actually needed is not "how many resets" but "how
+        # much of the expected count was UNREACHABLE because a reset discarded the
+        # partial progress toward K".
+        #
+        # WHY THIS IS LOAD-BEARING. ARC-023's leg (i) compares clock-driven ticks
+        # against `sum_t 1/K(t)` over EVERY step. But `advance()` zeroes
+        # `_e3_phase_step` on a reset tick, so every step inside a reset-terminated
+        # cycle contributed 1/K to that expectation while being structurally
+        # incapable of producing a clock-driven tick. MEASURED with this very clock
+        # at a FIXED period of 10 -- i.e. with period tracking perfect by
+        # construction and MECH-093 not involved at all -- the pre-registered ratio
+        # is 0.878 at reset share 0.02, 0.702 at 0.057, and 0.149 at 0.253
+        # (independent resets; clustering shifts the curve up: 0.860 at 0.051 and
+        # 0.911 at 0.051 for bursts of 3 and 6). So the pre-registered ratio is a
+        # deterministic transform of reset VOLUME and CLUSTERING, and a C1 failure
+        # is NOT by itself evidence that E3 failed to track its arousal-set period.
+        #
+        # The criterion is the claim's and is computed verbatim and unchanged
+        # (`clock_tracking_ratio`). This ledger ADDS the attribution a reader needs:
+        # `expected_in_clock_terminated_cycles` gives the denominator restricted to
+        # cycles the clock was actually allowed to finish, and
+        # `clock_tracking_ratio_clock_terminated_only` is the resulting NON-GATING
+        # contrast. If the pre-registered ratio fails while that contrast sits near
+        # 1.0, the whole shortfall is reset truncation. Raised for the claim's
+        # owners as a governance flag; not silently adjusted here.
+        self.cycles: List[Dict[str, Any]] = []
+        self._cycle_expected = 0.0      # sum of 1/K over the open cycle's steps
+        self._cycle_len = 0
+        self.expected_total = 0.0
+        self.expected_in_clock_terminated = 0.0
+        self.expected_lost_to_reset_truncation = 0.0
+        # Per-episode rows -- generous recording, and the denominator the
+        # dv_headroom precondition uses (a cross-SEED range punishes seed
+        # agreement, which is precision, not a pinned DV).
+        self.episodes: List[Dict[str, Any]] = []
+        self._ep_open: Optional[Dict[str, int]] = None
         self.completion_signal_max = 0.0
         self.completion_signal_observations = 0
 
+        self._episode_first_pending = False
+        self.k_episode_first: List[int] = []  # the base-period artifact samples
         self._window: Dict[str, int] = {}     # classes requesting since last advance
         self._last_tick_kind: Optional[str] = None
         self._installed: List[Tuple[Any, str, Any]] = []
@@ -446,19 +489,33 @@ class CadenceRecorder:
             ticks = real_advance()
             self.k_per_step.append(k_before)
             self.steps += 1
+            if self._episode_first_pending:
+                # K here is clock.reset()'s base value, not an arousal reading.
+                self.k_episode_first.append(k_before)
+                self._episode_first_pending = False
+            if self._ep_open is not None:
+                self._ep_open["steps"] += 1
+            self._cycle_len += 1
+            if k_before > 0:
+                self._cycle_expected += 1.0 / float(k_before)
             if ticks.get("e3_tick", False):
                 if pending_before:
                     self.reset_driven += 1
                     self._last_tick_kind = "reset"
-                    self.phase_step_zeroed_by_reset += 1
+                    if self._ep_open is not None:
+                        self._ep_open["reset_driven"] += 1
                     gated = [c for c in self._window if c not in UNGATED_CLASSES]
                     if gated:
                         self.reset_driven_gated += 1
                     else:
                         self.reset_driven_ungated_only += 1
+                    self._close_cycle(terminated_by="reset")
                 else:
                     self.clock_driven += 1
                     self._last_tick_kind = "clock"
+                    if self._ep_open is not None:
+                        self._ep_open["clock_driven"] += 1
+                    self._close_cycle(terminated_by="clock")
             else:
                 self._last_tick_kind = None
             self._window = {}
@@ -477,6 +534,8 @@ class CadenceRecorder:
         real_e3 = agent._e3_tick
         def e3_recording(*a: Any, **kw: Any) -> Any:
             self.realized_e3_invocations += 1
+            if self._ep_open is not None:
+                self._ep_open["realized_e3"] += 1
             if self._last_tick_kind is None:
                 self.e3_invocations_without_tick += 1
             return real_e3(*a, **kw)
@@ -494,11 +553,62 @@ class CadenceRecorder:
             self._swap(hip, "compute_completion_signal", cs_recording, real_cs)
         return self
 
+    def mark_episode_start(self) -> None:
+        """Call BEFORE each measurement episode's first `harness.step`.
+
+        Two things depend on it, and both are silent if it is omitted:
+
+        (1) `agent.reset()` calls `clock.reset()`, which sets
+            `_current_e3_steps = _e3_base_steps` (clock.py reset()). The recorder
+            reads K BEFORE `advance()` while the only writer
+            (`update_e3_rate_from_beta`, via `_e1_tick`) runs AFTER it, so the FIRST
+            recorded K of every episode is the BASE value unconditionally. With 30
+            episodes that injects 30 samples of the base period, which is enough to
+            make `n_distinct >= 2` read TRUE on a run whose period is pinned at any
+            other value for every other step -- i.e. the leg (i) non-degeneracy gate
+            would be satisfied by an episode-reset artifact rather than by arousal
+            modulation. `..._n_distinct_steady` excludes these samples and is what
+            the precondition reads.
+        (2) `_window` must not carry a trigger class requested on the previous
+            episode's last step (where `clock.reset()` discards the pending flag)
+            into this episode's first advance.
+        """
+        self._episode_first_pending = True
+        self._window = {}
+        self._close_cycle(terminated_by=None)
+        if self._ep_open is not None:
+            self.episodes.append(dict(self._ep_open))
+        self._ep_open = {"steps": 0, "clock_driven": 0, "reset_driven": 0,
+                         "realized_e3": 0}
+
+    def _close_cycle(self, terminated_by: Optional[str]) -> None:
+        if self._cycle_len > 0:
+            self.cycles.append({
+                "length": self._cycle_len,
+                "expected": self._cycle_expected,
+                "terminated_by": terminated_by,   # None = truncated by episode end
+            })
+            self.expected_total += self._cycle_expected
+            if terminated_by == "clock":
+                self.expected_in_clock_terminated += self._cycle_expected
+            elif terminated_by == "reset":
+                self.expected_lost_to_reset_truncation += self._cycle_expected
+        self._cycle_len = 0
+        self._cycle_expected = 0.0
+
     def _swap(self, obj: Any, name: str, new: Any, old: Any) -> None:
         setattr(obj, name, new)
         self._installed.append((obj, name, old))
 
+    def _flush(self) -> None:
+        """Close the open cycle and episode. Idempotent."""
+        self._close_cycle(terminated_by=None)
+        if self._ep_open is not None:
+            self.episodes.append(dict(self._ep_open))
+            self._ep_open = None
+
     def restore(self) -> None:
+        self._flush()
         for obj, name, old in reversed(self._installed):
             setattr(obj, name, old)
         self._installed = []
@@ -518,6 +628,25 @@ class CadenceRecorder:
         e2_share = 1.0 / float(e2_steps)
         expected = sum(1.0 / float(k) for k in self.k_per_step if k > 0)
         ks = sorted(set(self.k_per_step))
+        # STEADY-STATE periods: every sample EXCEPT each episode's first, which is
+        # clock.reset()'s base value by construction. See mark_episode_start().
+        first = list(self.k_episode_first)
+        steady = list(self.k_per_step)
+        for v in first:
+            if v in steady:
+                steady.remove(v)
+        ks_steady = sorted(set(steady))
+        hist: Dict[str, int] = {}
+        for v in self.k_per_step:
+            hist[str(v)] = hist.get(str(v), 0) + 1
+        ep_shares = [
+            (e["realized_e3"] / float(e["steps"])) for e in self.episodes
+            if e.get("steps")
+        ]
+        ratio_ct = (
+            (self.clock_driven / self.expected_in_clock_terminated)
+            if self.expected_in_clock_terminated > 0 else None
+        )
         zb = self.z_beta_norm_per_step
         share_realized = self.realized_e3_invocations / float(n)
         return {
@@ -525,6 +654,10 @@ class CadenceRecorder:
             # --- REQUIRED RECORDING: per-step period + arousal ---------------
             "current_e3_steps_distinct": ks,
             "current_e3_steps_n_distinct": len(ks),
+            "current_e3_steps_distinct_steady": ks_steady,
+            "current_e3_steps_n_distinct_steady": len(ks_steady),
+            "current_e3_steps_histogram": hist,
+            "current_e3_steps_episode_first_samples": first,
             "current_e3_steps_min": (min(ks) if ks else None),
             "current_e3_steps_max": (max(ks) if ks else None),
             "current_e3_steps_mean": (sum(self.k_per_step) / float(n)) if self.k_per_step else None,
@@ -544,7 +677,22 @@ class CadenceRecorder:
             "reset_driven_ticks": self.reset_driven,
             "reset_driven_ticks_with_gated_requester": self.reset_driven_gated,
             "reset_driven_ticks_ungated_only": self.reset_driven_ungated_only,
-            "phase_step_zeroed_by_reset": self.phase_step_zeroed_by_reset,
+            # --- leg (i) ATTRIBUTION (non-gating; see the cycle-ledger comment) ---
+            "n_cycles": len(self.cycles),
+            "n_cycles_clock_terminated": sum(1 for c in self.cycles if c["terminated_by"] == "clock"),
+            "n_cycles_reset_terminated": sum(1 for c in self.cycles if c["terminated_by"] == "reset"),
+            "expected_total_from_cycles": self.expected_total,
+            "expected_in_clock_terminated_cycles": self.expected_in_clock_terminated,
+            "expected_lost_to_reset_truncation": self.expected_lost_to_reset_truncation,
+            "expected_fraction_lost_to_reset_truncation": (
+                (self.expected_lost_to_reset_truncation / self.expected_total)
+                if self.expected_total > 0 else None),
+            "clock_tracking_ratio_clock_terminated_only": ratio_ct,
+            # --- per-episode rows (generous recording + dv_headroom denominator) ---
+            "per_episode": list(self.episodes),
+            "per_episode_e3_share_realized": ep_shares,
+            "per_episode_e3_share_range": (
+                (max(ep_shares) - min(ep_shares)) if len(ep_shares) >= 2 else None),
             # --- the quantities the criteria read ---------------------------
             "expected_clock_driven": expected,
             "clock_tracking_ratio": (self.clock_driven / expected) if expected > 0 else None,
