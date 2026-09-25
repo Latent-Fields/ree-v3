@@ -12545,6 +12545,11 @@ class REEAgent(nn.Module):
             self.observation_reliability.on_episode_reset()
         if self.replay_provenance is not None:
             self._provenance_env_reset_pending = True
+        # Native waking trainer (T1): drop any half-recorded E2-self transition so no
+        # cross-episode pair is learned. None at defaults -> nothing runs.
+        _wt = getattr(self, "waking_trainer", None)
+        if _wt is not None:
+            _wt.on_env_reset()
 
     def record_executed_action(self, action: torch.Tensor) -> None:
         """

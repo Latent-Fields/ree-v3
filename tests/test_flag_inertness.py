@@ -2359,6 +2359,13 @@ PROBED = {
     # against W4 (ON: e3.harm_eval_head receives gradient and moves, guard PASS) and
     # W5 (ON with a disconnected loss: the guard FAILs and the trainer raises).
     "waking_trainer_enabled",
+    # T1 members (2026-09-25, session bt0925-t1w2a; coupled-loop-repair campaign plan
+    # section 3 W-trainer). Probed by tests/contracts/test_waking_trainer_t1_members.py:
+    # T1a/T1b (OFF: never constructed; multi-episode rollout byte-identical to the
+    # pre-change path) against T3/T4 (ON: e1 / e2_self groups receive gradient and move,
+    # guard PASS) and T5 (ON with a disconnected loss: the trainer raises).
+    "waking_trainer_e1_enabled",
+    "waking_trainer_e2_self_enabled",
     # SD-PP-1..4 precision-provenance substrate (2026-09-22, session
     # compassionate-pike-fe9174; contract REE_assembly/docs/architecture/
     # precision_provenance_substrate_spec.md). Probed by

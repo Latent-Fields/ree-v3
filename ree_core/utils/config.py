@@ -8054,6 +8054,17 @@ class REEConfig:
     waking_trainer_buffer_max: int = 2000     # replay window (recent waking ticks)
     waking_trainer_guard_min_steps: int = 8   # design 3c: G4 window; 0 disarms the guard
     waking_trainer_seed: int = 0              # private trainer RNG seed
+    # T1 members (coupled-loop-repair campaign plan section 3 W-trainer; REE_assembly
+    # evidence/planning/coupled_loop_repair_campaign_plan.md). Each is read only when
+    # waking_trainer_enabled is True; both False (default) -> the trainer holds exactly the
+    # harm_eval member (the C1 trainer). E1Member steps the native compute_prediction_loss
+    # over e1; E2SelfMember steps the native compute_e2_loss over transitions it records
+    # itself (e2.self_transition + e2.self_action_encoder). Guard-armed like harm_eval.
+    # Pinned by tests/contracts/test_waking_trainer_t1_members.py.
+    waking_trainer_e1_enabled: bool = False
+    waking_trainer_e1_lr: float = 1e-3
+    waking_trainer_e2_self_enabled: bool = False
+    waking_trainer_e2_self_lr: float = 1e-3
 
     def __post_init__(self) -> None:
         # MECH-307 master flag resolver. When the convenience master flag
@@ -9631,6 +9642,12 @@ class REEConfig:
         config.waking_trainer_guard_min_steps = int(
             kwargs.pop("waking_trainer_guard_min_steps", 8))
         config.waking_trainer_seed = int(kwargs.pop("waking_trainer_seed", 0))
+        # T1 members (tests/contracts/test_waking_trainer_t1_members.py T8).
+        config.waking_trainer_e1_enabled = bool(kwargs.pop("waking_trainer_e1_enabled", False))
+        config.waking_trainer_e1_lr = float(kwargs.pop("waking_trainer_e1_lr", 1e-3))
+        config.waking_trainer_e2_self_enabled = bool(
+            kwargs.pop("waking_trainer_e2_self_enabled", False))
+        config.waking_trainer_e2_self_lr = float(kwargs.pop("waking_trainer_e2_self_lr", 1e-3))
 
         # Observation dims
         config.latent.body_obs_dim = body_obs_dim

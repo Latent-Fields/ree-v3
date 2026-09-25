@@ -20,10 +20,30 @@ What this landing contains (and deliberately does not)
 ------------------------------------------------------
 * The trainer spine: member registration, one optimizer per member group, the K-tick
   cadence, RNG isolation, the armed guard.
-* ONE member: ``HarmEvalMember`` (design section 1a row 5 / section 4a M3).
-* NOT registered here (the coupled campaign's job, on an integration branch): E1, E2-self,
-  E2-world, SD-070 P0, ZSelfP0, the codec, the terrain prior. ``WakingTrainer.register``
-  is the seam they plug into.
+* ``HarmEvalMember`` (design section 1a row 5 / section 4a M3): always registered when
+  the trainer is ON.
+* T1 (coupled-loop-repair campaign plan, REE_assembly
+  ``evidence/planning/coupled_loop_repair_campaign_plan.md`` section 3 W-trainer):
+  ``E1Member`` (map rows 1-2, the native ``compute_prediction_loss``) behind
+  ``waking_trainer_e1_enabled`` and ``E2SelfMember`` (map row 3, the native
+  ``compute_e2_loss`` over the member's OWN transitions, design section 2 (i) point 3)
+  behind ``waking_trainer_e2_self_enabled``. Both default OFF; with them OFF an ON
+  trainer is the C1 trainer exactly (one member).
+* NOT registered here (the coupled campaign's branch work): E2-world, SD-070 P0, ZSelfP0,
+  the codec, the terrain prior. ``WakingTrainer.register`` is the seam they plug into.
+
+Retained-graph hazard (design section 2 (iii)): ``agent._last_action`` is NOT detached by
+default and carries the previous tick's selection graph (SD-007 reafference); an
+undetached action in a replay buffer makes a replay backward walk E3's graph and fail with
+"modified by an inplace operation" (``REEAgent.record_transition`` docstring). Every sample
+a member records is therefore ``.detach().clone()``-ed at record time, and E1 replays the
+agent's own already-detached experience buffers. A second, ON-only exposure is stated
+rather than hidden: an update steps parameters IN PLACE inside ``update_residue``, so a
+DRIVER that holds a live tick graph through a trained module (e.g. a REINFORCE log-prob
+through E3 scoring) and calls ``backward()`` on it AFTER ``update_residue`` would hit the
+same in-place error. No ree_core path does that at defaults (the census found 0 native
+optimizers); drivers that train their own heads should keep the trainer OFF or backprop
+before ``update_residue``.
 
 Default OFF, bit-identical
 --------------------------
@@ -111,6 +131,16 @@ class WakingTrainerMember:
         """One replay-batch loss, or None when the buffer is not ready."""
         raise NotImplementedError
 
+    def on_env_reset(self) -> None:
+        """Episode / env boundary (``REEAgent.notify_env_reset``). Default: nothing."""
+        return None
+
+
+def _resolve_named(agent: Any, modules: Sequence[torch.nn.Module]) -> List[Tuple[str, torch.nn.Parameter]]:
+    """Agent-level (name, param) pairs for the trainable params of ``modules``."""
+    ids = {id(p) for m in modules for p in m.parameters() if p.requires_grad}
+    return [(n, p) for n, p in agent.named_parameters() if id(p) in ids]
+
 
 class HarmEvalMember(WakingTrainerMember):
     """``e3.harm_eval_head`` regression on experienced harm (design section 1a row 5).
@@ -163,6 +193,113 @@ class HarmEvalMember(WakingTrainerMember):
         return F.mse_loss(pred, tgt)
 
 
+class E1Member(WakingTrainerMember):
+    """E1 multi-step latent prediction (design section 1a rows 1-2; T1).
+
+    Loss: the agent's NATIVE ``compute_prediction_loss`` -- unchanged -- over the agent's
+    own ``_self/_world_experience_buffer`` (appended DETACHED inside the E1 tick, so the
+    replay backward cannot reach the live tick graph). ``observe`` records nothing: the
+    agent fills those buffers itself. ``compute_prediction_loss`` saves and restores
+    ``e1._hidden_state`` around its rollout, so the live E1 recurrence is untouched; its one
+    ``torch.randint`` runs on the trainer's private RNG state (``WakingTrainer._update``).
+
+    Group: every trainable ``agent.e1`` tensor (the design's A_e1 recipe, guard PASS on
+    seeds 42/43). ``e1.context_memory.write_gate`` stays IN the group on purpose: it is in
+    ``FROZEN_BY_DESIGN`` (non-gradient write under ``torch.no_grad``), so the guard's G3
+    check verifies on every ON run that it still receives no gradient -- a stale allowlist
+    entry would FAIL rather than hide.
+    """
+
+    name = "e1"
+
+    def __init__(self, agent: Any, lr: float) -> None:
+        self._agent = agent
+        self.lr = float(lr)
+        self._named = _resolve_named(agent, [agent.e1])
+
+    def named_parameters(self) -> List[Tuple[str, torch.nn.Parameter]]:
+        return list(self._named)
+
+    def observe(self, agent: Any, harm_signal: float) -> None:
+        return None  # the agent's own E1 tick fills the (detached) experience buffers
+
+    def ready(self) -> bool:
+        return len(self._agent._world_experience_buffer) >= 2
+
+    def loss(self, agent: Any) -> Optional[torch.Tensor]:
+        if not self.ready():
+            return None
+        return agent.compute_prediction_loss()
+
+
+class E2SelfMember(WakingTrainerMember):
+    """E2 motor-sensory forward model on the member's OWN transitions (map row 3; T1).
+
+    Records (z_self_t, a_t, z_self_{t+1}) itself from ``agent._current_latent`` and
+    ``agent._last_action`` at each waking ``update_residue`` call (design section 2 (i)
+    point 3), so a driver that never calls ``record_transition`` cannot silently starve
+    the group. At the tick-t call ``_current_latent`` is the latent sensed at t and
+    ``_last_action`` is a_t (StepHarness order: sense -> act -> env.step ->
+    update_residue); the pair is completed by the NEXT call's z_self. All three tensors
+    are ``.detach().clone()``-ed at record time (the retained-graph hazard: ``_last_action``
+    is undetached by default). A pending pair is dropped at an env boundary
+    (``on_env_reset``, fired by ``REEAgent.notify_env_reset``, which ``reset()`` calls) and
+    whenever the agent's step counter went backwards, so no cross-episode transition is
+    recorded.
+
+    Loss: the agent's NATIVE ``compute_e2_loss`` -- unchanged -- run with the member's
+    buffer swapped in for ``agent._e2_transition_buffer`` for the duration of the call and
+    restored after (the harness-filled agent buffer is never read or modified).
+    Group: ``e2.self_transition`` + ``e2.self_action_encoder``, the only tensors
+    ``predict_next_self`` reads.
+    """
+
+    name = "e2_self"
+
+    def __init__(self, agent: Any, lr: float, batch_size: int, buffer_max: int) -> None:
+        self.lr = float(lr)
+        self.batch_size = int(batch_size)
+        self._buf: Deque[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]] = deque(
+            maxlen=int(buffer_max))
+        self._pending: Optional[Tuple[torch.Tensor, torch.Tensor, int]] = None
+        self._named = _resolve_named(agent, [agent.e2.self_transition,
+                                             agent.e2.self_action_encoder])
+
+    def named_parameters(self) -> List[Tuple[str, torch.nn.Parameter]]:
+        return list(self._named)
+
+    def on_env_reset(self) -> None:
+        self._pending = None
+
+    def observe(self, agent: Any, harm_signal: float) -> None:
+        lat = agent._current_latent
+        z = getattr(lat, "z_self", None) if lat is not None else None
+        step = int(getattr(agent, "_step_count", 0))
+        if z is None:
+            self._pending = None
+            return
+        z = z.detach().reshape(1, -1).clone()
+        pend = self._pending
+        if pend is not None and step >= pend[2]:
+            self._buf.append((pend[0], pend[1], z))
+        act = agent._last_action
+        self._pending = (None if act is None
+                         else (z, act.detach().reshape(1, -1).clone(), step))
+
+    def ready(self) -> bool:
+        return len(self._buf) >= max(2, self.batch_size)
+
+    def loss(self, agent: Any) -> Optional[torch.Tensor]:
+        if not self.ready():
+            return None
+        saved = agent._e2_transition_buffer
+        agent._e2_transition_buffer = list(self._buf)
+        try:
+            return agent.compute_e2_loss(batch_size=self.batch_size)
+        finally:
+            agent._e2_transition_buffer = saved
+
+
 class WakingTrainer:
     """Agent-owned waking trainer: per-member optimizers, K-tick cadence, armed guard.
 
@@ -184,12 +321,25 @@ class WakingTrainer:
         self.guard_results: Dict[str, GradReachResult] = {}
         self.ticks: int = 0
         if members is None:
+            batch_size = int(getattr(config, "waking_trainer_batch_size", 16))
+            buffer_max = int(getattr(config, "waking_trainer_buffer_max", 2000))
             members = [HarmEvalMember(
                 agent,
                 lr=float(getattr(config, "waking_trainer_harm_eval_lr", 1e-3)),
-                batch_size=int(getattr(config, "waking_trainer_batch_size", 16)),
-                buffer_max=int(getattr(config, "waking_trainer_buffer_max", 2000)),
+                batch_size=batch_size,
+                buffer_max=buffer_max,
             )]
+            # T1 members: each behind its own default-OFF knob (read defensively).
+            if bool(getattr(config, "waking_trainer_e1_enabled", False)):
+                members.append(E1Member(
+                    agent, lr=float(getattr(config, "waking_trainer_e1_lr", 1e-3))))
+            if bool(getattr(config, "waking_trainer_e2_self_enabled", False)):
+                members.append(E2SelfMember(
+                    agent,
+                    lr=float(getattr(config, "waking_trainer_e2_self_lr", 1e-3)),
+                    batch_size=batch_size,
+                    buffer_max=buffer_max,
+                ))
         for m in members:
             self.register(m)
 
@@ -211,6 +361,11 @@ class WakingTrainer:
 
     def group_names(self, member: str) -> List[str]:
         return [n for n, _ in self.members[member].named_parameters()]
+
+    def on_env_reset(self) -> None:
+        """Env / episode boundary (from ``REEAgent.notify_env_reset``). Draws nothing."""
+        for m in self.members.values():
+            m.on_env_reset()
 
     # -- the per-step entry (called from REEAgent.update_residue) ------------------------
     def on_waking_step(self, harm_signal: float) -> Dict[str, Any]:
