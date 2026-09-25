@@ -33,15 +33,24 @@
   E2_harm_a yields a cross-candidate spread that is noise.
   Liveness (measured 2026-09-25, untrained agent, CausalGridWorldV2 8x8 / 8 hazards,
   use_dacc + affective harm + salience + lateral PFC + saturation, dacc_weight=1.0,
-  80 ticks): effort spread > 0 on 80/80 ticks (legacy 0/80); max
-  |harm_interaction| 4.70 (legacy 0.0); dACC bias ON vs OFF differs every tick.
+  600 env steps). The dACC block runs only on E3 ticks (it sits after select_action's
+  `not ticks["e3_tick"]` early return), so counts are FRESH dACC evaluations with the
+  `_dacc_last_*` latch cleared before every call: 61 fresh evaluations in 600 steps;
+  effort spread > 0 on 61/61 (legacy "horizon": 0/61).
   SCALE CAVEAT (INERT at default cost): at `dacc_effort_cost=0.1` the effort-term
-  range (~0.02) is ~1000x below the E3 payoff range (~25), so committed actions
-  are unchanged (0/60 ticks); at `dacc_effort_cost=10` they change on 10/60 ticks.
-  Control: under `"horizon"`, raising cost 0.1 -> 10 changes 0/60 actions (uniform
-  shift). A validation run must therefore set `dacc_effort_cost` (or
-  `dacc_bias_max_abs`) so the effort term is on the payoff's scale, and train
-  E2_harm_a first.
+  range (~0.02) is ~1000x below the E3 payoff range (~25), so committed actions are
+  unchanged (0/600 steps differ from the horizon arm); at `dacc_effort_cost=10`,
+  40/600 steps differ. Control: under `"horizon"`, raising cost 0.1 -> 10 changes
+  0/600 actions (uniform shift). A validation run must therefore set
+  `dacc_effort_cost` (or `dacc_bias_max_abs`) so the effort term is on the payoff's
+  scale, and train E2_harm_a first.
+  CORRECTION (same day): the first version of this record said "80/80 ticks" and
+  "10/60 ticks"; those counted latched `_dacc_last_*` re-reads on non-E3 steps
+  (~10x pseudo-replication), not fresh evaluations. The direction was unaffected.
+  E2_harm_a quality caveat: SD-PP-B9 (open, degrading) measured E2_harm_a BELOW the
+  z(t-1) persistence predictor on V3-EXQ-1062a, so the cross-candidate effort
+  spread may be dominated by model error -- liveness here is not validity; see the
+  validation experiment.
   Contract: `tests/contracts/test_sd032b_candidate_effort_proxy.py` (9 tests; all 9
   FAIL against the pre-amendment tree -- effort_term uniform at 97.35 over K=32).
   Validation experiment: not yet queued (see WORKSPACE_STATE / claim note).
