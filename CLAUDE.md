@@ -431,6 +431,7 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
 - **[SD-100](docs/substrate/SD-100-arc-032-mech-089-phase-aware.md)** — ARC-032 / MECH-089: Phase-Aware ThetaBuffer Summary -- IMPLEMENTED (2026-08-10) *(~1,544 tok)*
 - **[SD-102](docs/substrate/SD-102-mech-482-policy-epistemic-deficit.md)** — MECH-482: policy.epistemic_deficit_accumulator -- IMPLEMENTED (2026-08-29) *(~1,713 tok)*
 - **[SD-104](docs/substrate/SD-104-sd-105-phasic-burst-refractory-duty.md)** — SD-105: phasic burst refractory duty bound + selection-entropy headroom floor (the two coupled regulator defects blocking MECH-063 (ii)) -- IMPLEMENTED (2026-09-04) *(~2,254 tok)*
+- **[SD-105](docs/substrate/SD-105-frozen-shared-entropy-floor-multiplier.md)** — control_plane.selection_entropy_headroom_floor freeze/share API: frozen, shared entropy-floor multiplier for difference-of-arms designs -- IMPLEMENTED (2026-09-25) *(~1,150 tok)*
 - **[SD-106](docs/substrate/SD-106-generic-bottleneck-variance-preservation.md)** — encoder.generic_bottleneck_variance_preservation: scale-normalised preservation term + zero-init encoder bypass at the observation->z_world bottleneck (successor shape to SD-018) -- IMPLEMENTED (2026-09-11) *(~1,500 tok)*
 - **SD-DECISIONS-IMPLEMENTED** — 6 records, ~11,739 tok total. **roll-up ledger of many small SD entries -- grep here first when no single file owns an sd_id.**
     - [SD Design Decisions Implemented](docs/substrate/SD-DECISIONS-IMPLEMENTED-sd-design-decisions-implemented.md) *(~3,435 tok)*

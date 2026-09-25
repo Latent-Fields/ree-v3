@@ -1340,6 +1340,14 @@ class REEAgent(nn.Module):
                     deadband=getattr(
                         config, "selection_entropy_floor_deadband", 0.05
                     ),
+                    # FREEZE / SHARE (sd105_frozen_shared_entropy_floor_
+                    # multiplier). None / 0 = live controller, bit-identical.
+                    frozen_multiplier=getattr(
+                        config, "selection_entropy_floor_frozen_multiplier", None
+                    ),
+                    freeze_after_ticks=getattr(
+                        config, "selection_entropy_floor_freeze_after_ticks", 0
+                    ),
                 )
             )
 
@@ -3994,6 +4002,21 @@ class REEAgent(nn.Module):
             dict(r) for r in self._mech287_episode_snapshots
             if phase is None or r.get("phase") == phase
         ]
+
+    def freeze_selection_entropy_floor(self) -> float:
+        """SD-105 CONVERGE-THEN-FREEZE: latch the live multiplier, one-way.
+
+        Call at the warmup boundary, read the returned m*, and build every arm
+        of a contrast with selection_entropy_floor_frozen_multiplier=m* (the
+        SHARE path). Raises when the floor is off -- freezing a regulator that
+        does not exist is a harness bug, not a no-op.
+        """
+        if self.selection_entropy_floor is None:
+            raise RuntimeError(
+                "freeze_selection_entropy_floor() called but "
+                "use_selection_entropy_floor is False (no regulator to freeze)."
+            )
+        return float(self.selection_entropy_floor.freeze())
 
     def reset(self) -> None:
         """Reset agent for a new episode. Does NOT reset residue (invariant)."""
@@ -14041,6 +14064,13 @@ class REEAgent(nn.Module):
             ),
             "present": bool(_sef_reg is not None),
         }
+        # FREEZE / SHARE reporting: a contrast driver ASSERTS the multiplier
+        # is identical across arms (max - min == 0.0, frozen everywhere)
+        # rather than measuring how far a live controller drifted. None when
+        # the floor is off.
+        _sef_st = _sef_reg.get_state() if _sef_reg is not None else None
+        for _k in ("frozen", "frozen_multiplier", "frozen_at_tick", "frozen_source"):
+            entropy_floor[_k] = _sef_st[_k] if _sef_st is not None else None
         if cv is not None:
             c_time = {
                 "potential": cv["C_time_potential"],

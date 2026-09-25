@@ -126,11 +126,45 @@ EPISODE BOUNDARIES
   this, since it is the opposite of the phasic regulator's DEFAULT and a
   reader is entitled to be surprised.
 
+FREEZE / SHARE (substrate_queue sd105_frozen_shared_entropy_floor_multiplier,
+ratified 2026-09-23 GFLAG-0331 item 6)
+
+  The LIVE closed loop above cannot be armed in a difference-of-arms design
+  whose DV is realised selection entropy: a set-point controller applies a
+  DIFFERENT lift per arm precisely because the arms start at different
+  entropies, so it COMPRESSES the contrast it was meant to preserve
+  (V3-EXQ-963b red-team F1, ree-v3 d2104f88f4, verified against 963a's own
+  per-arm data). The earlier "enabled identically in every arm, so both arms
+  are lifted together" reasoning in WHERE IT IS APPLIED holds only for a
+  CONSTANT multiplier -- which is what this API provides.
+
+  (i) CONVERGE-THEN-FREEZE. freeze() is a one-way latch: the integrator stops
+      and log_mult stays at its converged value. observe() keeps advancing
+      the EMA and the diagnostic counters, so a driver can see whether the
+      frozen value HELD entropy at the floor. There is no unfreeze() -- a
+      one-way latch is the auditable form. freeze_after_ticks=N latches
+      automatically once the Nth real observation has been integrated, for a
+      harness that cannot reach the agent at the warmup boundary.
+  (ii) SHARE. frozen_multiplier=m constructs the regulator ALREADY frozen at
+      m and it never integrates, so every arm of a contrast can be built with
+      the same literal float converged once on a warmup agent. Setting both
+      knobs is a ValueError.
+  (iii) REPORT. get_state() carries frozen / frozen_multiplier /
+      frozen_at_tick / frozen_source, so a driver ASSERTS cross-arm identity
+      (max - min == 0.0) instead of measuring drift.
+
+  The freeze SURVIVES reset(), like the EMA and integrator: a multiplier that
+  unfroze at an episode boundary would reintroduce the V3-EXQ-779b
+  episode-length confound. simulation_mode (MECH-094) returns before any of
+  this, so replay never freezes and never moves a frozen value.
+
 BLAST RADIUS
 
   use_selection_entropy_floor defaults False, the agent does not instantiate
   the regulator when it is False, and the call site adds nothing -- so every
-  existing experiment is bit-identical.
+  existing experiment is bit-identical. frozen_multiplier=None and
+  freeze_after_ticks=0 (the defaults) leave the live controller's trace
+  bit-identical as well.
 """
 
 from __future__ import annotations
@@ -187,6 +221,11 @@ class SelectionEntropyFloorConfig:
         ema_decay : EMA rate for the realised-entropy estimate.
         deadband : one-sided band ABOVE target within which the integrator is
             left alone, so it does not chatter around the set-point.
+        frozen_multiplier : SHARE path. None (default) = live controller.
+            A float m in [1.0, max_temperature_ratio] constructs the
+            regulator already frozen at m; it never integrates.
+        freeze_after_ticks : auto-freeze after this many real observations.
+            0 (default) = never. Mutually exclusive with frozen_multiplier.
     """
 
     enabled: bool = True
@@ -195,6 +234,8 @@ class SelectionEntropyFloorConfig:
     max_temperature_ratio: float = 8.0
     ema_decay: float = 0.2
     deadband: float = 0.05
+    frozen_multiplier: Optional[float] = None
+    freeze_after_ticks: int = 0
 
 
 class SelectionEntropyFloor:
@@ -210,6 +251,10 @@ class SelectionEntropyFloor:
       reset()
         Clear PER-EPISODE diagnostics. The EMA and integrator survive -- see
         the EPISODE BOUNDARIES block in the module docstring.
+      freeze() -> float
+        One-way latch: stop integrating, keep the current multiplier. See
+        the FREEZE / SHARE block in the module docstring.
+      frozen -> bool
       get_state() / diagnostics -> dict
         Read-only snapshot for experiment manifests and telemetry.
     """
@@ -237,6 +282,29 @@ class SelectionEntropyFloor:
             )
         if float(c.deadband) < 0.0:
             raise ValueError(f"deadband must be >= 0. Got {c.deadband}.")
+        if int(c.freeze_after_ticks) < 0:
+            raise ValueError(
+                f"freeze_after_ticks must be >= 0 (0 = off). Got "
+                f"{c.freeze_after_ticks}."
+            )
+        if c.frozen_multiplier is not None:
+            if int(c.freeze_after_ticks) > 0:
+                raise ValueError(
+                    "frozen_multiplier and freeze_after_ticks are mutually "
+                    "exclusive: a regulator constructed frozen has nothing "
+                    "left to converge. Set one or the other."
+                )
+            m = float(c.frozen_multiplier)
+            if not math.isfinite(m) or m < 1.0:
+                raise ValueError(
+                    "frozen_multiplier must be a finite value >= 1.0 (the "
+                    f"floor can only ADD exploration). Got {c.frozen_multiplier}."
+                )
+            if m > float(c.max_temperature_ratio):
+                raise ValueError(
+                    "frozen_multiplier must be <= max_temperature_ratio "
+                    f"({c.max_temperature_ratio}). Got {c.frozen_multiplier}."
+                )
         self._log_mult_cap: float = math.log(float(c.max_temperature_ratio))
         # Lifetime state -- survives reset() (see module docstring).
         self._log_mult: float = 0.0
@@ -249,6 +317,15 @@ class SelectionEntropyFloor:
         self._last_entropy: float = 0.0
         self._n_observations: int = 0
         self._n_simulation_skips: int = 0
+        # Freeze latch (lifetime state -- survives reset()).
+        self._frozen: bool = False
+        self._frozen_at_tick: Optional[int] = None
+        self._frozen_source: Optional[str] = None
+        if c.frozen_multiplier is not None:
+            self._log_mult = math.log(float(c.frozen_multiplier))
+            self._frozen = True
+            self._frozen_at_tick = 0
+            self._frozen_source = "config"
 
     # ------------------------------------------------------------------
     # Forward path
@@ -295,12 +372,17 @@ class SelectionEntropyFloor:
 
         if h_ema < target:
             self._n_ticks_below_target += 1
-            self._log_mult += gain * (target - h_ema)
+            if not self._frozen:
+                self._log_mult += gain * (target - h_ema)
         elif h_ema > target + deadband:
             # Relax -- but never below a multiplier of 1.0. See the
             # ONE-SIDEDNESS paragraph in the module docstring.
-            self._log_mult -= gain * (h_ema - target - deadband)
+            if not self._frozen:
+                self._log_mult -= gain * (h_ema - target - deadband)
         # else: inside the deadband, integrator untouched.
+        # Frozen: the EMA and counters above/below still advance (so a driver
+        # can see whether the frozen value HELD entropy at the floor), but
+        # log_mult does not move.
 
         if self._log_mult < 0.0:
             self._log_mult = 0.0
@@ -312,7 +394,30 @@ class SelectionEntropyFloor:
         ):
             self._n_ticks_saturated += 1
 
+        n_freeze = int(self.config.freeze_after_ticks)
+        if n_freeze > 0 and not self._frozen and self._lifetime_ticks >= n_freeze:
+            self._latch("converged")
+
         return float(self.temperature_multiplier)
+
+    def freeze(self) -> float:
+        """Latch the current multiplier; stop integrating. One-way.
+
+        Idempotent: a second call is a no-op and keeps the FIRST
+        frozen_at_tick / frozen_source. There is no unfreeze() -- see the
+        FREEZE / SHARE block in the module docstring.
+
+        Returns:
+            the frozen temperature multiplier (>= 1.0).
+        """
+        if not self._frozen:
+            self._latch("converged")
+        return float(self.temperature_multiplier)
+
+    def _latch(self, source: str) -> None:
+        self._frozen = True
+        self._frozen_at_tick = int(self._lifetime_ticks)
+        self._frozen_source = source
 
     def apply_to_temperature(self, tonic_temperature: float) -> float:
         """Return the lifted tonic temperature (multiplier is always >= 1)."""
@@ -342,6 +447,11 @@ class SelectionEntropyFloor:
             and self._log_mult >= self._log_mult_cap - 1e-12
         )
 
+    @property
+    def frozen(self) -> bool:
+        """True once the multiplier is latched (freeze() or frozen_multiplier)."""
+        return bool(self._frozen)
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -351,7 +461,8 @@ class SelectionEntropyFloor:
         The entropy EMA and the integrator deliberately SURVIVE -- see the
         EPISODE BOUNDARIES block in the module docstring for why re-converging
         from cold at every boundary would reintroduce the V3-EXQ-779b
-        episode-length confound on a new axis.
+        episode-length confound on a new axis. The freeze latch survives for
+        the same reason.
         """
         self._last_entropy = 0.0
         self._n_observations = 0
@@ -375,6 +486,15 @@ class SelectionEntropyFloor:
             "n_observations": int(self._n_observations),
             "n_simulation_skips": int(self._n_simulation_skips),
             "continuity_note": "ema_and_integrator_survive_reset",
+            # FREEZE / SHARE reporting. frozen_multiplier is None while the
+            # controller is live; the freeze latch survives reset().
+            "frozen": bool(self._frozen),
+            "frozen_multiplier": (
+                float(self.temperature_multiplier) if self._frozen else None
+            ),
+            "frozen_at_tick": self._frozen_at_tick,
+            "frozen_source": self._frozen_source,
+            "freeze_survives_reset": True,
         }
 
     @property

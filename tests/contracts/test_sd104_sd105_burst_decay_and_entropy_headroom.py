@@ -58,6 +58,25 @@ Contracts:
       temperature and the phasic delta is still ADDITIVE on top of it.
   B10 the agent-level readout separates the three channels -- noise_floor_temp
       keeps reporting the PRE-multiplier tonic value.
+
+  SD-105 FREEZE / SHARE (substrate_queue
+  sd105_frozen_shared_entropy_floor_multiplier; V3-EXQ-963b red-team F1: a LIVE
+  set-point armed in every arm of a difference-of-arms design on selection
+  entropy applies a DIFFERENT lift per arm and compresses the contrast):
+  B11 freeze() latches the multiplier and stops integration while the EMA and
+      counters keep advancing; freeze_after_ticks latches at the Nth tick.
+  B12 THE SHARE CONTRACT -- two independently constructed agents on different
+      seeds (divergent entropy streams) emit the IDENTICAL multiplier on every
+      tick, and it differs from what the live controller would emit.
+  B13 a frozen multiplier below 1.0, above the cap, or non-finite is rejected.
+  B14 defaults are bit-identical to the unfrozen controller -- the live trace
+      matches the pre-freeze integrator arithmetic exactly, and reports unfrozen.
+  B15 the freeze latch survives reset().
+  B16 MECH-094 -- simulation_mode neither triggers a freeze nor moves a frozen
+      multiplier.
+  B17 get_state() and the agent control vector report the frozen fields.
+  B18 a frozen value AT the cap still reports saturated True.
+  B19 frozen_multiplier + freeze_after_ticks together raise.
 """
 from __future__ import annotations
 
@@ -489,3 +508,233 @@ def test_b10_noise_floor_readout_stays_uncontaminated():
         "temp_mult", "temp_lift", "observed_entropy", "entropy_ema",
         "headroom_met", "saturated", "present",
     }
+
+
+# ======================================================================
+# SD-105 FREEZE / SHARE
+# ======================================================================
+def _reference_live_trace(stream, target=0.15, gain=0.5, cap=8.0, ema=0.2,
+                          deadband=0.05):
+    """The pre-freeze (ree-v3 ba95c43) integrator arithmetic, restated so B14
+    can pin that the DEFAULT path is bit-identical to it."""
+    log_mult, h_ema, init, out = 0.0, 0.0, False, []
+    log_cap = math.log(cap)
+    for x in stream:
+        h = max(0.0, min(1.0, float(x)))
+        if not init:
+            h_ema, init = h, True
+        else:
+            h_ema = (1.0 - ema) * h_ema + ema * h
+        if h_ema < target:
+            log_mult += gain * (target - h_ema)
+        elif h_ema > target + deadband:
+            log_mult -= gain * (h_ema - target - deadband)
+        log_mult = min(max(log_mult, 0.0), log_cap)
+        out.append(float(math.exp(log_mult)))
+    return out
+
+
+def _entropy_stream(n, seed):
+    rng = random.Random(seed)
+    return [rng.random() * 0.3 for _ in range(n)]
+
+
+def test_b11_freeze_latches_the_multiplier_and_stops_integration():
+    r = _sef(target=0.4, gain=0.5)
+    for _ in range(15):
+        r.observe(0.05)
+    m_before = r.temperature_multiplier
+    assert m_before > 1.0, "fixture: the controller must have integrated"
+    assert r.freeze() == m_before
+    assert r.frozen is True
+    n0 = r.get_state()["n_observations"]
+    ema0 = r.entropy_ema
+    for _ in range(40):
+        m = r.observe(0.0)  # far below target: a live integrator would climb
+    assert m == m_before and r.temperature_multiplier == m_before
+    st = r.get_state()
+    assert st["n_observations"] == n0 + 40      # diagnostics still advance
+    assert st["n_ticks_below_target"] >= 40
+    assert r.entropy_ema != ema0                # the EMA still tracks entropy
+    # Idempotent: a second freeze keeps the FIRST latch point.
+    at = st["frozen_at_tick"]
+    r.freeze()
+    assert r.get_state()["frozen_at_tick"] == at == 15
+    # Auto-freeze latches after exactly N real observations.
+    a = _sef(target=0.4, gain=0.5, freeze_after_ticks=7)
+    for i in range(7):
+        assert a.frozen is False
+        a.observe(0.05)
+    assert a.frozen is True
+    m7 = a.temperature_multiplier
+    for _ in range(20):
+        a.observe(0.0)
+    assert a.temperature_multiplier == m7
+    st = a.get_state()
+    assert st["frozen_at_tick"] == 7 and st["frozen_source"] == "converged"
+
+
+def test_b12_frozen_multiplier_is_identical_across_two_independently_constructed_agents():
+    """THE SHARE CONTRACT. Divergent entropy streams, identical multiplier."""
+    m_star = 2.5
+
+    def _run(seed, frozen):
+        env = _mk_env(seed)
+        cfg = REEConfig.from_dims(
+            use_selection_entropy_floor=True,
+            selection_entropy_floor_target=0.9,   # unreachable: live would climb
+            selection_entropy_floor_gain=1.0,
+            selection_entropy_floor_frozen_multiplier=(m_star if frozen else None),
+            **_dims(env),
+        )
+        cfg.use_control_vector_logging = True
+        torch.manual_seed(seed)
+        np.random.seed(seed)
+        random.seed(seed)
+        agent = REEAgent(cfg)
+        emitted = []
+        orig = agent.selection_entropy_floor.observe
+
+        def _spy(h, simulation_mode=False):
+            m = orig(h, simulation_mode=simulation_mode)
+            emitted.append(m)
+            return m
+
+        agent.selection_entropy_floor.observe = _spy
+        StepHarness(agent, env, train_mode=True, seed=seed).run_episode(max_steps=25)
+        return agent, emitted
+
+    a1, e1 = _run(3, frozen=True)
+    a2, e2 = _run(11, frozen=True)
+    assert len(e1) > 5 and len(e2) > 5, "the floor never observed a distribution"
+    assert set(e1) == {m_star} and set(e2) == {m_star}
+    s1 = a1.selection_entropy_floor.get_state()
+    s2 = a2.selection_entropy_floor.get_state()
+    assert s1["entropy_ema"] != s2["entropy_ema"], (
+        "fixture: the two agents must see DIFFERENT entropy streams, otherwise "
+        "identical multipliers prove nothing"
+    )
+    for a in (a1, a2):
+        ef = a._last_control_vector["entropy_floor"]
+        assert ef["temp_mult"] == m_star
+        assert ef["frozen"] is True and ef["frozen_multiplier"] == m_star
+    # Liveness: the live controller on the same seed does NOT emit m_star.
+    _, live = _run(3, frozen=False)
+    assert live[-1] != m_star and len(set(live)) > 1
+
+
+def test_b13_frozen_multiplier_below_one_or_above_cap_is_rejected():
+    with pytest.raises(ValueError, match="frozen_multiplier"):
+        _sef(frozen_multiplier=0.99)
+    with pytest.raises(ValueError, match="frozen_multiplier"):
+        _sef(frozen_multiplier=8.01, max_temperature_ratio=8.0)
+    with pytest.raises(ValueError, match="frozen_multiplier"):
+        _sef(frozen_multiplier=float("nan"))
+    with pytest.raises(ValueError, match="freeze_after_ticks"):
+        _sef(freeze_after_ticks=-1)
+    # The boundaries themselves are legal.
+    assert _sef(frozen_multiplier=1.0).temperature_multiplier == 1.0
+    assert _sef(frozen_multiplier=8.0).temperature_multiplier == pytest.approx(8.0)
+
+
+def test_b14_defaults_are_bit_identical_to_the_unfrozen_controller():
+    stream = _entropy_stream(300, seed=5)
+    r = _sef()
+    got = [r.observe(x) for x in stream]
+    assert got == _reference_live_trace(stream)   # exact, not approx
+    assert len(set(got)) > 1, "fixture: the live trace must actually move"
+    st = r.get_state()
+    assert st["frozen"] is False
+    assert st["frozen_multiplier"] is None
+    assert st["frozen_at_tick"] is None and st["frozen_source"] is None
+    cfg = REEConfig()
+    assert cfg.selection_entropy_floor_frozen_multiplier is None
+    assert cfg.selection_entropy_floor_freeze_after_ticks == 0
+
+
+def test_b15_freeze_state_survives_reset():
+    r = _sef(target=0.4, gain=0.5)
+    for _ in range(12):
+        r.observe(0.05)
+    m = r.freeze()
+    r.reset()
+    st = r.get_state()
+    assert st["frozen"] is True and st["frozen_multiplier"] == m
+    assert st["frozen_at_tick"] == 12 and st["freeze_survives_reset"] is True
+    for _ in range(20):
+        r.observe(0.0)
+    assert r.temperature_multiplier == m
+    c = _sef(frozen_multiplier=3.0)
+    c.reset()
+    assert c.frozen is True and c.temperature_multiplier == pytest.approx(3.0)
+
+
+def test_b16_simulation_mode_neither_freezes_nor_moves_a_frozen_multiplier():
+    a = _sef(target=0.4, freeze_after_ticks=3)
+    for _ in range(50):
+        a.observe(0.0, simulation_mode=True)
+    assert a.frozen is False, "replay must not count toward freeze_after_ticks"
+    assert a.get_state()["lifetime_ticks"] == 0
+    f = _sef(frozen_multiplier=2.0)
+    for x in (0.0, 0.99, 0.5):
+        assert f.observe(x, simulation_mode=True) == pytest.approx(2.0)
+    assert f.get_state()["n_simulation_skips"] == 3
+    assert f.temperature_multiplier == pytest.approx(2.0)
+
+
+def test_b17_get_state_and_agent_control_vector_report_the_frozen_fields():
+    keys = {"frozen", "frozen_multiplier", "frozen_at_tick", "frozen_source"}
+    st = _sef(frozen_multiplier=2.0).get_state()
+    assert keys <= set(st)
+    assert st["frozen"] is True and st["frozen_source"] == "config"
+    assert st["frozen_at_tick"] == 0
+    assert st["frozen_multiplier"] == pytest.approx(2.0)
+    # Agent: freeze via the public method, then the control vector mirrors it.
+    env = _mk_env(0)
+    cfg = REEConfig.from_dims(
+        use_selection_entropy_floor=True,
+        selection_entropy_floor_target=0.9,
+        selection_entropy_floor_gain=1.0,
+        selection_entropy_floor_freeze_after_ticks=0,
+        **_dims(env),
+    )
+    cfg.use_control_vector_logging = True
+    agent, _ = _run_agent(cfg, steps=10)
+    m = agent.freeze_selection_entropy_floor()
+    StepHarness(agent, _mk_env(1), train_mode=True, seed=1).run_episode(max_steps=10)
+    ef = agent._last_control_vector["entropy_floor"]
+    assert keys <= set(ef)
+    assert ef["frozen"] is True and ef["frozen_source"] == "converged"
+    assert ef["frozen_multiplier"] == m == ef["temp_mult"]
+    # Floor off: the fields exist and read None; freezing raises.
+    cfg_off = REEConfig.from_dims(**_dims(env))
+    cfg_off.use_control_vector_logging = True
+    off, _ = _run_agent(cfg_off, steps=5)
+    ef_off = off._last_control_vector["entropy_floor"]
+    assert all(ef_off[k] is None for k in keys)
+    with pytest.raises(RuntimeError, match="use_selection_entropy_floor"):
+        off.freeze_selection_entropy_floor()
+
+
+def test_b18_frozen_at_cap_still_reports_saturated():
+    r = _sef(frozen_multiplier=4.0, max_temperature_ratio=4.0)
+    assert r.saturated is True
+    for _ in range(5):
+        r.observe(0.0)
+    st = r.get_state()
+    assert st["saturated"] is True and st["n_ticks_saturated"] == 5
+    assert _sef(frozen_multiplier=3.9, max_temperature_ratio=4.0).saturated is False
+
+
+def test_b19_frozen_multiplier_and_freeze_after_ticks_together_raise():
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        _sef(frozen_multiplier=2.0, freeze_after_ticks=10)
+    env = _mk_env(0)
+    cfg = REEConfig.from_dims(
+        use_selection_entropy_floor=True,
+        selection_entropy_floor_frozen_multiplier=2.0,
+        selection_entropy_floor_freeze_after_ticks=10,
+        **_dims(env),
+    )
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        REEAgent(cfg)

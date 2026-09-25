@@ -5334,6 +5334,20 @@ class REEConfig:
     # the smoothed entropy exceeds target + deadband, so the controller does
     # not chatter around the set-point.
     selection_entropy_floor_deadband: float = 0.05
+    # SD-105 FREEZE / SHARE (substrate_queue
+    # sd105_frozen_shared_entropy_floor_multiplier). A LIVE closed-loop
+    # set-point cannot be armed in a difference-of-arms design whose DV is the
+    # entropy it regulates -- it applies a different lift per arm and
+    # compresses the contrast (V3-EXQ-963b F1). SHARE: a float m in
+    # [1.0, max_temperature_ratio] constructs the regulator ALREADY frozen at
+    # m (never integrates), so every arm is built with the same literal
+    # multiplier converged once on a warmup agent. None = live controller.
+    selection_entropy_floor_frozen_multiplier: Optional[float] = None
+    # CONVERGE-THEN-FREEZE: auto-latch the live multiplier after N real
+    # observations (0 = never). For a harness that cannot reach the agent at
+    # the warmup boundary; otherwise call agent.freeze_selection_entropy_floor().
+    # Mutually exclusive with selection_entropy_floor_frozen_multiplier.
+    selection_entropy_floor_freeze_after_ticks: int = 0
 
     # ----------------------------------------------------------------
     # MECH-314 (ARC-065): structured_curiosity_bonus. Frontopolar
@@ -8429,6 +8443,8 @@ class REEConfig:
         selection_entropy_floor_max_temperature_ratio: float = 8.0,
         selection_entropy_floor_ema_decay: float = 0.2,
         selection_entropy_floor_deadband: float = 0.05,
+        selection_entropy_floor_frozen_multiplier: Optional[float] = None,
+        selection_entropy_floor_freeze_after_ticks: int = 0,
         # MECH-314 (ARC-065): structured_curiosity_bonus (frontopolar /
         # EFE analog) + 3 sub-flavour switches (314a/b/c)
         use_structured_curiosity: bool = False,
@@ -10017,6 +10033,12 @@ class REEConfig:
         )
         config.selection_entropy_floor_ema_decay = selection_entropy_floor_ema_decay
         config.selection_entropy_floor_deadband = selection_entropy_floor_deadband
+        config.selection_entropy_floor_frozen_multiplier = (
+            selection_entropy_floor_frozen_multiplier
+        )
+        config.selection_entropy_floor_freeze_after_ticks = (
+            selection_entropy_floor_freeze_after_ticks
+        )
 
         # MECH-314 (ARC-065): structured_curiosity_bonus
         config.use_structured_curiosity = use_structured_curiosity
