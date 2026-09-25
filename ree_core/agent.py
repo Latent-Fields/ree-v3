@@ -5970,6 +5970,13 @@ class REEAgent(nn.Module):
         obs_body  = obs_body.to(self.device).float()
         obs_world = obs_world.to(self.device).float()
 
+        # W3 (coupled-loop-repair branch): hand this tick's RAW inputs to the waking
+        # trainer, whose E2-world member stores raw observations and re-encodes them at
+        # replay time. None at defaults -> no call, byte-identical OFF.
+        _wt_sense = getattr(self, "waking_trainer", None)
+        if _wt_sense is not None:
+            _wt_sense.on_sense(obs_body, obs_world, obs_harm, obs_harm_a, obs_harm_history)
+
         # SD-PP-1: exteroceptive reliability read on the RAW frame, BEFORE
         # encode (it differences consecutive observations). None -> no call.
         if self.observation_reliability is not None:

@@ -8120,6 +8120,23 @@ class REEConfig:
     waking_trainer_e1_lr: float = 1e-3
     waking_trainer_e2_self_enabled: bool = False
     waking_trainer_e2_self_lr: float = 1e-3
+    # W3 E2-world member (coupled-loop-repair campaign plan section 3 W3; branch
+    # integration/coupled-loop-repair only). E2WorldMember trains e2.world_transition +
+    # e2.world_action_encoder on a trainer-owned RAW-obs buffer re-encoded at replay time:
+    # on-policy transitions plus a FROZEN retained set (babbling epoch via
+    # WakingTrainer.set_e2_world_source("babble"), or append_external / schedule_external)
+    # mixed at replay_frac. Needs waking_trainer_enabled. Default False -> never
+    # constructed. Pinned by tests/contracts/test_w3_e2_world_member.py.
+    waking_trainer_e2_world_enabled: bool = False
+    waking_trainer_e2_world_lr: float = 3e-4            # L2R recipe (Adam 3e-4)
+    waking_trainer_e2_world_batch_size: int = 32        # L2R recipe
+    waking_trainer_e2_world_replay_frac: float = 0.25   # retained share of a mixed batch
+    waking_trainer_e2_world_retained_max: int = 5000    # FROZEN retained-set capacity
+    waking_trainer_e2_world_reencode_window: int = 0    # 0 = auto from latent.alpha_world
+    waking_trainer_e2_world_replay_latent: str = "reencode"  # or "stored" (probe N2 arm)
+    waking_trainer_e2_world_objective: str = "mse"      # or "infonce" (native SD-056)
+    waking_trainer_e2_world_grad_clip: float = 1.0      # L2R recipe; <= 0 disables
+    waking_trainer_e2_world_updates_per_step: int = 1   # replay ratio per waking step
 
     # Structured babbling source (coupled-loop-repair campaign W2a; REE_assembly
     # evidence/planning/coupled_loop_repair_campaign_plan.md section 3 W2, the L2 form
@@ -9738,6 +9755,26 @@ class REEConfig:
         config.waking_trainer_e2_self_enabled = bool(
             kwargs.pop("waking_trainer_e2_self_enabled", False))
         config.waking_trainer_e2_self_lr = float(kwargs.pop("waking_trainer_e2_self_lr", 1e-3))
+        # W3 E2-world member (tests/contracts/test_w3_e2_world_member.py W3-10).
+        config.waking_trainer_e2_world_enabled = bool(
+            kwargs.pop("waking_trainer_e2_world_enabled", False))
+        config.waking_trainer_e2_world_lr = float(kwargs.pop("waking_trainer_e2_world_lr", 3e-4))
+        config.waking_trainer_e2_world_batch_size = int(
+            kwargs.pop("waking_trainer_e2_world_batch_size", 32))
+        config.waking_trainer_e2_world_replay_frac = float(
+            kwargs.pop("waking_trainer_e2_world_replay_frac", 0.25))
+        config.waking_trainer_e2_world_retained_max = int(
+            kwargs.pop("waking_trainer_e2_world_retained_max", 5000))
+        config.waking_trainer_e2_world_reencode_window = int(
+            kwargs.pop("waking_trainer_e2_world_reencode_window", 0))
+        config.waking_trainer_e2_world_replay_latent = str(
+            kwargs.pop("waking_trainer_e2_world_replay_latent", "reencode"))
+        config.waking_trainer_e2_world_objective = str(
+            kwargs.pop("waking_trainer_e2_world_objective", "mse"))
+        config.waking_trainer_e2_world_grad_clip = float(
+            kwargs.pop("waking_trainer_e2_world_grad_clip", 1.0))
+        config.waking_trainer_e2_world_updates_per_step = int(
+            kwargs.pop("waking_trainer_e2_world_updates_per_step", 1))
         # W2a structured babbling (tests/contracts/test_structured_babbling.py B7).
         config.structured_babbling_enabled = bool(
             kwargs.pop("structured_babbling_enabled", False))

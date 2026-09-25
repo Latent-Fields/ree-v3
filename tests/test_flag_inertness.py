@@ -2366,6 +2366,12 @@ PROBED = {
     # guard PASS) and T5 (ON with a disconnected loss: the trainer raises).
     "waking_trainer_e1_enabled",
     "waking_trainer_e2_self_enabled",
+    # W3 E2-world member (2026-09-25, session bt0925-w3; branch
+    # integration/coupled-loop-repair). Probed by tests/contracts/
+    # test_w3_e2_world_member.py: W3-01 (OFF: never constructed, sense hook absent, rollout
+    # byte-identical to the pre-change path) against W3-03 (ON: e2_world group receives
+    # gradient and moves, guard PASS) and W3-04 (ON with a disconnected loss: raises).
+    "waking_trainer_e2_world_enabled",
     # Structured babbling source (2026-09-25, session bt0925-t1w2a; campaign W2a).
     # Probed by tests/contracts/test_structured_babbling.py: B1/B2 (OFF: never imported
     # or constructed; rollout byte-identical to the pre-change path) against B3 (ON: the
