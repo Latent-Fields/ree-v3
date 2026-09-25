@@ -604,3 +604,77 @@ def test_c24_gate_amend_flags_from_dims_and_agent_wiring():
     assert abs(f.config.mature_context_match_threshold - 0.7) < 1e-9
     assert f.config.tolerance_conflict_cap == 3
     assert f.config.maintenance_couple_to_theta is True
+
+
+# ----------------------------------------------------------------------
+# MECH-349 (GFLAG-0268, /governance 2026-09-24): _maybe_mint's two trigger
+# clauses are implementation-defined and validated by contract pins, not
+# experiments -- (i) a sub-threshold key never mints, (ii) an existing rule's
+# mint-block cosine floor is DECOUPLED from the retrieval threshold under
+# mature_pool_dynamics.
+# ----------------------------------------------------------------------
+def test_c25_sub_threshold_key_never_mints():
+    # clause (i): _maybe_mint requires self._recurrence[key] >=
+    # mint_recurrence_threshold before it will mint. Below threshold: no mint,
+    # on ANY number of sub-threshold calls. At threshold: mints.
+    f = _field(n_slots=8, rule_dim=16, mint_recurrence_threshold=3,
+               context_match_threshold=0.5)
+    cx = torch.zeros(16); cx[0] = 1.0
+    for _ in range(2):  # recurrence reaches 2, still < 3
+        f.step(cx, action_object_idx=0)
+    assert f.get_state()["crf_n_slots_minted"] == 0, \
+        "a key below mint_recurrence_threshold must never mint"
+    f.step(cx, action_object_idx=0)  # recurrence reaches 3 == threshold
+    assert f.get_state()["crf_n_slots_minted"] == 1, \
+        "a key at mint_recurrence_threshold must mint"
+
+
+def test_c26_context_self_block_decoupled_from_retrieval_threshold():
+    # clause (ii): under mature_pool_dynamics the mint-block cosine floor is
+    # mature_mint_block_threshold (0.8), DECOUPLED from the (lower) retrieval
+    # threshold context_match_threshold (0.5) legacy uses for the same check.
+    # A re-presented context (cosine ~1.0 to an existing rule's context_tag)
+    # clears BOTH floors and is self-blocked either way. A distinct-but-related
+    # context at cosine 0.6 -- above the legacy 0.5 floor but below the mature
+    # 0.8 floor -- is blocked under legacy but admitted as a new differentiated
+    # mint under mature_pool_dynamics.
+    existing_ctx = torch.zeros(16); existing_ctx[0] = 1.0
+
+    def _field_with_existing_rule(mature):
+        f = _field(n_slots=8, rule_dim=16, mint_recurrence_threshold=1,
+                   context_match_threshold=0.5, mature_pool_dynamics=mature,
+                   mature_mint_block_threshold=0.8)
+        f._rules[0] = CandidateRule(
+            rule_embedding=f._pinned_directions[0].clone(),
+            context_tag=existing_ctx.clone(), availability=0.5, eligibility=0.0,
+            minted_step=0)
+        return f
+
+    # Re-presentation: cosine == 1.0, clears both floors -> self-blocked under
+    # legacy AND mature.
+    f_repeat_legacy = _field_with_existing_rule(mature=False)
+    f_repeat_legacy.step(existing_ctx.clone(), action_object_idx=99)
+    assert f_repeat_legacy.get_state()["crf_n_slots_minted"] == 1, \
+        "re-presented context must not mint under legacy"
+
+    f_repeat_mature = _field_with_existing_rule(mature=True)
+    f_repeat_mature.step(existing_ctx.clone(), action_object_idx=99)
+    assert f_repeat_mature.get_state()["crf_n_slots_minted"] == 1, \
+        "re-presented context must be self-blocked under mature_mint_block_threshold"
+
+    # Distinct-but-related context at cosine 0.6 to the existing rule's tag
+    # (unit vector: [0.6, sqrt(1-0.36), 0, ...]).
+    related_ctx = torch.zeros(16)
+    related_ctx[0] = 0.6
+    related_ctx[1] = (1.0 - 0.6 ** 2) ** 0.5
+    assert abs(float(existing_ctx @ related_ctx) - 0.6) < 1e-6
+
+    f_related_legacy = _field_with_existing_rule(mature=False)
+    f_related_legacy.step(related_ctx.clone(), action_object_idx=7)
+    assert f_related_legacy.get_state()["crf_n_slots_minted"] == 1, \
+        "legacy mint-block (context_match_threshold=0.5) blocks a cosine-0.6 context"
+
+    f_related_mature = _field_with_existing_rule(mature=True)
+    f_related_mature.step(related_ctx.clone(), action_object_idx=7)
+    assert f_related_mature.get_state()["crf_n_slots_minted"] == 2, \
+        "mature mint-block (0.8) is not cleared by cosine 0.6 -> distinct context mints"
