@@ -1,17 +1,5 @@
 """V3-EXQ-1099 -- contamination-footgun truncation EXTENSION probe. Diagnostic, claim-free.
 
-*** NOT QUEUED. DO NOT ADD A QUEUE ENTRY FOR THIS SCRIPT WITHOUT READING THE FILE BELOW. ***
-The Step 4.5 adversarial design review (Fable, 2026-09-25) returned BLOCKING, and the two decisive
-findings were re-verified from source by the authoring session. In short: V3-EXQ-883's contamination
-exposure lands entirely on its NO_ATTAINMENT arm, whose DV (`parent_goal_norm_final`) is exactly
-0.0 in BOTH arms by construction, so both of its pre-registered criteria are undiscriminating while
-the taxonomy would label the result `truncated_verdict_robust` -- i.e. a PASSED sensitivity test --
-and clear MECH-427 on it. Separately, V3-EXQ-435's baseline `evidence_direction` in the landed
-manifest is a hand-applied 2026-04-22 reclassification rather than the driver's own output, so
-`stock_reproduces_original` is False for 435 by construction. Resolving either changes what gets
-measured, which is a user decision, so the design was left as authored and the refusal recorded:
-  REE_assembly/evidence/planning/v3_exq_1099_contamination_extension_redteam_blocking_staged_20260925.md
-
 Same-pattern extension of V3-EXQ-1080, chipped by /governance 2026-09-24 once it ratified
 `failure_autopsy_V3-EXQ-1080_2026-09-24` (section 7, "Optional follow-on"). 1080 cleared the
 contamination caveat for 7 DIRECT claims by re-running 4 exposed targets with and without
@@ -77,7 +65,9 @@ judgement beyond what governance ratified, so this probe takes the pre-flight's 
 option: score only the three uncovered claims. MECH-074d / SD-077 / SD-079's family caveat
 STANDS, untouched, exactly as 1080 left it.
 
-THREE IMPROVEMENTS over 1080, each from its confirmed autopsy or the dispatch pre-flight:
+FIVE IMPROVEMENTS over 1080. (1)-(3) come from its confirmed autopsy and the dispatch
+pre-flight; (4)-(5) come from this probe's OWN first red-team pass (BLOCKING) and the user-delegated
+orchestrator decision that resolved it on 2026-09-25 -- see RED-TEAM HISTORY at the end.
   (1) ACTION-CLASS DIVERSITY READOUT, non-gating (pre-flight NAMED CHANGE 2, on open
       GFLAG-0487/0489). GFLAG-0487 reports the V3 action loop collapsing to an 88-99%
       single-action share via untrained compression/readout sites. All three target claims are
@@ -110,6 +100,46 @@ THREE IMPROVEMENTS over 1080, each from its confirmed autopsy or the dispatch pr
       `summary_metrics`, `criteria[].gap`/`measured`/`threshold`, and `per_seed_*` scalars. None
       of THESE four targets is 939a-shaped, so this buys robustness, not a specific rescue; it
       is recorded that way.
+
+  (4) INSENSITIVE-BY-CONSTRUCTION CLASS + baseline derived from the DRIVER (decision B and D).
+      1080's taxonomy had exactly one label for "exposed, and the verdict held":
+      `truncated_verdict_robust`, which reads as a PASSED sensitivity test. That reading is wrong
+      whenever the exposure lands only on cells whose DV cannot move -- measured here for
+      V3-EXQ-883, whose NO_ATTAINMENT arm dies at step 7 of 40 on every seed while its DV
+      `parent_goal_norm_final` stays exactly 0.0 in BOTH arms, so both criteria read only the
+      never-exposed ATTAINED arm. Without a class for it, MECH-427 would have been cleared on a
+      criterion that cannot fail. `dv_exposure_coupling` is now MEASURED per target
+      (coupled / decoupled / unknown -- `unknown` deliberately does NOT trigger the class), and a
+      `decoupled` material exposure classifies `insensitive_by_construction`: determinable, an
+      informative NEGATIVE, never a clearance, never counted toward readiness. 1080's own autopsy
+      named this gap for V3-EXQ-904 ("clean, not robust ... insensitive by construction"); it has
+      now cost two probes, so it is a named, reusable class rather than a caveat in prose.
+      Coupling is measurable only for 883 (the one target exposing both a per-cell DV and a
+      per-cell exposure map); it is `unknown` for 278/435/231a, which is STATED rather than
+      assumed benign -- this probe cannot rule out the same vacuity for them.
+      Baselines are likewise derived from each driver's OWN `_aggregate` over the landed per-seed
+      rows, not from the manifest's `evidence_direction`: that field is amended in place by
+      governance, and V3-EXQ-435's is a hand-applied 2026-04-22 reclassification, which made
+      `stock_reproduces_original` False for 435 BY CONSTRUCTION and would have emitted a phantom
+      substrate-drift finding. Where no baseline is derivable the check yields None, never False.
+  (5) ROUTING READS DRIFT AND MONOSTRATEGY (decision, 2026-09-25). 1080's grid routed on
+      `n_sensitive` alone, ignoring `stock_reproduces_original` and `monostrategy_suspect`. A
+      target that is gate-sensitive TODAY but whose STOCK verdict does not reproduce its
+      driver-derived baseline, or whose actions collapsed to one class, may be sensitive for
+      reasons that say nothing about whether the HISTORICAL run was contamination-affected -- so
+      naming contamination as the reason that claim's old evidence is unsafe would be exactly the
+      unattributable reading this probe exists to prevent. Sensitivity is now split into
+      `attributable` / `confounded`, and an all-confounded set routes to
+      `contamination_sensitivity_present_but_not_attributable_adjudicate_drift_first`.
+      This matters most for MECH-106: with 883 insensitive-by-construction and INV-054 scoped to
+      phase 2 (below), 231a is the only live load-bearing input to C_PREV.
+
+SCOPED CLAIMS. `CLAIM_SCOPE` pre-registers, before any run, that INV-054 is covered for its
+PHASE 2 window ONLY and is explicitly NOT cleared on phase-1 grounds: the depression its DV turns
+on is established in 278/435's 3-hazard LONG_HORIZON phase, where the gate is INERT BY DESIGN and
+the agent dies in 2-7 steps of proximity harm. The scope string travels with the clearance into
+the manifest (`direct_claims_clearance_scope`), so a bare id in
+`direct_claims_cleared_no_rerun_owed` cannot be read as an unconditional clear.
 
 INSTRUMENT. `CausalGridWorld.__init__/step/reset` wrapped at class level (CausalGridWorldV2 is a
 factory over that class, so every driver is covered). Per env: num_hazards at construction,
@@ -147,17 +177,21 @@ PRE-REGISTERED (constants below, fixed before any real run):
       non_contributory or its label is a readiness route. Both arms degenerate ->
       cannot_determine (it measured nothing; must NOT count as robust). Exactly one arm
       degenerate -> that IS a gate-caused change (sensitive).
-  Per-target class: clean / truncated_verdict_robust / verdict_sensitive_truncation /
-      verdict_sensitive_observation / verdict_sensitive_contact_free / cannot_determine --
-      definitions as in V3-EXQ-1080 (a contact-free flip is labelled separately because the gate
-      also zeroes the `contamination_view` observation channel, so such a flip is moved by an
-      observation change, not by poisoning).
-  Run-level routing on n_sensitive / n_truncated, as 1080:
-      not ready                      -> substrate_not_ready_requeue
-      n_sensitive 0, n_truncated 0   -> contamination_prevalence_low_no_reruns_owed
-      n_sensitive 0, n_truncated >=1 -> contamination_truncation_present_verdicts_robust_no_reruns_owed
-      n_sensitive 1                  -> contamination_isolated_sensitivity_reruns_owed
-      n_sensitive >= 2               -> contamination_prevalence_high_all_reruns_owed
+  Per-target class: clean / truncated_verdict_robust / insensitive_by_construction /
+      verdict_sensitive_truncation / verdict_sensitive_observation /
+      verdict_sensitive_contact_free / cannot_determine. All but the third are as in
+      V3-EXQ-1080 (a contact-free flip is labelled separately because the gate also zeroes the
+      `contamination_view` observation channel, so such a flip is moved by an observation change
+      rather than by poisoning). `insensitive_by_construction` fires when the exposure is material
+      and the verdict held BUT `dv_exposure_coupling == decoupled`, i.e. no exposed cell has a DV
+      that moves between the arms -- see improvement (4).
+  Run-level routing, on n_truncated and on ATTRIBUTABLE sensitivity (improvement 5):
+      not ready                       -> substrate_not_ready_requeue
+      n_sensitive 0, n_truncated 0    -> contamination_prevalence_low_no_reruns_owed
+      n_sensitive 0, n_truncated >=1  -> contamination_truncation_present_verdicts_robust_no_reruns_owed
+      sensitive but NONE attributable -> contamination_sensitivity_present_but_not_attributable_adjudicate_drift_first
+      1 attributable                  -> contamination_isolated_sensitivity_reruns_owed
+      >= 2 attributable               -> contamination_prevalence_high_all_reruns_owed
   READINESS = positive control met AND all MIN_DETERMINABLE_CLAIMS (3) of the mandatory claims
       have at least one DETERMINABLE target. 1080 counted determinable TARGETS, which is the
       same thing when each target carries its own claim -- it is not here, because INV-054 is
@@ -199,13 +233,25 @@ DV is each target's own categorical verdict; the gate is not invariant under tha
 it changes the target's inputs. The action-diversity readout is a report, not a DV, and is
 excluded from this declaration on purpose.
 
-red-team (fable, 2026-09-25): BLOCKING -- see the NOT QUEUED banner at the top of this
-docstring and the staged findings file it names. Findings F1 (435 baseline is a reclassification)
-and F2 (883's exposed arm has a structurally pinned DV) were both re-verified from source by the
-authoring session; F4/F5 (278's DV at its floor, and the gate inert in the phase-1 env that
-actually sets INV-054's verdict) were measured by the reviewer and not independently re-measured.
-No criterion was relaxed and no target dropped in response -- every available fix changes what gets
-measured, so the design is recorded as-authored pending the user's decision.
+RED-TEAM HISTORY (both passes recorded; the first one is what produced this design).
+Pass 1 (fable, 2026-09-25): **BLOCKING**, 9 findings. The two decisive ones were re-verified from
+source by the authoring session and are the reason for improvements (4) and (5) above:
+  F2 -- V3-EXQ-883's contamination exposure lands entirely on its NO_ATTAINMENT arm, whose DV is
+        structurally 0.0 in BOTH arms, so its criteria could not discriminate while the taxonomy
+        would have labelled the result `truncated_verdict_robust` (a PASSED sensitivity test) and
+        cleared MECH-427 on it.
+  F1 -- V3-EXQ-435's landed `evidence_direction` is a hand-applied 2026-04-22 reclassification,
+        not the driver's output, making `stock_reproduces_original` False by construction.
+  F4/F5 -- 278's recovery latency is already at its floor of 1 and the gate is INERT in the
+        phase-1 env that actually establishes the depression its verdict turns on.
+Because every fix changed what gets measured, the session STOPPED rather than re-designing
+unattended, landed the design unqueued, and raised decision chip
+`chip-20260925-exq1099-redteam-blocking`. Resolution (orchestrator, 2026-09-25, under the user's
+standing delegation rec-20260924-fb429c72): options **(B) + (D)** plus the INV-054 phase-2 scoping
+and the drift/monostrategy-aware routing -- all four are implemented above and in `CLAIM_SCOPE`.
+Full record: REE_assembly `evidence/planning/v3_exq_1099_contamination_extension_redteam_blocking_staged_20260925.md`,
+GFLAG-0496.
+Pass 2 (see the queue entry `note` for its verdict): re-run against the revised causal chain.
 """
 from __future__ import annotations
 
@@ -243,6 +289,25 @@ QUEUE_ID = "V3-EXQ-1099"
 EXPERIMENT_PURPOSE = "diagnostic"
 CLAIM_IDS: List[str] = []   # claim-free: this audits the evidence base, it tests no claim
 AUDITED_CLAIM_IDS = ["INV-054", "MECH-106", "MECH-427"]
+# PRE-REGISTERED CLAIM SCOPE (orchestrator decision 2026-09-25, from red-team F4/F5). A clearance
+# for a scoped claim is NEVER unconditional -- the scope string travels with it into the manifest,
+# so /governance cannot read a bare "cleared" and drop the qualification.
+CLAIM_SCOPE = {
+    "INV-054": ("PHASE 2 ONLY -- explicitly NOT cleared on phase-1 grounds. INV-054's depression "
+                "is established in 278/435's PHASE 1 (LONG_HORIZON, num_hazards=3), where the "
+                "gate is INERT BY DESIGN and the agent dies in 2-7 steps from proximity harm, so "
+                "this probe can say nothing about it. What it measures is the hazard-free PHASE 2 "
+                "recovery window (300 eps x 150 steps), which is heavily exposed: a random walker "
+                "dies in 20/20 episodes of that exact geometry (this probe's own positive "
+                "control). Also: 278's recovery latency is already at its floor of 1 and the gate "
+                "can only RAISE benefit exposure, so the >50 flip that would change 278's verdict "
+                "is unreachable in practice -- 435's sustained-onset DV is the wider of the two."),
+}
+# Values for probe_cells[].dv_exposure_coupling. `decoupled` is what makes the
+# insensitive_by_construction class fire; `unknown` deliberately does NOT.
+COUPLING_COUPLED = "coupled"
+COUPLING_DECOUPLED = "decoupled"
+COUPLING_UNKNOWN = "unknown"
 SOURCE_FLAG = "GFLAG-0304"
 SOURCE_AUTOPSY = "REE_assembly/evidence/planning/failure_autopsy_V3-EXQ-1080_2026-09-24.md"
 SOURCE_AUDIT = "REE_assembly/evidence/planning/corpus_audit_contamination_footgun_20260916.md"
@@ -563,6 +628,89 @@ def _mod(name: str):
     return importlib.import_module(f"experiments.{name}")
 
 
+# ======================================================================================
+# Baseline derivation (orchestrator decision D) -- the DRIVER's verdict, not the amended field
+# ======================================================================================
+def _find_landed_manifest(experiment_type: str, run_id: str) -> Optional[Dict[str, Any]]:
+    root = (Path(__file__).resolve().parents[2] / "REE_assembly" / "evidence" / "experiments"
+            / experiment_type)
+    for pat in (f"{experiment_type}_*.json", "runs/*/manifest.json"):
+        for f in sorted(root.glob(pat)):
+            try:
+                m = json.loads(f.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if str(m.get("run_id") or "") == run_id:
+                return m
+    return None
+
+
+def _resolve_original(t: Dict[str, Any]) -> Dict[str, Any]:
+    """Derive the target's ORIGINAL verdict from its DRIVER, not from the manifest's amended field.
+
+    WHY (red-team F1, verified): a landed manifest's `evidence_direction` is not necessarily what
+    the driver emitted -- /governance amends it in place. V3-EXQ-435's field reads
+    `non_contributory` under an `evidence_direction_note` recording a hand-applied 2026-04-22
+    reclassification, while the driver's own `_aggregate` over the very same landed
+    `per_seed_results` returns `does_not_support`. Comparing ARM_STOCK against the amended field
+    therefore made `stock_reproduces_original` False BY CONSTRUCTION for 435, and would have
+    emitted a phantom `historical_verdict_not_reproduced` substrate-drift finding for governance
+    to chase. Checked across this probe's four targets and V3-EXQ-1080's four: 435 is the only
+    amended one, so 1080's readings are not retroactively suspect -- but the exposure was
+    structural, not bad luck, which is why this is derivation and not a special case for 435.
+
+    Three routes, recorded so a reader can tell which one a baseline came from:
+      driver_aggregate        -- the driver exposes `_aggregate` and the manifest carries per-seed
+                                 rows: re-derive. Authoritative, and immune to later amendment.
+      manifest_unreclassified -- no aggregator, but the manifest carries NO amendment note, so its
+                                 field still IS the driver's verdict.
+      cannot_determine        -- no aggregator AND an amendment note. The baseline is UNKNOWN and
+                                 `stock_reproduces_original` becomes None, NOT False: an
+                                 unverifiable fidelity check must never read as a failed one
+                                 (CLAUDE.md, negative instruments).
+    The hard-coded literal is kept and cross-checked, so a divergence between it and the derived
+    value is REPORTED (`literal_matches_derived`) rather than silently preferred either way.
+    """
+    orig = dict(t["original"])
+    etype = Path(t["script"]).stem
+    man = _find_landed_manifest(etype, orig["run_id"])
+    out: Dict[str, Any] = {"run_id": orig["run_id"], "literal_outcome": orig["outcome"],
+                           "literal_evidence_direction": orig["evidence_direction"]}
+    if man is None:
+        out.update({"outcome": None, "evidence_direction": None, "source": "cannot_determine",
+                    "reason": "landed manifest not found on disk for this run_id"})
+        return out
+    note = str(man.get("evidence_direction_note") or "")
+    rows = man.get("per_seed_results")
+    agg = getattr(_mod(etype), "_aggregate", None)
+    if callable(agg) and isinstance(rows, list) and rows:
+        try:
+            o, d = agg(rows)
+            out.update({"outcome": str(o).upper(), "evidence_direction": d,
+                        "source": "driver_aggregate", "n_rows": len(rows),
+                        "manifest_field": man.get("evidence_direction"),
+                        "manifest_amendment_note": note[:300] or None})
+        except Exception as exc:
+            out["aggregate_error"] = str(exc)[:200]
+    if "source" not in out:
+        if not note:
+            out.update({"outcome": (str(man.get("outcome") or man.get("status") or "").upper()
+                                    or None),
+                        "evidence_direction": man.get("evidence_direction"),
+                        "source": "manifest_unreclassified"})
+        else:
+            out.update({"outcome": None, "evidence_direction": None,
+                        "source": "cannot_determine",
+                        "reason": ("manifest carries an amendment note and the driver exposes no "
+                                   "_aggregate, so its own verdict is not recoverable"),
+                        "manifest_field": man.get("evidence_direction"),
+                        "manifest_amendment_note": note[:300]})
+    out["literal_matches_derived"] = bool(
+        out["outcome"] == out["literal_outcome"]
+        and out["evidence_direction"] == out["literal_evidence_direction"])
+    return out
+
+
 def _gate_tagged_arm_cell(orig, gate: bool):
     """IMPROVEMENT 2 -- put the gate in the config slice so the arms' fingerprints differ.
 
@@ -651,6 +799,11 @@ def _run_883(dry: bool) -> Dict[str, Any]:
     # the wrong key, reported every hash as null, and so reported IMPROVEMENT 2 as not working.
     # Reading the right key is the whole point of auditing the improvement instead of asserting
     # it (CLAUDE.md: a guard that supplies the thing it asserts is not a guard).
+    # Per-cell DV rows for the coupling detector below (decision B). `dv` is the quantity 883's
+    # own criteria compare (`parent_goal_norm_final`), taken from its own arm_results.
+    v["dv_rows"] = [{"arm": r.get("arm"), "seed": r.get("seed"),
+                     "dv": r.get("parent_goal_norm_final")}
+                    for r in (res.get("arm_results") or []) if isinstance(r, dict)]
     v["arm_fingerprints"] = [
         {"arm": r.get("arm"), "seed": r.get("seed"),
          "fingerprint": (r.get("arm_fingerprint") or {}).get("arm_fingerprint"),
@@ -667,6 +820,62 @@ def _run_231a(dry: bool) -> Dict[str, Any]:
                          _target_metrics(res))
 
 
+def _coupling_883(per_arm: Dict[str, Any]) -> Dict[str, Any]:
+    """Is V3-EXQ-883's contamination exposure COUPLED to the DV its criteria read?
+
+    Measured answer (red-team F2, re-verified at full scale before this was written): NO. 883's
+    NO_ATTAINMENT arm plays STAY every step, poisons its one cell and dies `health_depleted` at
+    step 7 of 40 on every seed -- but its DV `parent_goal_norm_final` is exactly 0.0 in BOTH arms,
+    because STAY never attains a waypoint and so never calls `credit_subgoal_attainment`. Both of
+    883's criteria (`attained > no_attain`, `attained > floor`) therefore read only the ATTAINED
+    arm, which is never exposed (0 contacts, full 40 steps, both arms). Truncating an episode
+    whose DV is structurally 0 cannot move that DV.
+
+    This MEASURES that rather than asserting it, so the class it feeds cannot certify its own
+    subject. 883 builds exactly one env and runs exactly one episode per (seed, arm) cell, in the
+    same order as `arm_results`, so cell i pairs with hazard-free episode i. That pairing is
+    POSITIONAL, so it is asserted (equal lengths in both arms, identical cell key sets) and the
+    function returns `unknown` -- never a wrong answer -- if it ever stops holding.
+    """
+    out: Dict[str, Any] = {"coupling": COUPLING_UNKNOWN, "dv_name": "parent_goal_norm_final"}
+    keyed: Dict[str, Dict[Any, Dict[str, Any]]] = {}
+    for arm in ARMS:
+        rows = per_arm[arm]["verdict"].get("dv_rows") or []
+        eps = [e for e in _STATE.episodes.get(f"883::{arm}", []) if e["hf"]]
+        if not rows or len(rows) != len(eps):
+            out["reason"] = (f"{arm}: {len(rows)} DV rows vs {len(eps)} hazard-free episodes -- "
+                             "the one-env-per-cell positional pairing no longer holds")
+            return out
+        keyed[arm] = {(r.get("arm"), r.get("seed")): {
+            "dv": r.get("dv"),
+            "exposed": bool(e["cause"] == "health_depleted" or e["contacts"] > 0),
+            "steps": e["steps"], "contacts": e["contacts"]} for r, e in zip(rows, eps)}
+    if set(keyed[ARM_STOCK]) != set(keyed[ARM_OPTOUT]):
+        out["reason"] = "the two arms did not run the same (arm, seed) cell set"
+        return out
+    detail, exposed_and_moved, moved_but_unexposed = [], 0, 0
+    for key in sorted(keyed[ARM_STOCK], key=lambda k: (str(k[0]), str(k[1]))):
+        cs, co = keyed[ARM_STOCK][key], keyed[ARM_OPTOUT][key]
+        both = cs["dv"] is not None and co["dv"] is not None
+        moved = ((cs["dv"] is None) != (co["dv"] is None)
+                 or (both and float(cs["dv"]) != float(co["dv"])))
+        exposed = bool(cs["exposed"] or co["exposed"])
+        exposed_and_moved += int(exposed and moved)
+        moved_but_unexposed += int(moved and not exposed)
+        detail.append({"cell": f"{key[0]}::seed{key[1]}", "exposed_in_either_arm": exposed,
+                       "dv_stock": cs["dv"], "dv_optout": co["dv"], "dv_moved": moved,
+                       "stock_steps": cs["steps"], "stock_contacts": cs["contacts"]})
+    out.update({
+        "coupling": COUPLING_COUPLED if exposed_and_moved else COUPLING_DECOUPLED,
+        "n_cells": len(detail), "n_exposed_and_dv_moved": exposed_and_moved,
+        "n_dv_moved_but_unexposed": moved_but_unexposed, "cells": detail,
+        "criterion": ("DECOUPLED iff NO cell is both exposed AND has a DV that moves between the "
+                      "probe's arms -- i.e. the manipulation reached episodes whose DV the "
+                      "target's criteria do not read"),
+    })
+    return out
+
+
 TARGETS: List[Dict[str, Any]] = [
     {"key": "278", "queue_id": "V3-EXQ-278", "run": _run_278,
      "script": "experiments/v3_exq_278_inv054_depression_recovery_phase_transition.py",
@@ -676,6 +885,9 @@ TARGETS: List[Dict[str, Any]] = [
      "hf_step_budget": {True: 150, False: 150},          # LOW_HARM STEPS_PER_EP
      "cells": {True: 1, False: 3},                       # seeds
      "action_diversity_interpretable": True,
+     # No per-cell DV/exposure map is recoverable from this driver's return, so coupling is
+     # UNKNOWN -- stated, not assumed benign. See the coupling caveat in the interpretation block.
+     "coupling_fn": None,
      # phase-2 LOW_HARM (num_hazards=0) episodes: seeds x phase2_eps, loop bound unconditional
      "intended_units": {True: 1 * 5, False: 3 * 300}},
     {"key": "435", "queue_id": "V3-EXQ-435", "run": _run_435,
@@ -686,6 +898,7 @@ TARGETS: List[Dict[str, Any]] = [
      "hf_step_budget": {True: 150, False: 150},
      "cells": {True: 1, False: 3},
      "action_diversity_interpretable": True,
+     "coupling_fn": None,
      "intended_units": {True: 1 * 5, False: 3 * 300}},
     {"key": "883", "queue_id": "V3-EXQ-883", "run": _run_883,
      "script": "experiments/v3_exq_883_mech427_cross_level_subgoal_credit.py",
@@ -696,6 +909,9 @@ TARGETS: List[Dict[str, Any]] = [
      "cells": {True: 6, False: 6},                       # seeds x arms
      # 883 drives a SCRIPTED action sequence, so a high modal share is the design, not collapse.
      "action_diversity_interpretable": False,
+     # The one target whose per-cell DV and exposure are both recoverable, so the one whose
+     # coupling can be MEASURED rather than left unknown.
+     "coupling_fn": _coupling_883,
      "intended_units": {True: 3 * 2 * 1, False: 3 * 2 * 1}},
     {"key": "231a", "queue_id": "V3-EXQ-231a", "run": _run_231a,
      "script": "experiments/v3_exq_231a_mech106_bg_hysteresis_redesign.py",
@@ -705,6 +921,7 @@ TARGETS: List[Dict[str, Any]] = [
      "hf_step_budget": {True: 20, False: 200},           # STEPS_PER_EP
      "cells": {True: 2, False: 5},                       # seeds
      "action_diversity_interpretable": True,
+     "coupling_fn": None,
      # POSITIVE_HISTORY runs the only num_hazards=0 env (`_make_env_easy`): seeds x n_pos
      "intended_units": {True: 2 * 5, False: 5 * 40}},
 ]
@@ -973,6 +1190,15 @@ def _classify(t: Dict[str, Any], per_arm: Dict[str, Any], intended: int) -> Dict
     stock_contacts = int(s["episodes"]["hf_contacts_total"])
     changed = _verdict_key(s["verdict"]) != _verdict_key(o["verdict"])
     material = (death is not None) and death >= MATERIAL_DEATH_FRAC
+
+    # Decision B: is the exposure COUPLED to the DV the target's criteria read?
+    cfn = t.get("coupling_fn")
+    coupling_detail: Dict[str, Any] = ({"coupling": COUPLING_UNKNOWN,
+                                        "reason": "no per-cell DV/exposure map is recoverable "
+                                                  "from this driver's return"}
+                                       if cfn is None else cfn(per_arm))
+    coupling = str(coupling_detail.get("coupling") or COUPLING_UNKNOWN)
+
     if not determinable:
         cls = "cannot_determine"
     elif changed:
@@ -982,15 +1208,31 @@ def _classify(t: Dict[str, Any], per_arm: Dict[str, Any], intended: int) -> Dict
             cls = "verdict_sensitive_contact_free"
         else:
             cls = "verdict_sensitive_observation"
+    elif material and coupling == COUPLING_DECOUPLED:
+        # NEW CLASS (orchestrator decision B, from red-team F2). The footgun fired hard AND the
+        # verdict held -- but every exposed cell's DV is structurally invariant, so the verdict
+        # COULD NOT have moved. Without this class the run would emit truncated_verdict_robust,
+        # which in V3-EXQ-1080's taxonomy reads as a PASSED sensitivity test, and would clear the
+        # claim on a criterion that cannot fail. This is the shape 1080's own autopsy named for
+        # V3-EXQ-904 ("clean, not robust ... insensitive by construction") and had no class for.
+        # It is an INFORMATIVE NEGATIVE, not an instrument failure: distinct from
+        # cannot_determine, and it can never clear its claim.
+        cls = "insensitive_by_construction"
     else:
         cls = "truncated_verdict_robust" if material else "clean"
-    orig = t["original"]
-    stock_repro = (s["verdict"]["outcome"] == orig["outcome"]
-                   and s["verdict"]["evidence_direction"] == orig["evidence_direction"])
+
+    # Decision D: baseline from the DRIVER, not the manifest's amended evidence_direction.
+    orig = _resolve_original(t)
+    if orig["outcome"] is None and orig["evidence_direction"] is None:
+        stock_repro = None          # unverifiable -- must NOT read as a failed fidelity check
+    else:
+        stock_repro = bool(s["verdict"]["outcome"] == orig["outcome"]
+                           and s["verdict"]["evidence_direction"] == orig["evidence_direction"])
     mono = {a: per_arm[a]["action_diversity"]["monostrategy_suspect"] for a in ARMS}
     print(f"[classify] {k}: {cls} (stock dv_death_frac={death}, verdict_changed={changed}, "
-          f"degenerate stock/optout={deg_s}/{deg_o}, "
-          f"stock_reproduces_original={stock_repro}, monostrategy_suspect={mono})", flush=True)
+          f"degenerate stock/optout={deg_s}/{deg_o}, coupling={coupling}, "
+          f"stock_reproduces_original={stock_repro} [baseline via {orig['source']}], "
+          f"monostrategy_suspect={mono})", flush=True)
     return {
         "target": k, "queue_id": t["queue_id"], "script": t["script"],
         "script_sha256": _target_hash(t["script"]),
@@ -999,6 +1241,11 @@ def _classify(t: Dict[str, Any], per_arm: Dict[str, Any], intended: int) -> Dict
         "instrument_ok": instrument_ok,
         "stock_verdict_degenerate": deg_s, "optout_verdict_degenerate": deg_o,
         "determinable": determinable, "classification": cls,
+        "dv_exposure_coupling": coupling, "dv_exposure_coupling_detail": coupling_detail,
+        # An insensitive_by_construction target measured something real (the exposure) but its
+        # verdict could not move, so it must never appear in direct_claims_cleared_*.
+        "can_clear_its_claim": bool(determinable and cls != "insensitive_by_construction"),
+        "baseline_source": orig["source"],
         "dv_unit": "episode", "intended_dv_units": intended,
         "stock_dv_death_frac": death,
         "optout_dv_death_frac": o["episodes"]["dv_death_frac"],
@@ -1045,11 +1292,30 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
     undet = [c for c in cells if not c["determinable"]]
     sens = [c for c in det if c["classification"].startswith("verdict_sensitive")]
     trunc = [c for c in det if c["materially_truncated"]]
-    claims_determinable = {claim: [c["queue_id"] for c in det if claim in c["direct_claims"]]
+    # A target that is insensitive_by_construction is DETERMINABLE (its instrument worked) but
+    # cannot answer its claim, so it counts for neither coverage nor clearance (decision B).
+    clearing = [c for c in det if c["can_clear_its_claim"]]
+    claims_determinable = {claim: [c["queue_id"] for c in clearing if claim in c["direct_claims"]]
                            for claim in AUDITED_CLAIM_IDS}
     n_claims_covered = sum(1 for v in claims_determinable.values() if v)
     ready = control_ok and n_claims_covered >= MIN_DETERMINABLE_CLAIMS
     n_sens = len(sens)
+    insensitive = [c for c in det if c["classification"] == "insensitive_by_construction"]
+
+    # ATTRIBUTION (orchestrator decision 2026-09-25). The routing grid must READ
+    # stock_reproduces_original and monostrategy_suspect, not ignore them: a target whose STOCK
+    # verdict does not reproduce its driver-derived baseline, or whose actions collapsed to a
+    # monostrategy, may be gate-sensitive TODAY for reasons that say nothing about whether the
+    # HISTORICAL run was contamination-affected. Without this the run would name contamination as
+    # the reason a claim's old evidence is unsafe when drift or collapse is the live alternative.
+    def _attributable(c: Dict[str, Any]) -> bool:
+        if c["stock_reproduces_original"] is not True:
+            return False
+        return not (c["action_diversity_interpretable"]
+                    and any(c["monostrategy_suspect_by_arm"].get(a) for a in ARMS))
+
+    sens_attributable = [c for c in sens if _attributable(c)]
+    sens_confounded = [c for c in sens if not _attributable(c)]
 
     if not ready:
         label = "substrate_not_ready_requeue"
@@ -1060,10 +1326,17 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
                  "contamination_truncation_present_verdicts_robust_no_reruns_owed")
         outcome = "PASS"
         reruns = []
-    elif n_sens == 1:
+    elif not sens_attributable:
+        # Every sensitive target is confounded by drift or monostrategy collapse. A re-run is
+        # still owed, but the owed WORK is a drift/collapse adjudication first -- naming
+        # contamination here would be the unattributable reading this branch exists to prevent.
+        label = "contamination_sensitivity_present_but_not_attributable_adjudicate_drift_first"
+        outcome = "FAIL"
+        reruns = sorted({x for c in sens_confounded for x in c["direct_claims"]})
+    elif len(sens_attributable) == 1:
         label = "contamination_isolated_sensitivity_reruns_owed"
         outcome = "FAIL"
-        reruns = sorted(set(sens[0]["direct_claims"]))
+        reruns = sorted(set(sens_attributable[0]["direct_claims"]))
     else:
         label = "contamination_prevalence_high_all_reruns_owed"
         outcome = "FAIL"
@@ -1072,16 +1345,29 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
     # Only determinable targets' DIRECT claims can be cleared (1080 red-team F3/F6). INV-054 is
     # carried by TWO targets, so it clears only if EVERY determinable one of them is
     # non-sensitive -- a per-claim fold, not a per-target one.
-    measured_direct = sorted({x for c in det for x in c["direct_claims"]})
+    measured_direct = sorted({x for c in clearing for x in c["direct_claims"]})
     sens_claims = {x for c in sens for x in c["direct_claims"]}
-    cleared_direct = ([] if (not ready or n_sens >= 2) else
+    cleared_direct = ([] if (not ready or len(sens_attributable) >= 2) else
                       sorted({x for x in measured_direct if x not in sens_claims}))
+    # Every clearance of a SCOPED claim carries its scope into the manifest (decision: INV-054 is
+    # phase-2 only). A bare id in cleared_direct must not be readable as an unconditional clear.
+    clearance_scope = {x: CLAIM_SCOPE[x] for x in cleared_direct if x in CLAIM_SCOPE}
     not_covered = dict(UNCOVERED_CLAIMS)
     for claim in AUDITED_CLAIM_IDS:
         if claim not in measured_direct:
-            owners = [c["queue_id"] for c in cells if claim in c["direct_claims"]]
-            not_covered[claim] = (f"no determinable target ({', '.join(owners) or 'none'}); "
-                                  "undecided")
+            owners = [f"{c['queue_id']} ({c['classification']})"
+                      for c in cells if claim in c["direct_claims"]]
+            insens = [c["queue_id"] for c in insensitive if claim in c["direct_claims"]]
+            if insens:
+                not_covered[claim] = (
+                    f"NOT ANSWERABLE BY THIS INSTRUMENT -- {', '.join(insens)} is "
+                    "insensitive_by_construction: the contamination exposure lands only on cells "
+                    "whose DV is structurally invariant, so the verdict could not have moved "
+                    "either way. Undecided, and a re-run of the same design would not decide it. "
+                    f"Targets: {', '.join(owners)}")
+            else:
+                not_covered[claim] = (f"no target able to clear it "
+                                      f"({', '.join(owners) or 'none'}); undecided")
     for c in undet:
         for x in c["family_claims"]:
             not_covered[x] = f"{c['queue_id']} could not be determined ({c['classification']})"
@@ -1096,7 +1382,11 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
                                     "evidence_direction": c["original"]["evidence_direction"]},
                        "stock_today": {"outcome": c["stock_verdict"]["outcome"],
                                        "evidence_direction": c["stock_verdict"]["evidence_direction"]}}
-                      for c in det if not c["stock_reproduces_original"]]
+                      for c in det if c["stock_reproduces_original"] is False]
+    # Distinct from the above: a baseline we could not derive at all is NOT a drift finding.
+    fidelity_unverifiable = [{"queue_id": c["queue_id"], "claims": c["direct_claims"],
+                              "baseline_source": c["baseline_source"]}
+                             for c in cells if c["stock_reproduces_original"] is None]
     # Populated from each claim's OWN determinable targets, REGARDLESS of run-level readiness
     # (V3-EXQ-785: a whole-run AND must not vacate a clean target's finding). A record for
     # /governance, not a route -- outcome/label/reruns_owed_for_claims are unchanged by it.
@@ -1105,16 +1395,28 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
         own = [c for c in cells if claim in c["direct_claims"]]
         own_det = [c for c in own if c["determinable"]]
         own_sens = [c for c in own_det if c["classification"].startswith("verdict_sensitive")]
-        if not own_det:
-            disp = "not_covered_undecided"
-        elif own_sens:
-            disp = "verdict_sensitive_rerun_owed"
-        elif any(c["materially_truncated"] for c in own_det):
+        own_clearing = [c for c in own_det if c["can_clear_its_claim"]]
+        own_insens = [c for c in own_det
+                      if c["classification"] == "insensitive_by_construction"]
+        if own_sens:
+            disp = ("verdict_sensitive_rerun_owed" if any(_attributable(c) for c in own_sens)
+                    else "verdict_sensitive_but_not_attributable_adjudicate_drift_first")
+        elif not own_clearing:
+            disp = ("not_answerable_by_this_instrument" if own_insens
+                    else "not_covered_undecided")
+        elif any(c["materially_truncated"] for c in own_clearing):
             disp = "truncation_present_verdict_robust_no_rerun_owed"
         else:
             disp = "not_materially_exposed_no_rerun_owed"
         per_claim_disposition[claim] = {
             "disposition": disp,
+            "scope": CLAIM_SCOPE.get(claim),
+            "coupling_by_target": {c["queue_id"]: c["dv_exposure_coupling"] for c in own},
+            "insensitive_by_construction_targets": [c["queue_id"] for c in own_insens],
+            "attribution": {c["queue_id"]: ("attributable_to_contamination"
+                                            if _attributable(c) else "confounded")
+                            for c in own_sens},
+            "baseline_sources": {c["queue_id"]: c["baseline_source"] for c in own},
             "targets": {c["queue_id"]: c["classification"] for c in own},
             "determinable_targets": [c["queue_id"] for c in own_det],
             "verdict_sensitive_targets": [c["queue_id"] for c in own_sens],
@@ -1125,7 +1427,9 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
                 c["action_diversity_interpretable"]
                 and any(c["monostrategy_suspect_by_arm"].get(a) for a in ARMS) for c in own_det)),
             "historical_verdict_reproduced": [
-                c["queue_id"] for c in own_det if c["stock_reproduces_original"]],
+                c["queue_id"] for c in own_det if c["stock_reproduces_original"] is True],
+            "fidelity_unverifiable_targets": [
+                c["queue_id"] for c in own if c["stock_reproduces_original"] is None],
         }
 
     monostrategy_confounded = sorted(
@@ -1184,6 +1488,10 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
         "n_materially_truncated": len(trunc),
         "n_historical_not_reproduced": len(not_reproduced),
         "n_monostrategy_confounded": len(monostrategy_confounded),
+        "n_insensitive_by_construction": len(insensitive),
+        "n_verdict_sensitive_attributable": len(sens_attributable),
+        "n_verdict_sensitive_confounded": len(sens_confounded),
+        "n_fidelity_unverifiable": len(fidelity_unverifiable),
         "material_death_frac_threshold": MATERIAL_DEATH_FRAC,
         "monostrategy_modal_share_threshold": MONOSTRATEGY_MODAL_SHARE,
     }
@@ -1207,7 +1515,12 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
         readout[f"t{k}_determinable"] = int(c["determinable"])
         readout[f"t{k}_verdict_changed"] = int(c["verdict_changed"])
         readout[f"t{k}_materially_truncated"] = int(c["materially_truncated"])
-        readout[f"t{k}_stock_reproduces_original"] = int(c["stock_reproduces_original"])
+        # -1 = CANNOT DETERMINE (baseline not derivable), never conflated with 0 = did not reproduce
+        readout[f"t{k}_stock_reproduces_original"] = (
+            -1 if c["stock_reproduces_original"] is None else int(c["stock_reproduces_original"]))
+        readout[f"t{k}_dv_exposure_decoupled"] = int(
+            c["dv_exposure_coupling"] == COUPLING_DECOUPLED)
+        readout[f"t{k}_can_clear_its_claim"] = int(c["can_clear_its_claim"])
         readout[f"t{k}_stock_outcome_pass"] = int(c["stock_verdict"]["outcome"] == "PASS")
         readout[f"t{k}_optout_outcome_pass"] = int(c["optout_verdict"]["outcome"] == "PASS")
         readout[f"t{k}_stock_dv_units"] = float(c["per_arm"][ARM_STOCK]["episodes"]["n_dv_units"])
@@ -1253,6 +1566,38 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
             "family_reruns_recommended_unmeasured": family_recommended,
             "direct_claims_measured": measured_direct,
             "direct_claims_cleared_no_rerun_owed": cleared_direct,
+            "direct_claims_clearance_scope": clearance_scope,
+            "clearance_scope_note": (
+                "A claim listed in direct_claims_cleared_no_rerun_owed that ALSO appears in "
+                "direct_claims_clearance_scope is cleared ONLY within the stated scope. INV-054 "
+                "is pre-registered phase-2-only and is explicitly NOT cleared on phase-1 "
+                "grounds: its depression is established in 278/435's 3-hazard LONG_HORIZON "
+                "phase, where the gate is inert by design."),
+            "insensitive_by_construction_targets": [c["queue_id"] for c in insensitive],
+            "insensitive_by_construction_note": (
+                "The exposure fired materially AND the verdict held, but every exposed cell's DV "
+                "is structurally invariant, so the verdict could not have moved either way. This "
+                "is an informative NEGATIVE, not an instrument failure, and NOT a passed "
+                "sensitivity test: such a target never clears its claim and never counts toward "
+                "readiness. Added 2026-09-25 (orchestrator decision B) because V3-EXQ-1080's "
+                "taxonomy had no class for it and would have emitted truncated_verdict_robust -- "
+                "the same gap its own autopsy named for V3-EXQ-904."),
+            "fidelity_unverifiable": fidelity_unverifiable,
+            "sensitivity_attribution": {
+                "attributable": [c["queue_id"] for c in sens_attributable],
+                "confounded": [c["queue_id"] for c in sens_confounded],
+                "rule": ("a verdict-sensitive target is attributable to contamination only if its "
+                         "STOCK verdict reproduced its DRIVER-DERIVED baseline AND it is not "
+                         "monostrategy_suspect; otherwise drift or action-collapse is a live "
+                         "alternative explanation and the owed work is that adjudication first"),
+            },
+            "baseline_derivation_note": (
+                "Each target's baseline is derived from its DRIVER's own _aggregate over the "
+                "landed per-seed rows where the driver exposes one, else from a manifest carrying "
+                "NO amendment note; otherwise it is UNKNOWN and stock_reproduces_original is None "
+                "rather than False. A landed manifest's evidence_direction is not necessarily the "
+                "driver's verdict -- V3-EXQ-435's is a hand-applied 2026-04-22 reclassification, "
+                "which made the fidelity check fail by construction before this was fixed."),
             "family_claims_not_cleared_caveat_stands": family_unmeasured,
             "claims_not_covered": not_covered,
             "historical_verdict_not_reproduced": not_reproduced,
@@ -1339,7 +1684,8 @@ def main() -> Any:
     config = {
         "targets": [
             {**{k: v for k, v in t.items()
-                if k not in ("run", "hf_step_budget", "cells", "intended_units")},
+                if k not in ("run", "hf_step_budget", "cells", "intended_units",
+                             "coupling_fn")},
              "hf_step_budget": t["hf_step_budget"][args.dry_run],
              "intended_dv_units": t["intended_units"][args.dry_run],
              "n_target_cells": t["cells"][args.dry_run]}
@@ -1372,14 +1718,15 @@ def main() -> Any:
     print(f"determinable={r['n_targets_determinable']} "
           f"claims_covered={r['n_mandatory_claims_covered']}/{MIN_DETERMINABLE_CLAIMS} "
           f"sensitive={r['n_verdict_sensitive']} "
-          f"truncated={r['n_materially_truncated']} control_ok={r['control_ok']} "
+          f"truncated={r['n_materially_truncated']} insensitive={r['n_insensitive_by_construction']} "
+          f"control_ok={r['control_ok']} "
           f"monostrategy_confounded={r['n_monostrategy_confounded']}", flush=True)
     for c in manifest["probe_cells"]:
         print(f"  {c['target']}: {c['classification']} stock_dv_death={c['stock_dv_death_frac']} "
               f"optout_dv_death={c['optout_dv_death_frac']} "
               f"stock={c['stock_verdict']['outcome']}/{c['stock_verdict']['evidence_direction']} "
               f"optout={c['optout_verdict']['outcome']}/{c['optout_verdict']['evidence_direction']} "
-              f"repro_orig={c['stock_reproduces_original']} "
+              f"repro_orig={c['stock_reproduces_original']} coupling={c['dv_exposure_coupling']} "
               f"mono={c['monostrategy_suspect_by_arm']}", flush=True)
     print(f"wrote: {out_path}", flush=True)
     return manifest, out_path, args.dry_run
