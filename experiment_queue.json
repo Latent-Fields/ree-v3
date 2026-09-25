@@ -52,6 +52,21 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-1104",
+      "title": "SD-032b candidate effort proxy validation: harm_a_forward effort spread + E3 argmin responsiveness to f_sat/cost (within-tick counterfactuals, dacc_weight 0.5)",
+      "script": "experiments/v3_exq_1104_sd032b_effort_proxy_validation.py",
+      "priority": 30,
+      "machine_affinity": "any",
+      "estimated_minutes": 120,
+      "note": "Substrate validation (diagnostic, claim-free, non_contributory) for substrate_queue sd032b-candidate-effort-proxy (ree-v3 4cce9b8, default-off dacc_candidate_effort_source='harm_a_forward'). One trained agent per seed; every contrast is a WITHIN-TICK COUNTERFACTUAL on a pre-call deep-copy snapshot: 7 forced f_sat x costs {0.1,1,10}, horizon negative control, guaranteed-flip positive control, unpatched-copy fidelity. PASS iff C1 (effort spread live) AND C2 (argmin responsive to f_sat/cost) -- the failure_record target; C2 non-degenerate only if the real manipulation's reach exceeds the top-2 gap on some ticks (else label effort_proxy_live_c2_unreachable). GOV-REUSE-1: decisive readout (argmin responsiveness under the new source) cannot exist in any prior manifest -- the source did not exist before 4cce9b8 -> run. 2.5b: claim-free, no brake. 2.5c: SD-PP-B5 (corrupting) overlaps module-level only; its defect is confined to opt-in use_world_interventional, not set here (grep 0) -- dismissed, as for V3-EXQ-1090/1099. Degrading overlaps noted: SD-PP-B9 (E2_harm_a below persistence -- directly on this DV path; skill-vs-persistence + P1 loss trajectory recorded, C3 asks validity), SD-091, mech005, mech290, suffering-derivative-comparator (agent.py::select_action). 2.5d claim-free trace against driver criteria C1..C3: EVENT = fresh dACC tick (E3 ticks + episode step 0), DV = per-candidate effort spread / argmin set across forced f_sat, INSTRUMENT = counterfactual replay, validated by fidelity + negative + positive controls; INERT risk measured and carried as the reach-vs-gap non-degeneracy gate. dacc_weight=0.5 NOT 1.0: at 1.0 the dACC payoff self-feedback makes e3.last_scores an undamped integrator (|last_scores| 2553->23404 over 1500 steps) -- registered as substrate_queue sd032b-payoff-self-feedback-integrator; evidence question GFLAG-0507. red-team (fable) pass 1: BLOCKING -- (1) payoff integrator at dacc_weight 1.0 -> FIXED (0.5 + boundedness precondition); (2) episode-start dACC ticks excluded from C2 -> FIXED (counterfactuals on step 0 too); (3) positive control sized to the gap cannot certify C2 reachability -> FIXED (reach-vs-gap non-degeneracy); (4) float32 quantization at |scores|~1e4 / exact 0.0 negative-control gate -> FIXED (bounded scores; 0.02 rounding tolerance); (5) C1 passes on an untrained E2_harm_a -> DISMISSED, already framed as liveness-not-validity. red-team (fable) pass 2 (one re-spawn, causal chain changed): BLOCKING -- (1) scored counterfactuals copied the POST-call agent (early-return on step-0 ticks; advanced pe/payoff state) while fidelity certified a PRE-call copy -> FIXED (one pre-call snapshot, all counterfactuals from it; fidelity now certifies the same state); (2) manipulation large only on the dropped step-0 ticks -> FIXED by (1), C2/reach also reported per tick class; (3) tautological gates (no-cf count, pe>1e-6) and n-floor on the wrong denominator -> FIXED (C1-C2 denominator-equality gate, n-floor on C2's own denominator; P2 10->60 eps since P2 episodes end by health depletion in 3-10 steps); (4) degenerate C2 labelled as a calibration null -> FIXED (label effort_proxy_live_c2_unreachable, top-level non_degenerate includes C2); (5) positive-control gain used the copy's pe -> FIXED by (1). Smoke PASS (dry-run: fidelity 3/3, neg 0, pos 3/3, C1/C2 denominators equal). Ethics preflight: all false, allow.",
+      "status": "pending",
+      "claim_ids": [],
+      "conditions": 1,
+      "episodes_per_run": 95,
+      "experiment_type": "v3_exq_1104_sd032b_effort_proxy_validation",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-1099",
       "title": "Contamination-footgun truncation extension probe: INV-054 (278/435), MECH-427 (883), MECH-106 (231a) x STOCK/OPTOUT, with insensitive-by-construction class and action-diversity readout",
       "script": "experiments/v3_exq_1099_contamination_truncation_extension_probe.py",
@@ -69,21 +84,6 @@
       "episodes_per_run": 100,
       "experiment_type": "v3_exq_1099_contamination_truncation_extension_probe",
       "seeds": 1
-    },
-    {
-      "queue_id": "V3-EXQ-1104",
-      "title": "SD-032b candidate effort proxy validation: harm_a_forward effort spread + E3 argmin responsiveness to f_sat/cost (within-tick counterfactuals, dacc_weight 0.5)",
-      "script": "experiments/v3_exq_1104_sd032b_effort_proxy_validation.py",
-      "priority": 30,
-      "machine_affinity": "any",
-      "estimated_minutes": 120,
-      "note": "Substrate validation (diagnostic, claim-free, non_contributory) for substrate_queue sd032b-candidate-effort-proxy (ree-v3 4cce9b8, default-off dacc_candidate_effort_source='harm_a_forward'). One trained agent per seed; every contrast is a WITHIN-TICK COUNTERFACTUAL on a pre-call deep-copy snapshot: 7 forced f_sat x costs {0.1,1,10}, horizon negative control, guaranteed-flip positive control, unpatched-copy fidelity. PASS iff C1 (effort spread live) AND C2 (argmin responsive to f_sat/cost) -- the failure_record target; C2 non-degenerate only if the real manipulation's reach exceeds the top-2 gap on some ticks (else label effort_proxy_live_c2_unreachable). GOV-REUSE-1: decisive readout (argmin responsiveness under the new source) cannot exist in any prior manifest -- the source did not exist before 4cce9b8 -> run. 2.5b: claim-free, no brake. 2.5c: SD-PP-B5 (corrupting) overlaps module-level only; its defect is confined to opt-in use_world_interventional, not set here (grep 0) -- dismissed, as for V3-EXQ-1090/1099. Degrading overlaps noted: SD-PP-B9 (E2_harm_a below persistence -- directly on this DV path; skill-vs-persistence + P1 loss trajectory recorded, C3 asks validity), SD-091, mech005, mech290, suffering-derivative-comparator (agent.py::select_action). 2.5d claim-free trace against driver criteria C1..C3: EVENT = fresh dACC tick (E3 ticks + episode step 0), DV = per-candidate effort spread / argmin set across forced f_sat, INSTRUMENT = counterfactual replay, validated by fidelity + negative + positive controls; INERT risk measured and carried as the reach-vs-gap non-degeneracy gate. dacc_weight=0.5 NOT 1.0: at 1.0 the dACC payoff self-feedback makes e3.last_scores an undamped integrator (|last_scores| 2553->23404 over 1500 steps) -- registered as substrate_queue sd032b-payoff-self-feedback-integrator; evidence question GFLAG-0507. red-team (fable) pass 1: BLOCKING -- (1) payoff integrator at dacc_weight 1.0 -> FIXED (0.5 + boundedness precondition); (2) episode-start dACC ticks excluded from C2 -> FIXED (counterfactuals on step 0 too); (3) positive control sized to the gap cannot certify C2 reachability -> FIXED (reach-vs-gap non-degeneracy); (4) float32 quantization at |scores|~1e4 / exact 0.0 negative-control gate -> FIXED (bounded scores; 0.02 rounding tolerance); (5) C1 passes on an untrained E2_harm_a -> DISMISSED, already framed as liveness-not-validity. red-team (fable) pass 2 (one re-spawn, causal chain changed): BLOCKING -- (1) scored counterfactuals copied the POST-call agent (early-return on step-0 ticks; advanced pe/payoff state) while fidelity certified a PRE-call copy -> FIXED (one pre-call snapshot, all counterfactuals from it; fidelity now certifies the same state); (2) manipulation large only on the dropped step-0 ticks -> FIXED by (1), C2/reach also reported per tick class; (3) tautological gates (no-cf count, pe>1e-6) and n-floor on the wrong denominator -> FIXED (C1-C2 denominator-equality gate, n-floor on C2's own denominator; P2 10->60 eps since P2 episodes end by health depletion in 3-10 steps); (4) degenerate C2 labelled as a calibration null -> FIXED (label effort_proxy_live_c2_unreachable, top-level non_degenerate includes C2); (5) positive-control gain used the copy's pe -> FIXED by (1). Smoke PASS (dry-run: fidelity 3/3, neg 0, pos 3/3, C1/C2 denominators equal). Ethics preflight: all false, allow.",
-      "status": "pending",
-      "claim_ids": [],
-      "conditions": 1,
-      "episodes_per_run": 95,
-      "experiment_type": "v3_exq_1104_sd032b_effort_proxy_validation",
-      "seeds": 3
     }
   ]
 }
