@@ -1180,6 +1180,41 @@ def _met(p: Dict[str, Any]) -> bool:
     return bool(m <= th) if p["direction"] == "upper" else bool(m >= th)
 
 
+def _monostrategy_flagged(mono_by_arm: Dict[str, Any], interpretable: bool) -> bool:
+    return bool(interpretable and any(mono_by_arm.get(a) for a in ARMS))
+
+
+def _clearance_ok(stock_repro: Optional[bool], mono_by_arm: Dict[str, Any],
+                  interpretable: bool) -> bool:
+    """May this target CLEAR its claim -- i.e. assert the HISTORICAL verdict is contamination-safe?
+
+    Red-team pass-2 P2-1 (verified): attribution used to gate only SENSITIVE targets, so a target
+    whose verdict was ROBUST but which never reproduced its own driver-derived baseline could still
+    clear its claim and drive outcome PASS -- while the very same manifest listed it under
+    `historical_verdict_not_reproduced`. "This claim's April evidence is contamination-safe" is
+    unsupportable when April's verdict did not reproduce at all. Clearance therefore requires the
+    STOCK arm (the reproduction arm) to have reproduced the baseline, and requires the target not
+    to be monostrategy-collapsed. A None baseline (not derivable) cannot clear either.
+    """
+    return stock_repro is True and not _monostrategy_flagged(mono_by_arm, interpretable)
+
+
+def _sensitivity_attributable(stock_repro: Optional[bool], optout_repro: Optional[bool],
+                              mono_by_arm: Dict[str, Any], interpretable: bool) -> bool:
+    """Is a SENSITIVE target's flip attributable to contamination rather than to drift/collapse?
+
+    Deliberately WEAKER than `_clearance_ok` on one point, from red-team pass-2 P2-2 (verified):
+    EITHER arm reproducing the baseline anchors the comparison to history. The case that matters is
+    STOCK not reproducing while OPTOUT does -- the gate RESTORES the historical verdict, which is
+    the strongest contamination attribution available, and the first draft routed it as
+    `not_attributable` because it only ever looked at STOCK. Monostrategy collapse still blocks
+    attribution in either direction.
+    """
+    if _monostrategy_flagged(mono_by_arm, interpretable):
+        return False
+    return stock_repro is True or optout_repro is True
+
+
 _DEGENERATE_DIRECTIONS = ("unknown", "non_contributory")
 _DEGENERATE_LABEL_MARKERS = ("not_ready", "requeue", "starved")
 
@@ -1270,14 +1305,18 @@ def _classify(t: Dict[str, Any], per_arm: Dict[str, Any], intended: int) -> Dict
     # Decision D: baseline from the DRIVER, not the manifest's amended evidence_direction.
     orig = _resolve_original(t)
     if orig["outcome"] is None and orig["evidence_direction"] is None:
-        stock_repro = None          # unverifiable -- must NOT read as a failed fidelity check
+        stock_repro: Optional[bool] = None   # unverifiable -- must NOT read as a FAILED check
+        optout_repro: Optional[bool] = None
     else:
         stock_repro = bool(s["verdict"]["outcome"] == orig["outcome"]
                            and s["verdict"]["evidence_direction"] == orig["evidence_direction"])
+        optout_repro = bool(o["verdict"]["outcome"] == orig["outcome"]
+                            and o["verdict"]["evidence_direction"] == orig["evidence_direction"])
     mono = {a: per_arm[a]["action_diversity"]["monostrategy_suspect"] for a in ARMS}
     print(f"[classify] {k}: {cls} (stock dv_death_frac={death}, verdict_changed={changed}, "
           f"degenerate stock/optout={deg_s}/{deg_o}, coupling={coupling}, "
-          f"stock_reproduces_original={stock_repro} [baseline via {orig['source']}], "
+          f"stock_reproduces_original={stock_repro} optout={optout_repro} "
+          f"[baseline via {orig['source']}], "
           f"monostrategy_suspect={mono})", flush=True)
     return {
         "target": k, "queue_id": t["queue_id"], "script": t["script"],
@@ -1290,7 +1329,15 @@ def _classify(t: Dict[str, Any], per_arm: Dict[str, Any], intended: int) -> Dict
         "dv_exposure_coupling": coupling, "dv_exposure_coupling_detail": coupling_detail,
         # An insensitive_by_construction target measured something real (the exposure) but its
         # verdict could not move, so it must never appear in direct_claims_cleared_*.
-        "can_clear_its_claim": bool(determinable and cls != "insensitive_by_construction"),
+        # THREE distinct questions, deliberately not collapsed (red-team pass-2 P2-1/P2-5):
+        #  criteria_could_discriminate -- could this target's own criteria have moved at all?
+        #  can_clear_its_claim         -- may it assert the HISTORICAL verdict is contamination-safe?
+        #  (attribution of a SENSITIVITY is a third predicate, applied in _assemble.)
+        "criteria_could_discriminate": bool(determinable
+                                            and cls != "insensitive_by_construction"),
+        "can_clear_its_claim": bool(determinable and cls != "insensitive_by_construction"
+                                    and _clearance_ok(stock_repro, mono,
+                                                      t["action_diversity_interpretable"])),
         "baseline_source": orig["source"],
         "dv_unit": "episode", "intended_dv_units": intended,
         "stock_dv_death_frac": death,
@@ -1299,6 +1346,8 @@ def _classify(t: Dict[str, Any], per_arm: Dict[str, Any], intended: int) -> Dict
         "stock_hf_contacts_total": stock_contacts,
         "verdict_changed": changed, "materially_truncated": material,
         "stock_reproduces_original": stock_repro,
+        "optout_reproduces_original": optout_repro,
+        "optout_restores_historical_verdict": bool(stock_repro is False and optout_repro is True),
         "stock_verdict": _verdict_key(s["verdict"]), "optout_verdict": _verdict_key(o["verdict"]),
         # REPORT-ONLY, per NAMED CHANGE 2. A True here means this target's result is confounded
         # by monostrategy collapse INDEPENDENTLY of the contamination manipulation, so a clean
@@ -1367,10 +1416,10 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
     # HISTORICAL run was contamination-affected. Without this the run would name contamination as
     # the reason a claim's old evidence is unsafe when drift or collapse is the live alternative.
     def _attributable(c: Dict[str, Any]) -> bool:
-        if c["stock_reproduces_original"] is not True:
-            return False
-        return not (c["action_diversity_interpretable"]
-                    and any(c["monostrategy_suspect_by_arm"].get(a) for a in ARMS))
+        return _sensitivity_attributable(c["stock_reproduces_original"],
+                                         c["optout_reproduces_original"],
+                                         c["monostrategy_suspect_by_arm"],
+                                         c["action_diversity_interpretable"])
 
     sens_attributable = [c for c in sens if _attributable(c)]
     sens_confounded = [c for c in sens if not _attributable(c)]
@@ -1398,7 +1447,9 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
     else:
         label = "contamination_prevalence_high_all_reruns_owed"
         outcome = "FAIL"
-        reruns = list(AUDITED_CLAIM_IDS)
+        # P2-3: never name an UNANSWERABLE claim as contamination-rerun-owed -- a re-run of this
+        # design cannot decide it, and claims_not_covered says exactly that.
+        reruns = [c for c in AUDITED_CLAIM_IDS if c not in unanswerable_claims]
 
     # Only determinable targets' DIRECT claims can be cleared (1080 red-team F3/F6). INV-054 is
     # carried by TWO targets, so it clears only if EVERY determinable one of them is
@@ -1490,6 +1541,28 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
                 c["queue_id"] for c in own if c["stock_reproduces_original"] is None],
         }
 
+    # P2-3: every audited claim must land in exactly ONE run-level bucket. The first draft could
+    # leave a claim in none of them (e.g. one attributable-sensitive sibling plus one confounded),
+    # visible only in per_claim_disposition -- so a run-level reader saw nothing at all about it.
+    # An unbucketed claim is reported LOUDLY rather than silently dropped.
+    claims_run_level_bucket: Dict[str, str] = {}
+    for claim in AUDITED_CLAIM_IDS:
+        buckets = []
+        if claim in cleared_direct:
+            buckets.append("cleared_no_rerun_owed")
+        if claim in reruns:
+            buckets.append("rerun_owed")
+        if claim in not_covered:
+            buckets.append("not_covered")
+        claims_run_level_bucket[claim] = ("+".join(buckets) if buckets
+                                         else "UNBUCKETED_see_per_claim_disposition")
+    claims_unbucketed = sorted(c for c, b in claims_run_level_bucket.items()
+                               if b.startswith("UNBUCKETED"))
+    for claim in claims_unbucketed:
+        not_covered.setdefault(
+            claim, "measured but reached no run-level bucket -- see per_claim_disposition")
+        claims_run_level_bucket[claim] = "not_covered"
+
     monostrategy_confounded = sorted(
         c["queue_id"] for c in cells
         if c["action_diversity_interpretable"] and any(
@@ -1536,8 +1609,13 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
                  bool(len(answerable_claims) >= MIN_ANSWERABLE_CLAIMS
                       and n_claims_covered == len(answerable_claims))}
     for c in cells:
-        non_degen[f"{c['target']}::stock_dv_death_frac_below_material"] = c["determinable"]
-        non_degen[f"{c['target']}::verdict_unchanged_stock_vs_optout"] = c["determinable"]
+        # P2-5: an insensitive_by_construction target's two criteria CANNOT discriminate, and
+        # this is the one field built to say so -- keying it on `determinable` alone labelled them
+        # non-degenerate, which is the opposite of the finding.
+        non_degen[f"{c['target']}::stock_dv_death_frac_below_material"] = (
+            c["criteria_could_discriminate"])
+        non_degen[f"{c['target']}::verdict_unchanged_stock_vs_optout"] = (
+            c["criteria_could_discriminate"])
 
     readout: Dict[str, Any] = {
         "ready": int(ready), "control_ok": int(control_ok),
@@ -1553,6 +1631,9 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
         "n_verdict_sensitive_attributable": len(sens_attributable),
         "n_verdict_sensitive_confounded": len(sens_confounded),
         "n_fidelity_unverifiable": len(fidelity_unverifiable),
+        "n_claims_unbucketed_before_repair": len(claims_unbucketed),
+        "n_optout_restores_historical_verdict": sum(
+            1 for c in cells if c["optout_restores_historical_verdict"]),
         "material_death_frac_threshold": MATERIAL_DEATH_FRAC,
         "monostrategy_modal_share_threshold": MONOSTRATEGY_MODAL_SHARE,
     }
@@ -1582,6 +1663,10 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
         readout[f"t{k}_dv_exposure_decoupled"] = int(
             c["dv_exposure_coupling"] == COUPLING_DECOUPLED)
         readout[f"t{k}_can_clear_its_claim"] = int(c["can_clear_its_claim"])
+        readout[f"t{k}_criteria_could_discriminate"] = int(c["criteria_could_discriminate"])
+        readout[f"t{k}_optout_reproduces_original"] = (
+            -1 if c["optout_reproduces_original"] is None
+            else int(c["optout_reproduces_original"]))
         readout[f"t{k}_stock_outcome_pass"] = int(c["stock_verdict"]["outcome"] == "PASS")
         readout[f"t{k}_optout_outcome_pass"] = int(c["optout_verdict"]["outcome"] == "PASS")
         readout[f"t{k}_stock_dv_units"] = float(c["per_arm"][ARM_STOCK]["episodes"]["n_dv_units"])
@@ -1681,6 +1766,40 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
                 "readiness verdict, so one target's degeneracy cannot vacate another's "
                 "measured result (V3-EXQ-785). A RECORD, not a route: outcome, label and "
                 "reruns_owed_for_claims follow 1080's pre-registered routing unchanged."),
+            "claims_run_level_bucket": claims_run_level_bucket,
+            "claims_unbucketed_before_repair": claims_unbucketed,
+            "optout_restores_historical_verdict_targets": [
+                c["queue_id"] for c in cells if c["optout_restores_historical_verdict"]],
+            "clearance_requires_reproduction_note": (
+                "A target may CLEAR its claim only if its STOCK arm reproduced the DRIVER-DERIVED "
+                "baseline and it is not monostrategy-collapsed. Asserting a claim's historical "
+                "evidence is contamination-safe is unsupportable when that historical verdict did "
+                "not reproduce at all -- red-team pass-2 P2-1. Attribution of a SENSITIVITY is "
+                "deliberately weaker (EITHER arm reproducing anchors it), because STOCK failing "
+                "while OPTOUT reproduces means the gate RESTORED the historical verdict, which is "
+                "the strongest contamination attribution available (P2-2)."),
+            "residual_caveats_pass2": {
+                "coupling_unknown_for_load_bearing_target": (
+                    "P2-6/attack-3: dv_exposure_coupling is measurable only for 883. It is UNKNOWN "
+                    "for 231a, the sole load-bearing input to C_PREV, so the F2-style vacuity "
+                    "cannot be positively ruled out there. Accepted as a STATED LIMITATION, not "
+                    "silently: 231a's coupling is derivable in principle (per-seed da_pos plus the "
+                    "same per-cell episode tagging 883 uses) and building that detector is named "
+                    "follow-on. What bounds the risk meanwhile is P2-1: 231a cannot clear MECH-106 "
+                    "unless it also reproduced its baseline."),
+                "coupling_tests_dv_movement_not_reach_to_criterion": (
+                    "P2-6: `coupled` is exact float inequality on the per-cell DV, so a cell whose "
+                    "DV moves only in the 4th-5th decimal from the observation channel still reads "
+                    "coupled. On this target set that is right for the right reason (883's exposed "
+                    "cells sit at exactly 0.0), but a tiny movement on an exposed cell would "
+                    "re-admit the F2 shape under the truncated_verdict_robust label."),
+                "inv054_clearance_may_rest_on_a_pinned_criterion": (
+                    "P2-4: if 435 is cannot_determine, INV-054's clearance rests on 278 alone, "
+                    "whose recovery-latency criterion is pinned at its floor of 1 -- CLAIM_SCOPE "
+                    "says so explicitly. Read any INV-054 clearance together with its scope "
+                    "string and with claims_determinable_targets to see how many targets carried "
+                    "it."),
+            },
             "monostrategy_confounded_targets": monostrategy_confounded,
             "monostrategy_caveat": (
                 "REPORT-ONLY (GFLAG-0487/0489). A target listed in "
