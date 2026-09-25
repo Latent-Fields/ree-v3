@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-09-24 (T17:34Z nightly)
+**Last updated:** 2026-09-25 (T01:10Z nightly)
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -237,6 +237,111 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-09-25T01:10Z nightly attestation (scheduled `/update-docs`, bot
+  identity).** ~7.5h window since the 2026-09-24T17:34Z snapshot -- a
+  short overnight band. Flat `v3_exq_*.json` manifests on disk:
+  **1060** (+2 vs 1058 at 2026-09-24T17:34Z); nested per-run manifests
+  under `evidence/experiments/*/runs/`: **2996** (+2 vs 2994).
+  **Currently queued (`experiment_queue.json` items[]): 3 items** --
+  V3-EXQ-1090 (MECH-449 endogenous-safety-veto validation, priority 50,
+  carried forward), V3-EXQ-1095 (MECH-439 operator-ON conversion
+  falsifier residue-FED only, priority 40, newly queued in-window,
+  ree-v3 `f8288e1`), V3-EXQ-1067 (MECH-266/SD-032a squash-vs-clamp
+  affinity cap sweep, diagnostic, priority 30, carried forward).
+  V3-EXQ-1089 drained in-window and now sits FAIL in `pending_review.md`.
+  **Pending review (`pending_review.md`, regenerated
+  2026-09-25T01:08:12Z by this run): 5 items** -- 3 PASS
+  (V3-EXQ-1085 MECH-365 carry-forward; V3-EXQ-1087 MECH-321 per-leaf
+  harm discriminability diagnostic, flagged `vacuous_pass` + no confirmed
+  autopsy; V3-EXQ-1093 MECH-428 parent-stat ESS sweep diagnostic, no
+  confirmed autopsy) + 2 FAIL (V3-EXQ-1083 SD-081 adaptive-vs-fixed
+  allocation; V3-EXQ-1089 MECH-268 closure-cadence mode register).
+  Coordinator-DB 30-day rolling (per `experiment_error_rate.py` against
+  the hub `ree@91.98.130.117`, span 2026-08-26T12:25:27Z ..
+  2026-09-24T18:07:40Z): **69 PASS / 63 FAIL / 2 ERROR, ERROR rate 1.5%
+  (2 / 134 classified runs)** -- -4 PASS, +1 FAIL, unchanged ERROR
+  vs the 2026-09-24 rolling window as older results fall out of the
+  30d span. Absolute in-window activity is dominated by the four new
+  pending-review items above (V3-EXQ-1083/1087/1089/1093) + the
+  carry-forward V3-EXQ-1085, none of which the coordinator DB rolling
+  window has yet reflected.
+  (a) **No new substrate landings in the window** -- SD-106 (2026-09-11)
+  and MECH-365 (2026-09-24) remain the most recent. Three substrate-
+  adjacent code changes only: `3230cd5` (ree-v3) fix `residue.integrate()`
+  distillation-sampling collapse at `world_dim=32` -- root cause of
+  GFLAG-0441 (subsequently `a1a6fab6e70` REE_assembly staged the
+  `residue-integrate-sampling-collapse-world-dim-32` substrate row
+  `implemented_pending_validation`); `fa0a904` MECH-320 default-OFF no-op
+  score-margin DV hook (pre- and post-bias) in E3 select; `1801e2d`
+  SD-CM-LIVETAP z_world scale anchor scale-invariant tagger input +
+  running-norm hinge, both default off. All bit-identical OFF.
+  (b) **One experiment queued in-window**: V3-EXQ-1095 (MECH-439
+  operator-ON conversion falsifier, residue-FED only; smoke PASS,
+  red-team fable x2 dispositioned, ree-v3 `f8288e1`; earlier attempt
+  V3-EXQ-1095 `5bf2f0c` was NOT QUEUED on red-team BLOCKING and re-scoped
+  as fed-only before queueing).
+  (c) **One driver authored and REFUSED / NOT QUEUED**: V3-EXQ-1092
+  (SD-PP-B5 option B, second red-team BLOCKING; ree-v3 `c5327bd`,
+  `bc5482d`; REE_assembly SD-PP-B5 addendum 2 record `2c0deb26c2a`).
+  Refusal gate continues to work as designed.
+  (d) **Heavy governance-flag activity in-window** -- flag-raise commits
+  in REE_assembly touching (non-exhaustive) SD-080, ARC-018, MECH-320,
+  MECH-523, INV-054, MECH-573, SD-008, SD-PP-B5, SD-PP-B10, INV-069,
+  MECH-113, ARC-016, SD-056, SD-063, MECH-468, MECH-469, MECH-470
+  (`b79ed36b5f6` MECH-468/469/470 sweep; `af07e7ef0fb` SD-PP-B5 /
+  SD-PP-B10 / MECH-573 / SD-008 sweep; `e4be7ad7c58` SD-056 / SD-063
+  sweep; `b37abce7562` ARC-016; `b2286b9dba4` INV-069 / MECH-113;
+  `28b2c78a440` and `a8581b5a80b` INV-054 / MECH-523; `49b7d182e48` /
+  `8f7a23ee41d` SD-080 / ARC-018; `c6e813de754` MECH-320; `4407139df0e`
+  MECH-523 evidence_discrepancy).
+  (e) **Extensive planning-doc activity in-window** authored around a
+  `bt0925-trainer` / `bt0924-*` breakthrough integration pass: native
+  waking trainer design INTERIM + FINAL (`6457bcd40aa`, `0c0f5b76ec9`);
+  gradient-reach census of the native agent (`940c690c9dd`);
+  decoder-training causal probe INTERIM + FINAL (`12ed412fd07`,
+  `a369f411ff8`, both FAIL); bt0924-valuation FINAL grounded main-channel
+  valuation frontier + Mac smoke + ADDENDUM 1/2 (`50b679abb88`, `941d7aa5710`,
+  `13621d6db85`, `28ebf569552`); bt0924-replication fresh-seed test of
+  ADDENDUM 3 R5b+R2 closed-loop harm-avoidance FAIL on both criteria
+  (`fc987f3b057`); bt0924-rollout / bt0924-evaluation family
+  (`ca212aff263`, `a2236815c94`, `2d848ca2d30`, `f300ebf64d6`,
+  `5f3446727c7`, `1b09b81b4d1`, `8ab5ce6fc1b`, `5e3c956b41f`);
+  z_self training path correction with P0 body-forward-model objective
+  (`d85ab3ec2b9` + ree-v3 `863d23d`).
+  (f) **Two lit-pulls landed** via IGW auto-tick: IGW-20260924-250
+  MECH-081 proposal -> EXP-0820 `blocked_substrate` (no armable
+  E2->world-encoder sufficiency term, `378b045d930`); IGW-20260924-251
+  MECH-082 targeted review 5 entries (hippocampal memory biases perceptual
+  sampling, `fda400934a2`, EVB-1422).
+  (g) **`/thought-digestion` ingestion**: `108ada2c2f4` "REE Assembly as
+  continuous scientific assurance" landed as a thought; INV-069 targeted
+  lit-pull (self as maintained process, `6549d983e30`, 4 entries).
+  (h) **MECH-204/SD-076b refusal record** landed for the ratified OU
+  drift source (red-team BLOCKING, `c7581d6c344`).
+  (i) **IGW auto-tick**: IGW-20260924-222 igw-ledger completion landed
+  in-window (`edf556150b8`, `baae8f5fac3`, `9ae670b4369`);
+  IGW-20260924-250 and IGW-20260924-251 completed in-window; multiple
+  ledger sweeps + workset regens (267/34/0 -> 266/33/0 in-window).
+  (j) **Coordination-plane background stable**: phase2b materializer
+  ticks; phase3-queue snapshots (~6 in-window); igw ledger updates.
+  This attestation itself is the last content change: `docs/ree-v3-spec.md`
+  §0 date bump + this Experiment Status entry, the paired
+  `docs/roadmap.md` snapshot, plus nav/status/goblin re-stamp.
+  **Bottleneck: unchanged in location, dominated by
+  substrate-refusal + governance queue pressure** -- the H-observation-
+  interface convergence axis remains open; the 4 new PASS/FAIL items
+  in `pending_review.md` (V3-EXQ-1083 FAIL, V3-EXQ-1085 MECH-365 PASS
+  carry-forward, V3-EXQ-1087 diagnostic PASS `vacuous_pass`,
+  V3-EXQ-1089 FAIL, V3-EXQ-1093 diagnostic PASS with no confirmed
+  autopsy) are the next `/governance` move, on top of the ~82-flag
+  bucket carried forward from 2026-09-24. Green-board target
+  2026-07-19 now **68 days overdue**. **ETHICS-PERIMETER Phase 0
+  datum** stays on the record (Phases 1-3 deferred; NON-BLOCKING).
+  Public-information-architecture impact: reviewed against
+  `docs/design/public_information_architecture.md` -- no `/api/*`
+  surface, generated visualization, or public export changed; nightly
+  snapshot + spec date bump + Experiment Status entry only; no SD table
+  rows added, moved, or restatused.
 - **2026-09-24T17:34Z nightly attestation (scheduled `/update-docs`, bot
   identity).** ~87h window since the 2026-09-21T01:10Z snapshot -- nightlies
   for 2026-09-22 and 2026-09-23 did not run (`docs/roadmap.md` had no
