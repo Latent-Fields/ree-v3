@@ -186,7 +186,9 @@ PRE-REGISTERED (constants below, fixed before any real run):
       and the verdict held BUT `dv_exposure_coupling == decoupled`, i.e. no exposed cell has a DV
       that moves between the arms -- see improvement (4).
   Run-level routing, on n_truncated and on ATTRIBUTABLE sensitivity (improvement 5):
-      not ready                       -> substrate_not_ready_requeue
+      not ready, control ok, uncovered only via non-reproduction
+                                      -> historical_verdicts_not_reproduced_adjudicate_drift_first
+      not ready otherwise             -> substrate_not_ready_requeue
       n_sensitive 0, n_truncated 0    -> contamination_prevalence_low_no_reruns_owed
       n_sensitive 0, n_truncated >=1  -> contamination_truncation_present_verdicts_robust_no_reruns_owed
       sensitive but NONE attributable -> contamination_sensitivity_present_but_not_attributable_adjudicate_drift_first
@@ -1425,7 +1427,21 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
     sens_confounded = [c for c in sens if not _attributable(c)]
 
     if not ready:
-        label = "substrate_not_ready_requeue"
+        # Separate the two very different reasons a claim can be uncovered (the orchestrator's
+        # "make the routing grid read them so drift and sensitivity are separable"). If the
+        # control passed and EVERY uncovered answerable claim is uncovered only because its
+        # targets DID run and measured but did not reproduce their driver-derived baselines, the
+        # instrument is fine and the owed work is a drift adjudication -- calling that
+        # `substrate_not_ready_requeue` would send the reader looking for an instrument fault
+        # that is not there.
+        uncovered = [c for c in answerable_claims if not claims_determinable[c]]
+        drift_only = bool(uncovered) and all(
+            any(t["determinable"] and t["stock_reproduces_original"] is False
+                for t in cells if claim in t["direct_claims"])
+            and all(t["determinable"] for t in cells if claim in t["direct_claims"])
+            for claim in uncovered)
+        label = ("historical_verdicts_not_reproduced_adjudicate_drift_first"
+                 if (control_ok and drift_only) else "substrate_not_ready_requeue")
         outcome = "FAIL"
         reruns: List[str] = []
     elif n_sens == 0:
@@ -1822,6 +1838,18 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
         },
         "preconditions_all": all_pre,
         "non_degenerate": bool(ready),
+        "not_ready_reason_split": (
+            None if ready else
+            {"label": label,
+             "uncovered_answerable_claims": [c for c in answerable_claims
+                                             if not claims_determinable[c]],
+             "meaning": ("every uncovered answerable claim's targets ran and measured but did not "
+                         "reproduce their driver-derived baseline -- a DRIFT finding, not an "
+                         "instrument fault"
+                         if label.startswith("historical_verdicts_not_reproduced")
+                         else "at least one uncovered answerable claim had no determinable target "
+                              "at all, or the positive control failed -- an instrument/readiness "
+                              "fault")}),
         "degeneracy_reason": (None if ready else
                               "positive control failed, or fewer than "
                               f"{MIN_ANSWERABLE_CLAIMS} of {AUDITED_CLAIM_IDS} were answerable "
