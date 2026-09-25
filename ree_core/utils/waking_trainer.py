@@ -31,8 +31,11 @@ What this landing contains (and deliberately does not)
   trainer is the C1 trainer exactly (one member).
 * ``CodecMember`` (``waking_trainer_codec.py``; W1 codec part (1), integration branch)
   behind ``waking_trainer_codec_enabled`` (default OFF).
-* NOT registered here (the coupled campaign's branch work): E2-world, SD-070 P0, ZSelfP0,
-  the terrain prior. ``WakingTrainer.register`` is the seam they plug into.
+* W3 (branch ``integration/coupled-loop-repair`` only): ``E2WorldMember`` behind
+  ``waking_trainer_e2_world_enabled`` -- the E2 world head over a trainer-owned raw-obs
+  buffer with a FROZEN retained babbling set, re-encoded at replay (see its docstring).
+* NOT registered here (later branch work): SD-070 P0, ZSelfP0, the terrain prior.
+  ``WakingTrainer.register`` is the seam they plug into.
 
 Retained-graph hazard (design section 2 (iii)): ``agent._last_action`` is NOT detached by
 default and carries the previous tick's selection graph (SD-007 reafference); an
@@ -302,6 +305,348 @@ class E2SelfMember(WakingTrainerMember):
             agent._e2_transition_buffer = saved
 
 
+# ---------------------------------------------------------------------------------------
+# W3: E2 world-head member (coupled-loop-repair campaign plan section 3 W3; branch only)
+# ---------------------------------------------------------------------------------------
+
+SOURCE_ON_POLICY = "on_policy"
+SOURCE_BABBLE = "babble"
+SOURCE_EXTERNAL = "external"
+_SOURCES = (SOURCE_ON_POLICY, SOURCE_BABBLE)
+
+
+def _raw_tensor(x: Any) -> Optional[torch.Tensor]:
+    if x is None:
+        return None
+    return torch.as_tensor(x).detach().float().reshape(1, -1).clone()
+
+
+def auto_reencode_window(alpha_world: float, tol: float = 1e-4, cap: int = 64) -> int:
+    """Warm-up steps W so the dropped prefix weighs <= ``tol`` in the z_world EMA.
+
+    ``LatentStack.encode`` smooths ``z_world = alpha * new + (1 - alpha) * prev``
+    (stack.py, SD-008), so a re-encode that starts W steps before the transition from a
+    fresh state differs from the live latent by a term weighted (1 - alpha)^W. alpha 0.3
+    (the from_dims default) -> 26; alpha 0.9 -> 4; alpha 1.0 -> 0 (no memory).
+    """
+    a = float(alpha_world)
+    if a >= 1.0:
+        return 0
+    if a <= 0.0:
+        return int(cap)
+    return int(min(cap, max(0, int(np.ceil(np.log(tol) / np.log(1.0 - a))))))
+
+
+class E2WorldMember(WakingTrainerMember):
+    """E2 world-forward head over a trainer-owned buffer with a FROZEN retained set (W3).
+
+    Plan of record: REE_assembly ``evidence/planning/coupled_loop_repair_campaign_plan.md``
+    section 3 W3 (GFLAG-0485 leg (i)); record ``w3_e2_world_member_build_20260925.md``.
+
+    Buffers (both hold RAW observations, re-encoded at replay time -- plan P8 / A1 O7):
+      * on-policy: a deque (``waking_trainer_buffer_max``) of the agent's own waking
+        transitions, recorded while ``source == "on_policy"``;
+      * retained: an APPEND-ONLY list (cap ``_retained_max``) of transitions recorded while
+        ``source == "babble"`` (the W2a ``StructuredBabbler`` epoch) or supplied through
+        ``append_external`` / ``schedule_external`` (A1 O15). This is the FROZEN state: no
+        on-policy transition ever evicts or overwrites an entry (W2b's UNFROZEN state is
+        not built here). Once full, further retained candidates are counted in
+        ``retained_dropped`` and not stored.
+    Each replay batch is ``round(batch * replay_frac)`` retained + the rest on-policy once
+    the on-policy buffer holds a batch; before that, a pure-retained batch (the babbling
+    epoch); with no retained set, pure on-policy. Counters ``n_drawn_retained`` /
+    ``n_drawn_on_policy`` record the realised mix.
+
+    A record stores the transition's raw window: the ``W`` preceding raw observations of the
+    same episode (``auto_reencode_window``; fewer at an episode start) plus obs_t and
+    obs_{t+1}, the executed action before each (SD-007 reafference input), the executed
+    action a_t AS FED TO E2 (``agent._last_action``, A1 E7 / O7 draft: one-hot for ASP,
+    the bounded decode for the codec), the live z_world pair (for the ``stored`` replay
+    mode and the fidelity readout), the source, and the member's waking-step index (A1 O15
+    (i): the retained set is a log with step indices, ``export_retained``). Replay
+    re-encodes each window through the agent's CURRENT read path (``body/world_obs_encoder
+    -> latent_stack.encode``, starting from ``latent_stack.init_state`` -- exactly what
+    ``sense`` sees after ``reset``), batched by window length, under ``no_grad``: the
+    member's gradient cannot reach the encoder (that is W6a's group).
+
+    Raw capture: ``REEAgent.sense`` hands its raw inputs to ``WakingTrainer.on_sense`` (a
+    no-op for every other member); ``observe`` (from ``update_residue``) completes the
+    previous tick's pending transition, so a transition is (obs_{t-1}, a_{t-1}, obs_t), no
+    pair crosses ``on_env_reset``.
+
+    Loss (``waking_trainer_e2_world_objective``): ``mse`` (default) is the single-step MSE of
+    ``e2.world_forward`` -- the recipe the L2R acceptance bar was measured with
+    (``babbling_e2_action_coverage_probe_20260925.md``, ``goal_pipeline_tier1.py``); ``infonce``
+    is the native SD-056 ``world_forward_contrastive_loss`` over K distinct replay
+    transitions with ``min_batch_classes=1`` (``compute_e2_world_loss``'s objective). Group:
+    ``e2.world_transition`` + ``e2.world_action_encoder`` (the tensors ``world_forward``
+    reads). Gradient-norm clip ``grad_clip`` (L2R recipe 1.0) is applied by the trainer.
+
+    Evidence domain of the member's gate (the L2R bar): D1 (the head discriminates actions
+    on a held-out set). Not a D2/D3 claim.
+    """
+
+    name = "e2_world"
+
+    def __init__(self, agent: Any, lr: float, batch_size: int, buffer_max: int,
+                 retained_max: int = 5000, replay_frac: float = 0.25,
+                 reencode_window: int = 0, replay_latent: str = "reencode",
+                 objective: str = "mse", grad_clip: float = 1.0,
+                 updates_per_step: int = 1) -> None:
+        if replay_latent not in ("reencode", "stored"):
+            raise ValueError("waking_trainer_e2_world_replay_latent must be 'reencode' or "
+                             "'stored', got %r" % (replay_latent,))
+        if objective not in ("mse", "infonce"):
+            raise ValueError("waking_trainer_e2_world_objective must be 'mse' or 'infonce', "
+                             "got %r" % (objective,))
+        if not 0.0 <= float(replay_frac) <= 1.0:
+            raise ValueError("waking_trainer_e2_world_replay_frac must be in [0, 1]")
+        self._agent = agent
+        self.lr = float(lr)
+        self.batch_size = max(2, int(batch_size))
+        self.replay_frac = float(replay_frac)
+        self.replay_latent = replay_latent
+        self.objective = objective
+        self.grad_clip = float(grad_clip) if grad_clip and float(grad_clip) > 0 else None
+        self.updates_per_step = max(1, int(updates_per_step))
+        rw = int(reencode_window)
+        self.reencode_window = (auto_reencode_window(agent.config.latent.alpha_world)
+                                if rw <= 0 else rw)
+        self._named = _resolve_named(agent, [agent.e2.world_transition,
+                                             agent.e2.world_action_encoder])
+        self._on_policy: Deque[Dict[str, Any]] = deque(maxlen=int(buffer_max))
+        self._retained: List[Dict[str, Any]] = []
+        self._retained_max = int(retained_max)
+        self.retained_dropped = 0
+        self.source = SOURCE_ON_POLICY
+        self._hist: Deque[Tuple[Any, ...]] = deque(maxlen=self.reencode_window + 2)
+        self._ep_len = 0
+        self._cur_raw: Optional[Tuple[Any, ...]] = None
+        self._pending: Optional[Tuple[torch.Tensor, str]] = None
+        self.n_observed = 0
+        self._scheduled: List[Dict[str, Any]] = []
+        self.n_drawn_retained = 0
+        self.n_drawn_on_policy = 0
+        # Read-path version key: every tensor the re-encode reads. A record's re-encoded
+        # z is cached against this key and recomputed as soon as any of them changes (an
+        # optimizer step or load_state_dict bumps ``_version``), so a frozen encoder costs
+        # one encode per record and a trained one (W6a) is always re-encoded fresh.
+        self._read_path = [t for mod in (agent.body_obs_encoder, agent.world_obs_encoder,
+                                         agent.latent_stack)
+                           for t in list(mod.parameters()) + list(mod.buffers())]
+        self._cache_ok = int(agent.config.latent.volatility_signal_dim) <= 0
+        self.n_reencoded = 0
+        self.n_cache_hits = 0
+
+    # -- parameters / source -----------------------------------------------------------
+    def named_parameters(self) -> List[Tuple[str, torch.nn.Parameter]]:
+        return list(self._named)
+
+    def set_source(self, source: str) -> None:
+        if source not in _SOURCES:
+            raise ValueError("e2_world source must be one of %s, got %r" % (_SOURCES, source))
+        self.source = source
+
+    # -- recording -----------------------------------------------------------------------
+    def on_sense(self, obs_body: Any, obs_world: Any, obs_harm: Any = None,
+                 obs_harm_a: Any = None, obs_harm_history: Any = None) -> None:
+        self._cur_raw = (_raw_tensor(obs_body), _raw_tensor(obs_world), _raw_tensor(obs_harm),
+                         _raw_tensor(obs_harm_a), _raw_tensor(obs_harm_history))
+
+    def on_env_reset(self) -> None:
+        self._hist.clear()
+        self._ep_len = 0
+        self._cur_raw = None
+        self._pending = None
+
+    def observe(self, agent: Any, harm_signal: float) -> None:
+        raw = self._cur_raw
+        lat = agent._current_latent
+        self._cur_raw = None
+        if raw is None or lat is None or getattr(lat, "z_world", None) is None:
+            self._pending = None       # nothing sensed since the last step: no pair
+            return
+        self.n_observed += 1
+        prev_a = None if self._pending is None else self._pending[0]
+        self._hist.append(raw + (prev_a, lat.z_world.detach().reshape(1, -1).clone()))
+        self._ep_len += 1
+        if self._pending is not None and len(self._hist) >= 2:
+            self._store(self._make_record(self._pending[0], self._pending[1]))
+        act = agent._last_action
+        self._pending = (None if act is None
+                         else (act.detach().reshape(1, -1).clone(), self.source))
+        self._release_scheduled()
+
+    def _make_record(self, action: torch.Tensor, source: str) -> Dict[str, Any]:
+        win = tuple(self._hist)
+        return {
+            "obs": tuple(w[:5] for w in win),
+            "prev_a": (None,) + tuple(w[5] for w in win[1:]),
+            "a": action,
+            "z_live": (win[-2][6], win[-1][6]),
+            "seg_start": self._ep_len <= len(win),
+            "source": source,
+            "step": self.n_observed,
+        }
+
+    def _store(self, rec: Dict[str, Any]) -> None:
+        if rec["source"] == SOURCE_ON_POLICY:
+            self._on_policy.append(rec)
+        else:
+            self._retain(rec)
+
+    def _retain(self, rec: Dict[str, Any]) -> bool:
+        if len(self._retained) >= self._retained_max:
+            self.retained_dropped += 1
+            return False
+        self._retained.append(rec)
+        return True
+
+    # -- A1 O15: external transitions + the retained-set log ---------------------------
+    @staticmethod
+    def _check_record(rec: Dict[str, Any]) -> Dict[str, Any]:
+        for k in ("obs", "prev_a", "a"):
+            if k not in rec:
+                raise ValueError("external e2_world transition lacks %r" % k)
+        if len(rec["obs"]) < 2 or len(rec["prev_a"]) != len(rec["obs"]):
+            raise ValueError("external e2_world transition needs >= 2 obs and one prev_a per obs")
+        out = dict(rec)
+        out["source"] = SOURCE_EXTERNAL
+        out.setdefault("z_live", None)
+        out.setdefault("seg_start", True)
+        out.setdefault("step", None)
+        return out
+
+    def append_external(self, records: Sequence[Dict[str, Any]]) -> int:
+        """Append transitions (``export_retained`` format) to the FROZEN retained set now.
+
+        Returns the number stored (the cap applies). Draws no RNG."""
+        return sum(1 for r in records if self._retain(self._check_record(r)))
+
+    def schedule_external(self, records: Sequence[Dict[str, Any]]) -> None:
+        """Queue transitions to enter the retained set when this member's waking-step
+        counter reaches each record's ``step`` (A1 INT-v-BABBLE-DATA: the donor arm's
+        retained babbling transitions at the same phase-1 step indices)."""
+        recs = [self._check_record(r) for r in records]
+        if any(r["step"] is None for r in recs):
+            raise ValueError("schedule_external needs a 'step' on every record")
+        self._scheduled = sorted(self._scheduled + recs, key=lambda r: int(r["step"]))
+        self._release_scheduled()
+
+    def _release_scheduled(self) -> None:
+        while self._scheduled and int(self._scheduled[0]["step"]) <= self.n_observed:
+            self._retain(self._scheduled.pop(0))
+
+    def export_retained(self) -> List[Dict[str, Any]]:
+        """The retained (FROZEN) set in insertion order, each with its ``step`` index and
+        ``source`` -- the A1 O15 (i) log. Tensors are the stored (detached) ones."""
+        return [{k: v for k, v in r.items() if k != "_zc"} for r in self._retained]
+
+    # -- replay ----------------------------------------------------------------------------
+    def ready(self) -> bool:
+        return (len(self._on_policy) >= self.batch_size
+                or len(self._retained) >= self.batch_size)
+
+    def _batch_split(self) -> Tuple[int, int]:
+        n_on, n_ret = len(self._on_policy), len(self._retained)
+        B = self.batch_size
+        if n_on >= B and n_ret > 0:
+            k_ret = int(round(B * self.replay_frac))
+            return B - k_ret, k_ret
+        if n_on >= B:
+            return B, 0
+        return 0, B
+
+    def read_path_key(self) -> Tuple[int, ...]:
+        return tuple(int(t._version) for t in self._read_path)
+
+    @torch.no_grad()
+    def _reencode(self, recs: Sequence[Dict[str, Any]]) -> Tuple[torch.Tensor, torch.Tensor]:
+        """z_world of (obs_t, obs_{t+1}) for each record through the CURRENT read path."""
+        agent = self._agent
+        dev = agent.device
+        z0: List[Any] = [None] * len(recs)
+        z1: List[Any] = [None] * len(recs)
+        key = self.read_path_key() if self._cache_ok else None
+        groups: Dict[int, List[int]] = {}
+        for i, r in enumerate(recs):
+            zc = r.get("_zc")
+            if key is not None and zc is not None and zc[0] == key:
+                z0[i], z1[i] = zc[1], zc[2]
+                self.n_cache_hits += 1
+                continue
+            groups.setdefault(len(r["obs"]), []).append(i)
+        vol_on = agent.config.latent.volatility_signal_dim > 0
+        for L, idx in groups.items():
+            B = len(idx)
+            prev = agent.latent_stack.init_state(batch_size=B, device=dev)
+            vol = None
+            if vol_on:
+                vol = agent.e3.volatility_estimate
+            for j in range(L):
+                def col(k: int) -> Optional[torch.Tensor]:
+                    xs = [recs[i]["obs"][j][k] for i in idx]
+                    if any(x is None for x in xs):
+                        return None
+                    return torch.cat(xs, dim=0).to(dev)
+                ob, ow = col(0), col(1)
+                harm = col(2)
+                if agent.lpb_router is not None and harm is not None:
+                    harm = agent.lpb_router.mask_external_harm_obs(harm)
+                pas = [recs[i]["prev_a"][j] for i in idx]
+                pa = (None if any(p is None for p in pas)
+                      else torch.cat(pas, dim=0).to(dev).float())
+                enc = torch.cat([agent.body_obs_encoder(ob), agent.world_obs_encoder(ow)], dim=-1)
+                prev = agent.latent_stack.encode(
+                    enc, prev, prev_action=pa, harm_obs=harm, harm_obs_a=col(3),
+                    harm_history=col(4), volatility_signal=vol)
+                if j == L - 2:
+                    zb0 = prev.z_world.detach()
+            zb1 = prev.z_world.detach()
+            for n, i in enumerate(idx):
+                z0[i] = zb0[n:n + 1].clone()
+                z1[i] = zb1[n:n + 1].clone()
+                self.n_reencoded += 1
+                if key is not None:
+                    recs[i]["_zc"] = (key, z0[i], z1[i])
+        return torch.cat(z0, dim=0), torch.cat(z1, dim=0)
+
+    def replay_batch(self) -> Optional[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
+        """(z_t, a_t, z_{t+1}) for one mixed replay batch; draws from the GLOBAL torch RNG
+        (the trainer swaps its private state in around ``loss``)."""
+        if not self.ready():
+            return None
+        k_on, k_ret = self._batch_split()
+        recs: List[Dict[str, Any]] = []
+        if k_on:
+            ii = torch.randint(0, len(self._on_policy), (k_on,)).tolist()
+            recs += [self._on_policy[i] for i in ii]
+        if k_ret:
+            ii = torch.randint(0, len(self._retained), (k_ret,)).tolist()
+            recs += [self._retained[i] for i in ii]
+        self.n_drawn_on_policy += k_on
+        self.n_drawn_retained += k_ret
+        if self.replay_latent == "stored" and all(r.get("z_live") is not None for r in recs):
+            z0 = torch.cat([r["z_live"][0] for r in recs], dim=0)
+            z1 = torch.cat([r["z_live"][1] for r in recs], dim=0)
+        else:
+            z0, z1 = self._reencode(recs)
+        acts = torch.cat([r["a"] for r in recs], dim=0).to(z0.device, z0.dtype)
+        return z0, acts, z1
+
+    def loss(self, agent: Any) -> Optional[torch.Tensor]:
+        batch = self.replay_batch()
+        if batch is None:
+            return None
+        z0, acts, z1 = batch
+        e2 = agent.e2
+        if self.objective == "infonce":
+            return e2.world_forward_contrastive_loss(
+                z_world_0=z0, actions=acts, z_world_1_targets=z1,
+                min_batch_classes=1, simulation_mode=False)
+        return F.mse_loss(e2.world_forward(z0, acts), z1)
+
+
 class WakingTrainer:
     """Agent-owned waking trainer: per-member optimizers, K-tick cadence, armed guard.
 
@@ -353,6 +698,21 @@ class WakingTrainer:
                     buffer_max=int(getattr(config, "waking_trainer_buffer_max", 2000)),
                     code_l2=float(getattr(config, "waking_trainer_codec_code_l2", 1e-3)),
                 ))
+            # W3 E2-world member (branch; default OFF, read defensively).
+            if bool(getattr(config, "waking_trainer_e2_world_enabled", False)):
+                members.append(E2WorldMember(
+                    agent,
+                    lr=float(getattr(config, "waking_trainer_e2_world_lr", 3e-4)),
+                    batch_size=int(getattr(config, "waking_trainer_e2_world_batch_size", 32)),
+                    buffer_max=buffer_max,
+                    retained_max=int(getattr(config, "waking_trainer_e2_world_retained_max", 5000)),
+                    replay_frac=float(getattr(config, "waking_trainer_e2_world_replay_frac", 0.25)),
+                    reencode_window=int(getattr(config, "waking_trainer_e2_world_reencode_window", 0)),
+                    replay_latent=str(getattr(config, "waking_trainer_e2_world_replay_latent", "reencode")),
+                    objective=str(getattr(config, "waking_trainer_e2_world_objective", "mse")),
+                    grad_clip=float(getattr(config, "waking_trainer_e2_world_grad_clip", 1.0)),
+                    updates_per_step=int(getattr(config, "waking_trainer_e2_world_updates_per_step", 1)),
+                ))
         for m in members:
             self.register(m)
 
@@ -380,6 +740,25 @@ class WakingTrainer:
         for m in self.members.values():
             m.on_env_reset()
 
+    def on_sense(self, obs_body: Any, obs_world: Any, obs_harm: Any = None,
+                 obs_harm_a: Any = None, obs_harm_history: Any = None) -> None:
+        """Raw sensory inputs of this tick (from ``REEAgent.sense``), for members that store
+        raw observations (W3 ``E2WorldMember``). Draws nothing; a no-op for the others."""
+        for m in self.members.values():
+            hook = getattr(m, "on_sense", None)
+            if hook is not None:
+                hook(obs_body, obs_world, obs_harm, obs_harm_a, obs_harm_history)
+
+    def set_e2_world_source(self, source: str) -> None:
+        """Tag the E2-world member's next recorded transitions ``"babble"`` (the W2a
+        developmental epoch: retained, FROZEN) or ``"on_policy"``. Raises if the member is
+        not registered."""
+        m = self.members.get(E2WorldMember.name)
+        if m is None:
+            raise ValueError("set_e2_world_source: no e2_world member (knob "
+                             "waking_trainer_e2_world_enabled is OFF)")
+        m.set_source(source)
+
     # -- the per-step entry (called from REEAgent.update_residue) ------------------------
     def on_waking_step(self, harm_signal: float) -> Dict[str, Any]:
         """Record this tick's replay samples; every K ticks, step each ready member."""
@@ -390,11 +769,12 @@ class WakingTrainer:
         if self.ticks % self.every_k != 0:
             return out
         for name, m in self.members.items():
-            if not m.ready():
-                continue
-            loss_val = self._update(name, m)
-            if loss_val is not None:
-                out["waking_trainer_%s_loss" % name] = loss_val
+            for _u in range(int(getattr(m, "updates_per_step", 1))):
+                if not m.ready():
+                    break
+                loss_val = self._update(name, m)
+                if loss_val is not None:
+                    out["waking_trainer_%s_loss" % name] = loss_val
         return out
 
     def _update(self, name: str, member: WakingTrainerMember) -> Optional[float]:
@@ -414,6 +794,10 @@ class WakingTrainer:
                         guard = self._guards.get(name)
                         if guard is not None:
                             guard.observe_optimizer(opt)
+                        clip = getattr(member, "grad_clip", None)
+                        if clip:
+                            torch.nn.utils.clip_grad_norm_(
+                                [p for _, p in member.named_parameters()], float(clip))
                         opt.step()
                         opt.zero_grad(set_to_none=True)
                         loss_val = float(loss.detach().item())
