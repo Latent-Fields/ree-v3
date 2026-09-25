@@ -3056,6 +3056,25 @@ class HippocampalConfig:
     # None = the full rollout horizon, the same window the codec CEM uses today
     # (decision U4: exposed for W4 to set; default = current behaviour).
     action_space_cem_score_horizon: Optional[int] = None
+    # W1 codec (coupled-loop-repair campaign plan sec 3 W1, parts (2)-(3); REE_assembly
+    # evidence/planning/w1_codec_build_20260925.md). Both default False -> the codec CEM
+    # proposer is byte-identical to the pre-W1 code.
+    # (2) Bounded decode: HippocampalModule's decode step returns a straight-through ONE-HOT of
+    #     the decoder's argmax (forward values exactly one-hot, backward the softmax
+    #     gradient) instead of the raw decoder logits, so the vector E2.rollout_with_world
+    #     consumes as the action always has norm 1 -- the action space the world head
+    #     is trained on. Raw logits drove decoded norms 50 -> ~370-1080 over 3 CEM
+    #     iterations once the decoder was trained (action_decoder_training_causal_probe_
+    #     20260925.md, a369f411ff8). Applies at every decode call site (CEM + ghost probes).
+    use_codec_bounded_decode: bool = False
+    # (3) Iteration-0 sampling matched to the encoder image: the first CEM iteration
+    #     samples from a diagonal Gaussian fit to E2's action-object image at the current
+    #     state, {E2.action_object(z_world, onehot(c), action_bias)} over the action_dim
+    #     classes (mean = the image centroid, std = the per-dim spread across classes),
+    #     instead of terrain_prior's mean with ao_std = 1 (whose samples have norm ~3.9
+    #     against an image of ~0.3). terrain_prior is NOT called on this path; routing a
+    #     grounded terrain prior back in is W1 part (4) (probe N4). Draws no RNG.
+    use_codec_iter0_image_match: bool = False
     # ARC-071: splice crystallised chunks into the candidate pool as single
     # selectable Trajectories, so E3 can commit to a chunk as ONE move (this is
     # where the rollout-cost / behavioural-latency drop comes from). Mirrored
@@ -8153,6 +8172,18 @@ class REEConfig:
     structured_babbling_n_classes: int = 0
     structured_babbling_max_run: int = 4
     structured_babbling_seed: int = 0
+    # W1 codec part (1) (coupled-loop-repair campaign plan sec 3 W1): the joint codec
+    # member. Read only when waking_trainer_enabled is True; False (default) -> the trainer
+    # holds no codec group. When True, CodecMember (ree_core/utils/waking_trainer_codec.py)
+    # trains e2.action_object_head (encoder) and hippocampal.action_object_decoder
+    # (decoder) TOGETHER on the round trip CE(decoder(encoder(z_world, onehot(c))), c)
+    # over every class c at recorded z_world states, plus a small code-norm penalty
+    # (waking_trainer_codec_code_l2) so the joint objective cannot buy margin by
+    # inflating the encoder image. Guard-armed like harm_eval.
+    # Pinned by tests/contracts/test_w1_codec.py.
+    waking_trainer_codec_enabled: bool = False
+    waking_trainer_codec_lr: float = 1e-3
+    waking_trainer_codec_code_l2: float = 1e-3
 
     def __post_init__(self) -> None:
         # MECH-307 master flag resolver. When the convenience master flag
@@ -9290,6 +9321,9 @@ class REEConfig:
         action_space_first_action_mode: str = "stratified",
         action_space_prob_floor: float = 0.02,
         action_space_cem_score_horizon: Optional[int] = None,
+        # W1 codec parts (2)/(3) (see HippocampalConfig). Default OFF -> bit-identical.
+        use_codec_bounded_decode: bool = False,
+        use_codec_iter0_image_match: bool = False,
         # Support-preserving CEM (ARC-065). MAIN-PATH DEFAULT 2026-05-17
         # (SP-CEM landing, V3-EXQ-567 ARM_1): True / True / 0.2. Bit-identical
         # legacy opt-out: pass use_support_preserving_cem=False,
@@ -9752,6 +9786,12 @@ class REEConfig:
         config.structured_babbling_n_classes = int(kwargs.pop("structured_babbling_n_classes", 0))
         config.structured_babbling_max_run = int(kwargs.pop("structured_babbling_max_run", 4))
         config.structured_babbling_seed = int(kwargs.pop("structured_babbling_seed", 0))
+        # W1 codec member (tests/contracts/test_w1_codec.py).
+        config.waking_trainer_codec_enabled = bool(
+            kwargs.pop("waking_trainer_codec_enabled", False))
+        config.waking_trainer_codec_lr = float(kwargs.pop("waking_trainer_codec_lr", 1e-3))
+        config.waking_trainer_codec_code_l2 = float(
+            kwargs.pop("waking_trainer_codec_code_l2", 1e-3))
 
         # Observation dims
         config.latent.body_obs_dim = body_obs_dim
@@ -11023,6 +11063,11 @@ class REEConfig:
         config.hippocampal.action_space_prob_floor = action_space_prob_floor
         config.hippocampal.action_space_cem_score_horizon = (
             action_space_cem_score_horizon
+        )
+        # W1 codec parts (2)/(3), both default-OFF/inert.
+        config.hippocampal.use_codec_bounded_decode = bool(use_codec_bounded_decode)
+        config.hippocampal.use_codec_iter0_image_match = bool(
+            use_codec_iter0_image_match
         )
         config.hippocampal.use_support_preserving_cem = use_support_preserving_cem
         config.hippocampal.support_preserving_min_first_action_classes = (
