@@ -3020,6 +3020,42 @@ class HippocampalConfig:
     # number of normal CEM candidates to preserve total K where possible.
     # Default False is bit-identical to the normal CEM proposer.
     use_action_class_scaffold_candidates: bool = False
+    # W1-alt ASP (action-space proposals; coupled-loop-repair campaign, design
+    # REE_assembly evidence/planning/action_space_proposals_design_20260925.md).
+    # When True, propose_trajectories() replaces the terrain_prior init and the
+    # O-space CEM loop with a discrete cross-entropy search in the env's own
+    # action space: every candidate action is an exact one-hot, the
+    # action_object_decoder and terrain_prior are never called on the proposal
+    # path, and there are no trainable parameters. the rollout still
+    # computes the action-object tensor, so O readers are fed. The post-CEM
+    # section (SP-CEM injection, scaffold, chunk splice, authority/throughput,
+    # promotion gate) is unchanged. Mutually exclusive with the O-space-only
+    # features use_differentiable_cem, use_orthogonal_cem_seeding,
+    # mode_conditioning_enabled, use_mech293_ghost_probes and
+    # use_cem_modulatory_authority (HippocampalModule.__init__ raises).
+    # Default False is bit-identical to the codec CEM proposer.
+    use_action_space_proposals: bool = False
+    # ASP first-action / refit mode (read only when use_action_space_proposals):
+    #   "stratified"         ASP-E: first action stratified (class c gets
+    #                        floor(K/A) or ceil(K/A) of the K candidates, the
+    #                        extra ones to the lowest class indices), per-class
+    #                        per-step categorical continuation refit to that
+    #                        class's elites over num_cem_iterations.
+    #   "refit"              ASP-R: one joint per-step categorical over ALL steps
+    #                        (step 0 included), refit to the global elites.
+    #   "stratified_uniform" ASP-0: stratified first action, uniform random
+    #                        continuations, no refit (one draw; the RANDOM-POOL
+    #                        control of gate (e) and decision U2's simpler form).
+    # Any other value raises at HippocampalModule construction.
+    action_space_first_action_mode: str = "stratified"
+    # Minimum per-class probability kept in every refit categorical
+    # (p <- (1 - floor*A) * elite_freq + floor). DRAFT constant. Must satisfy
+    # 0 <= floor and floor * action_dim < 1, else construction raises.
+    action_space_prob_floor: float = 0.02
+    # ASP CEM elite-scoring window, passed as _score_trajectory(max_horizon=).
+    # None = the full rollout horizon, the same window the codec CEM uses today
+    # (decision U4: exposed for W4 to set; default = current behaviour).
+    action_space_cem_score_horizon: Optional[int] = None
     # ARC-071: splice crystallised chunks into the candidate pool as single
     # selectable Trajectories, so E3 can commit to a chunk as ONE move (this is
     # where the rollout-cost / behavioural-latency drop comes from). Mirrored
@@ -9248,6 +9284,12 @@ class REEConfig:
         # When True, HippocampalModule ensures one one-hot first-action
         # candidate per action class reaches E3. Default False.
         use_action_class_scaffold_candidates: bool = False,
+        # W1-alt ASP action-space proposals (see HippocampalConfig). Default
+        # OFF -> bit-identical codec CEM proposer.
+        use_action_space_proposals: bool = False,
+        action_space_first_action_mode: str = "stratified",
+        action_space_prob_floor: float = 0.02,
+        action_space_cem_score_horizon: Optional[int] = None,
         # Support-preserving CEM (ARC-065). MAIN-PATH DEFAULT 2026-05-17
         # (SP-CEM landing, V3-EXQ-567 ARM_1): True / True / 0.2. Bit-identical
         # legacy opt-out: pass use_support_preserving_cem=False,
@@ -10972,6 +11014,15 @@ class REEConfig:
         config.hippocampal.use_orthogonal_cem_seeding = use_orthogonal_cem_seeding
         config.hippocampal.use_action_class_scaffold_candidates = (
             use_action_class_scaffold_candidates
+        )
+        # W1-alt ASP action-space proposals (four knobs, all default-OFF/inert).
+        config.hippocampal.use_action_space_proposals = use_action_space_proposals
+        config.hippocampal.action_space_first_action_mode = (
+            action_space_first_action_mode
+        )
+        config.hippocampal.action_space_prob_floor = action_space_prob_floor
+        config.hippocampal.action_space_cem_score_horizon = (
+            action_space_cem_score_horizon
         )
         config.hippocampal.use_support_preserving_cem = use_support_preserving_cem
         config.hippocampal.support_preserving_min_first_action_classes = (

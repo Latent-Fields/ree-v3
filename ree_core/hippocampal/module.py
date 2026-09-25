@@ -181,6 +181,16 @@ class HippocampalModule(nn.Module):
             nn.Linear(config.hidden_dim, config.action_dim),
         )
 
+        # W1-alt ASP call counters. Incremented by _decode_action_objects and
+        # _get_terrain_action_object_mean (the only proposal-path callers of
+        # action_object_decoder / terrain_prior); the ASP path reports the
+        # delta over its own run as action_space_decoder_calls /
+        # action_space_terrain_prior_calls (0 by construction, and a contract
+        # asserts it). Plain ints: no effect on any tensor or RNG stream.
+        self._decode_action_objects_calls: int = 0
+        self._terrain_prior_calls: int = 0
+        self._validate_action_space_proposal_config(config)
+
         # ARC-028 / MECH-105: last completion signal cache
         self._last_completion_signal: float = 0.0
 
@@ -614,6 +624,7 @@ class HippocampalModule(nn.Module):
             combined = torch.cat([z_world, e1_prior, residue_val, benefit_val], dim=-1)
         else:
             combined = torch.cat([z_world, e1_prior, residue_val], dim=-1)
+        self._terrain_prior_calls = getattr(self, "_terrain_prior_calls", 0) + 1
         mean_flat = self.terrain_prior(combined)  # [batch, action_object_dim * horizon]
         return mean_flat.view(
             z_world.shape[0], self.config.horizon, self.config.action_object_dim
@@ -652,6 +663,9 @@ class HippocampalModule(nn.Module):
             actions [batch, horizon, action_dim]
         """
         batch, horizon, ao_dim = action_objects.shape
+        self._decode_action_objects_calls = (
+            getattr(self, "_decode_action_objects_calls", 0) + 1
+        )
         flat = action_objects.reshape(batch * horizon, ao_dim)
         actions_flat = self.action_object_decoder(flat)
         return actions_flat.reshape(batch, horizon, self.config.action_dim)
@@ -1407,6 +1421,376 @@ class HippocampalModule(nn.Module):
             scaffolds.append(traj)
         return scaffolds
 
+    # ------------------------------------------------------------------ #
+    # W1-alt ASP: action-space proposals (coupled-loop-repair campaign)  #
+    # ------------------------------------------------------------------ #
+    # Design: REE_assembly evidence/planning/action_space_proposals_design_
+    # 20260925.md (412882b845), sec 2.1 (ASP-E), 2.4 (ASP-R / ASP-0), 3.2-3.3
+    # (knobs, exclusions), 4 (member gate G-ASP (a)-(d), read from the
+    # diagnostics this path emits).
+
+    _ASP_MODES = ("stratified", "refit", "stratified_uniform")
+    # O-space features with no meaning in action space. Mixing one in silently
+    # would either put the decoder / terrain_prior back into the pool or turn
+    # the knob into a silent no-op, so construction refuses the combination.
+    _ASP_EXCLUSIVE_FLAGS = (
+        "use_differentiable_cem",
+        "use_orthogonal_cem_seeding",
+        "mode_conditioning_enabled",
+        "use_mech293_ghost_probes",
+        "use_cem_modulatory_authority",
+    )
+
+    @classmethod
+    def _validate_action_space_proposal_config(cls, config) -> None:
+        """Refuse an ASP configuration that would be silently wrong.
+
+        No-op when use_action_space_proposals is False: the three sub-knobs
+        are then never read, so they cannot change behaviour (OFF identity).
+        """
+        if not bool(getattr(config, "use_action_space_proposals", False)):
+            return
+        mode = getattr(config, "action_space_first_action_mode", "stratified")
+        if mode not in cls._ASP_MODES:
+            raise ValueError(
+                "action_space_first_action_mode must be one of "
+                f"{cls._ASP_MODES}, got {mode!r}"
+            )
+        action_dim = int(config.action_dim)
+        horizon = int(config.horizon)
+        if action_dim < 1 or horizon < 1:
+            raise ValueError(
+                "use_action_space_proposals needs action_dim >= 1 and "
+                f"horizon >= 1, got action_dim={action_dim}, horizon={horizon}"
+            )
+        floor = float(getattr(config, "action_space_prob_floor", 0.02))
+        if not (floor >= 0.0 and floor * action_dim < 1.0):
+            raise ValueError(
+                "action_space_prob_floor must satisfy 0 <= floor and "
+                f"floor * action_dim < 1; got floor={floor}, "
+                f"action_dim={action_dim}"
+            )
+        window = getattr(config, "action_space_cem_score_horizon", None)
+        if window is not None:
+            if isinstance(window, bool) or not isinstance(window, int):
+                raise ValueError(
+                    "action_space_cem_score_horizon must be None or an int, "
+                    f"got {window!r}"
+                )
+            if not (1 <= window <= horizon):
+                raise ValueError(
+                    "action_space_cem_score_horizon must lie in [1, horizon="
+                    f"{horizon}], got {window}"
+                )
+        conflicts = [
+            name for name in cls._ASP_EXCLUSIVE_FLAGS
+            if bool(getattr(config, name, False))
+        ]
+        if conflicts:
+            raise ValueError(
+                "use_action_space_proposals is mutually exclusive with the "
+                f"O-space proposal feature(s) {conflicts}: they act on the "
+                "action-object distribution / decoder that the action-space "
+                "proposer bypasses."
+            )
+
+    @staticmethod
+    def _asp_sample_categorical(probs: torch.Tensor, n: int) -> torch.Tensor:
+        """Draw n samples per row of probs [T, A] -> LongTensor [n, T].
+
+        Inverse-CDF over torch.rand rather than torch.multinomial: rand is
+        bit-identical across the fleet's machine classes, multinomial is not
+        (CLAUDE.md "Running the test suite"), so an ASP pool is reproducible
+        on every box. A zero-probability class is never drawn.
+        """
+        num_rows, action_dim = probs.shape
+        if n <= 0 or num_rows == 0:
+            return torch.zeros(max(n, 0), num_rows, dtype=torch.long, device=probs.device)
+        cdf = probs.cumsum(dim=-1)  # [T, A]
+        u = torch.rand(n, num_rows, device=probs.device, dtype=probs.dtype)
+        idx = (u.unsqueeze(-1) >= cdf.unsqueeze(0)).sum(dim=-1)
+        return idx.clamp(max=action_dim - 1)
+
+    @staticmethod
+    def _asp_refit(
+        elite_classes: torch.Tensor,
+        action_dim: int,
+        floor: float,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        """Elite class frequencies [E, T] -> floored categorical [T, A].
+
+        p = (1 - floor * A) * freq + floor, so every entry is >= floor and each
+        row sums to 1 (floor * A < 1 is enforced at construction).
+        """
+        one_hot = torch.nn.functional.one_hot(elite_classes, num_classes=action_dim).to(dtype)
+        freq = one_hot.mean(dim=0)  # [T, A]
+        return (1.0 - floor * action_dim) * freq + floor
+
+    @staticmethod
+    def _asp_row_entropy(probs: torch.Tensor) -> List[float]:
+        p = probs.clamp_min(1e-12)
+        return [float(v) for v in (-(p * p.log()).sum(dim=-1)).tolist()]
+
+    def _propose_action_space(
+        self,
+        z_self: torch.Tensor,
+        z_world: torch.Tensor,
+        n: int,
+        action_bias: Optional[torch.Tensor] = None,
+        operating_mode: Optional[Dict[str, float]] = None,
+    ) -> Tuple[List[Trajectory], List[Dict[str, Any]], Dict[str, Any]]:
+        """W1-alt ASP: discrete cross-entropy search in the env's action space.
+
+        Returns (final pool, per-iteration diagnostics, summary diagnostics).
+        Never calls action_object_decoder or terrain_prior; every rollout
+        action is an exact one-hot; no trainable parameters. See
+        HippocampalConfig.use_action_space_proposals for the three modes.
+        """
+        cfg = self.config
+        mode = str(getattr(cfg, "action_space_first_action_mode", "stratified"))
+        floor = float(getattr(cfg, "action_space_prob_floor", 0.02))
+        window = getattr(cfg, "action_space_cem_score_horizon", None)
+        action_dim = int(cfg.action_dim)
+        horizon = int(cfg.horizon)
+        k_total = max(1, int(n))
+        batch_size = z_world.shape[0]
+        device = z_world.device
+        dtype = z_world.dtype
+        elite_frac = float(cfg.elite_fraction)
+        stratified = mode in ("stratified", "stratified_uniform")
+        refit_on = mode != "stratified_uniform"
+        num_iterations = (
+            max(1, int(cfg.num_cem_iterations)) if refit_on else 1
+        )
+        decode_calls_0 = int(getattr(self, "_decode_action_objects_calls", 0))
+        terrain_calls_0 = int(getattr(self, "_terrain_prior_calls", 0))
+
+        # Stratified first-action allocation: floor(K/A) each, one more for
+        # the first K mod A classes (K=32, A=5 -> 7/7/6/6/6).
+        base, extra = divmod(k_total, action_dim)
+        class_counts = [base + (1 if c < extra else 0) for c in range(action_dim)]
+
+        # Probability bookkeeping in float64 so the floor guarantee is exact
+        # (float32 would store 0.02 as 0.0199999996 and read below the floor).
+        prob_dtype = torch.float64
+        uniform = torch.full(
+            (horizon, action_dim), 1.0 / action_dim, device=device, dtype=prob_dtype
+        )
+        # Stratified: one categorical per first-action class (row 0 unused).
+        # Refit: one joint categorical, row 0 = the first-action distribution.
+        class_probs = [uniform.clone() for _ in range(action_dim)]
+        joint_probs = uniform.clone()
+
+        iteration_diags: List[Dict[str, Any]] = []
+        trajectories: List[Trajectory] = []
+        seqs = torch.zeros(0, horizon, dtype=torch.long, device=device)
+
+        for iteration in range(num_iterations):
+            # ---- sample K one-hot action sequences (class indices [K, H]) --
+            if stratified:
+                blocks = []
+                for c in range(action_dim):
+                    n_c = class_counts[c]
+                    if n_c <= 0:
+                        continue
+                    block = torch.full(
+                        (n_c, horizon), c, dtype=torch.long, device=device
+                    )
+                    if horizon > 1:
+                        block[:, 1:] = self._asp_sample_categorical(
+                            class_probs[c][1:], n_c
+                        )
+                    blocks.append(block)
+                seqs = torch.cat(blocks, dim=0)
+            else:
+                seqs = self._asp_sample_categorical(joint_probs, k_total)
+
+            actions_all = torch.nn.functional.one_hot(seqs, num_classes=action_dim).to(dtype)
+            trajectories = []
+            scores: List[float] = []
+            for k in range(seqs.shape[0]):
+                actions = actions_all[k].unsqueeze(0).repeat(batch_size, 1, 1)
+                traj = self.e2.rollout_with_world(
+                    z_self,
+                    z_world,
+                    actions,
+                    compute_action_objects=True,
+                    action_bias=action_bias,
+                )
+                metadata = dict(traj.metadata or {})
+                metadata.update({
+                    "source": "action_space_cem",
+                    "action_space_mode": mode,
+                    "first_action_class": int(seqs[k, 0].item()),
+                })
+                traj.metadata = metadata
+                trajectories.append(traj)
+                scores.append(self._score_to_float(
+                    self._score_trajectory(
+                        traj,
+                        max_horizon=window,
+                        operating_mode=operating_mode,
+                    )
+                ))
+
+            # ---- elites + refit -------------------------------------------
+            ranked_all = sorted(range(len(scores)), key=lambda i: (scores[i], i))
+            elite_idx: List[int] = []
+            if stratified:
+                for c in range(action_dim):
+                    members = [i for i in ranked_all if int(seqs[i, 0].item()) == c]
+                    if not members:
+                        continue
+                    n_elite_c = min(
+                        len(members),
+                        max(_MIN_CEM_ELITES, int(round(elite_frac * len(members)))),
+                    )
+                    chosen = members[:n_elite_c]
+                    elite_idx.extend(chosen)
+                    if refit_on and horizon > 1:
+                        new_p = class_probs[c].clone()
+                        new_p[1:] = self._asp_refit(
+                            seqs[chosen, 1:], action_dim, floor, prob_dtype
+                        )
+                        class_probs[c] = new_p
+            else:
+                n_elite = min(
+                    len(ranked_all),
+                    max(_MIN_CEM_ELITES, int(len(ranked_all) * elite_frac)),
+                )
+                elite_idx = ranked_all[:n_elite]
+                joint_probs = self._asp_refit(
+                    seqs[elite_idx], action_dim, floor, prob_dtype
+                )
+
+            if stratified:
+                live = [class_probs[c] for c in range(action_dim) if class_counts[c] > 0]
+                cont_rows = (
+                    torch.stack([p[1:] for p in live]) if (live and horizon > 1)
+                    else torch.zeros(0, max(horizon - 1, 0), action_dim)
+                )
+                cont_entropy = (
+                    [float(sum(col) / len(col)) for col in zip(
+                        *[self._asp_row_entropy(p[1:]) for p in live]
+                    )] if (live and horizon > 1) else []
+                )
+                min_prob = (
+                    float(cont_rows.min().item()) if cont_rows.numel() else None
+                )
+                step0_entropy = None
+            else:
+                cont_entropy = self._asp_row_entropy(joint_probs[1:])
+                step0_entropy = self._asp_row_entropy(joint_probs[:1])[0]
+                min_prob = float(joint_probs.min().item())
+
+            pre_summary = self._summarize_trajectories(trajectories)
+            elite_summary = self._summarize_trajectories(
+                [trajectories[i] for i in elite_idx]
+            )
+            step0_counts = {
+                int(c): int(v) for c, v in enumerate(
+                    torch.bincount(seqs[:, 0], minlength=action_dim).tolist()
+                )
+            }
+            iteration_diags.append({
+                "iteration": int(iteration),
+                "action_space_mode": mode,
+                "pre_refit_first_action_counts": pre_summary["first_action_counts"],
+                "pre_refit_unique_first_action_classes": pre_summary[
+                    "unique_first_action_classes"
+                ],
+                "pre_refit_first_action_entropy": pre_summary[
+                    "first_action_entropy"
+                ],
+                "post_elite_refit_first_action_counts": elite_summary[
+                    "first_action_counts"
+                ],
+                "post_elite_refit_unique_first_action_classes": elite_summary[
+                    "unique_first_action_classes"
+                ],
+                "post_elite_refit_first_action_entropy": elite_summary[
+                    "first_action_entropy"
+                ],
+                "action_space_step0_counts": step0_counts,
+                "action_space_n_elites": int(len(elite_idx)),
+                "action_space_refit_applied": bool(refit_on),
+                "action_space_continuation_entropy": cont_entropy,
+                "action_space_step0_entropy": step0_entropy,
+                "action_space_min_categorical_prob": min_prob,
+            })
+
+        # ---- summary diagnostics (member gate G-ASP (a)-(d) readouts) -------
+        final_actions = (
+            torch.stack([t.actions.detach() for t in trajectories], dim=0)
+            if trajectories else torch.zeros(0, batch_size, horizon, action_dim)
+        )
+        if final_actions.numel():
+            flat = final_actions.reshape(-1, action_dim)
+            max_norm = float(flat.norm(dim=-1).max().item())
+            all_one_hot = bool(
+                ((flat == 0) | (flat == 1)).all().item()
+                and bool((flat.sum(dim=-1) == 1).all().item())
+            )
+        else:
+            max_norm, all_one_hot = 0.0, False
+
+        # Gate (c) readout: rollout-norm growth along each candidate.
+        ratio_h: List[float] = []
+        max_growth: List[float] = []
+        for traj in trajectories:
+            seq = traj.get_world_state_sequence()
+            if seq is None or seq.shape[1] < 2:
+                continue
+            norms = seq.detach().norm(dim=-1).mean(dim=0)  # [H+1]
+            n0 = float(norms[0].item())
+            if n0 <= 0.0:
+                continue
+            ratio_h.append(float(norms[-1].item()) / n0)
+            steps = norms[1:] / norms[:-1].clamp_min(1e-12)
+            max_growth.append(float(steps.max().item()))
+
+        def _median(xs: List[float]) -> Optional[float]:
+            if not xs:
+                return None
+            return float(torch.tensor(xs, dtype=torch.float64).median().item())
+
+        final_step0 = (
+            {int(c): int(v) for c, v in enumerate(
+                torch.bincount(seqs[:, 0], minlength=action_dim).tolist()
+            )} if seqs.numel() else {}
+        )
+        summary = {
+            "use_action_space_proposals": True,
+            "action_space_first_action_mode": mode,
+            "action_space_prob_floor": floor,
+            "action_space_cem_score_horizon": window,
+            "action_space_iterations_run": int(num_iterations),
+            "action_space_decoder_calls": int(
+                getattr(self, "_decode_action_objects_calls", 0) - decode_calls_0
+            ),
+            "action_space_terrain_prior_calls": int(
+                getattr(self, "_terrain_prior_calls", 0) - terrain_calls_0
+            ),
+            "action_space_max_action_norm": max_norm,
+            "action_space_all_actions_one_hot": all_one_hot,
+            "action_space_stratified_counts": (
+                {int(c): int(v) for c, v in enumerate(class_counts)}
+                if stratified else None
+            ),
+            "action_space_step0_counts": final_step0,
+            "action_space_min_categorical_prob": (
+                iteration_diags[-1]["action_space_min_categorical_prob"]
+                if iteration_diags else None
+            ),
+            "action_space_rollout_norm_ratio_median": _median(ratio_h),
+            "action_space_rollout_max_step_growth_median": _median(max_growth),
+            "action_space_rollout_max_step_growth_max": (
+                max(max_growth) if max_growth else None
+            ),
+        }
+        return trajectories, iteration_diags, summary
+
     @staticmethod
     def _trajectory_first_action_class(trajectory: Trajectory) -> int:
         return int(
@@ -2156,9 +2540,22 @@ class HippocampalModule(nn.Module):
         if z_self is None:
             z_self = torch.zeros(batch_size, self.e2.config.self_dim, device=device)
 
+        # W1-alt ASP: when use_action_space_proposals is on, the terrain_prior
+        # init below and the whole O-space CEM loop are bypassed (the loop runs
+        # zero iterations) and _propose_action_space() supplies the pool and
+        # the per-iteration diagnostics instead. Everything from the MECH-293
+        # ghost block onward is unchanged. OFF -> this code runs byte-for-byte
+        # as before.
+        _asp_on = bool(getattr(self.config, "use_action_space_proposals", False))
+        _asp_diag: Dict[str, Any] = {}
+
         # Initialise in action-object space (SD-004)
-        ao_mean = self._get_terrain_action_object_mean(z_world, e1_prior=e1_prior)
-        ao_std  = torch.ones_like(ao_mean)
+        if _asp_on:
+            ao_mean = None
+            ao_std = None
+        else:
+            ao_mean = self._get_terrain_action_object_mean(z_world, e1_prior=e1_prior)
+            ao_std  = torch.ones_like(ao_mean)
 
         # MECH-267: mode-conditioned CEM noise scale.
         self._last_operating_mode = (
@@ -2231,7 +2628,12 @@ class HippocampalModule(nn.Module):
         _cem_auth_scales: List[float] = []
         _cem_auth_fired = 0
 
-        for _iteration in range(self.config.num_cem_iterations):
+        # W1-alt ASP: zero O-space iterations when on (mode conditioning and
+        # orthogonal seeding are excluded at construction, so ao_mean/ao_std
+        # are never read on this path).
+        for _iteration in range(
+            0 if _asp_on else self.config.num_cem_iterations
+        ):
             trajectories: List[Trajectory] = []
             scores: List[torch.Tensor] = []
             _cem_auth_terrain: List[torch.Tensor] = []
@@ -2509,6 +2911,17 @@ class HippocampalModule(nn.Module):
 
             all_trajectories = trajectories
 
+        if _asp_on:
+            all_trajectories, cem_iteration_diagnostics, _asp_diag = (
+                self._propose_action_space(
+                    z_self=z_self,
+                    z_world=z_world,
+                    n=int(n),
+                    action_bias=action_bias,
+                    operating_mode=operating_mode,
+                )
+            )
+
         # MECH-293: minority ghost-seeded probe budget. Reads the MECH-292
         # ranked bank (goal-match-floor filtered, no rumination) and seeds
         # CEM probes around the top-ranked anchors' z_world rather than the
@@ -2782,6 +3195,8 @@ class HippocampalModule(nn.Module):
             **ortho_diag,
             **support_preserving_diag,
             **scaffold_diag,
+            # W1-alt ASP diagnostics ({} when use_action_space_proposals is off).
+            **_asp_diag,
         })
 
         # MECH-057b: hippocampal sequence-completion verification gating

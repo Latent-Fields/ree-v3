@@ -2803,6 +2803,12 @@ PROBED = {
     # test_hippocampal_candidate_support.py: ON guarantees every action class
     # appears among first-step candidates; OFF has no such guarantee.
     "use_action_class_scaffold_candidates",
+    # W1-alt ASP action-space proposals (integration/coupled-loop-repair).
+    # Probed by tests/contracts/test_action_space_proposals.py
+    # test_on_changes_the_pool: ON replaces the codec pool with one-hot
+    # action-space candidates (bytes differ, every candidate tagged
+    # action_space_cem); test_off_is_bit_identical_... pins OFF identity.
+    "use_action_space_proposals",
     # SP-CEM support-preserving repair. Probed by
     # test_hippocampal_candidate_support.py: under an artificially collapsed
     # decoder, ON repairs first-action class diversity (>=2 classes); OFF
