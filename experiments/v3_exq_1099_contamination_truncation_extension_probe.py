@@ -78,6 +78,14 @@ THREE IMPROVEMENTS over 1080, each from its confirmed autopsy or the dispatch pr
       SCRIPTED action sequence (`_scripted_action`), so a high modal share there is the design,
       not collapse. The full per-cell action histogram is recorded so a reader can recompute the
       share against its own denominator rather than trusting this one number.
+      The class is read from the env's OWN resolution (`CausalGridWorld._last_action`), never
+      re-derived from the driver's `step()` argument: the four targets pass three different
+      types (883 an int, 278/435 a one-hot tensor, 231a a [1, N] continuous candidate vector),
+      and this probe's first draft DID re-derive it and reported 231a as using 45 distinct
+      action classes at a 0.068 modal share -- a broken instrument reading as a clean result,
+      caught by the dry-run smoke. `action_resolution` is three-valued
+      (ready / unresolved / not_measured) and `monostrategy_suspect` is None -- CANNOT
+      DETERMINE, never "no collapse" -- whenever it is not `ready`.
   (2) GATE IN THE CONFIG SLICE (autopsy lesson 3a). 1080 injected the gate through the class
       wrap only, so STOCK and OPTOUT cells emitted IDENTICAL arm fingerprints -- harmless while
       arm reuse is emit-only, a false cache hit if it ever becomes consuming. Of these four
@@ -138,11 +146,20 @@ PRE-REGISTERED (constants below, fixed before any real run):
       n_sensitive 0, n_truncated >=1 -> contamination_truncation_present_verdicts_robust_no_reruns_owed
       n_sensitive 1                  -> contamination_isolated_sensitivity_reruns_owed
       n_sensitive >= 2               -> contamination_prevalence_high_all_reruns_owed
-  MIN_DETERMINABLE_TARGETS = 3, and this is deliberate rather than copied: it is exactly the
-      three MANDATORY claims (INV-054 via 278, MECH-427 via 883, MECH-106 via 231a), so
-      readiness cannot be met by 435 alone standing in for a mandatory target -- and 435, which
-      is expected a priori to be degenerate in both arms, cannot by itself make the run
-      not-ready either.
+  READINESS = positive control met AND all MIN_DETERMINABLE_CLAIMS (3) of the mandatory claims
+      have at least one DETERMINABLE target. 1080 counted determinable TARGETS, which is the
+      same thing when each target carries its own claim -- it is not here, because INV-054 is
+      carried by TWO targets (278 and 435) and 435 is expected a priori to be degenerate in
+      both arms. Counting targets would let one foreseeably-degenerate target vacate the
+      well-powered findings of the other three, which is exactly the whole-run precondition AND
+      that V3-EXQ-785 established as a defect. Counting claims is the faithful translation of
+      1080's bar to this target set, and it still FAILS whenever any mandatory claim goes
+      unmeasured -- it is not a relaxation into unfalsifiability.
+      Belt and braces for the same hazard: `interpretation.per_claim_disposition` is populated
+      from each claim's OWN determinable targets and is reported WHATEVER the run-level
+      readiness verdict, so one target's degeneracy can never erase another's measured result.
+      It is a record, not a route: run-level `outcome`, `label` and `reruns_owed_for_claims`
+      stay exactly on 1080's pre-registered routing.
   What "no re-runs owed" covers: ONLY the determinable targets' DIRECT claims. INV-054 is
       covered by TWO targets (278 and 435); it is cleared only if every determinable one of
       them is non-sensitive, and if BOTH are undeterminable it moves to claims_not_covered.
@@ -193,6 +210,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from ree_core.agent import REEAgent  # noqa: E402
 from ree_core.environment import causal_grid_world as _cgw  # noqa: E402
 from ree_core.environment.causal_grid_world import CausalGridWorld, CausalGridWorldV2  # noqa: E402
 from experiment_protocol import emit_outcome  # noqa: E402
@@ -200,6 +218,7 @@ from experiments.pack_writer import write_flat_manifest  # noqa: E402
 from experiments._lib.episode_termination import (  # noqa: E402
     EpisodeTerminationAccumulator, stats_from_episodes,
 )
+from experiments._lib.z_goal_stream import ZGoalStreamAccumulator  # noqa: E402
 
 EXPERIMENT_TYPE = "v3_exq_1099_contamination_truncation_extension_probe"
 QUEUE_ID = "V3-EXQ-1099"
@@ -220,7 +239,10 @@ ANCHOR_REACHABILITY_EXEMPT = ("control predicate is the death-fraction statistic
 
 # ---- pre-registered constants (never derived from this run's own statistics) ----
 MATERIAL_DEATH_FRAC = 0.10
-MIN_DETERMINABLE_TARGETS = 3
+# Readiness counts mandatory CLAIMS covered by >= 1 determinable target, not raw targets --
+# INV-054 is carried by two targets and 435 is expected degenerate. See the READINESS note in
+# the module docstring for why this is 1080's bar translated, not relaxed.
+MIN_DETERMINABLE_CLAIMS = 3
 CONTROL_EPISODES = 20
 CONTROL_STEPS = 150
 CONTROL_STOCK_DEATH_FLOOR = 0.5
@@ -259,12 +281,29 @@ class _ProbeState:
         self.post_done_steps: Dict[str, int] = {}
         self.phase: str = "all"
         self.env_seq: int = 0
+        # Every REEAgent built inside a target driver, per cell. The probe holds no agent
+        # handle of its own (each target constructs its agents internally), so a class-level
+        # wrap on REEAgent.__init__ is the only way to record z_goal liveness for all four
+        # targets rather than only for the one that happens to export an accumulator (883).
+        # V3-EXQ-1080 recorded just that one; this closes the gap.
+        self.agents: Dict[str, List[Any]] = {}
 
 
 _STATE = _ProbeState()
+_ZG = ZGoalStreamAccumulator()
 _ORIG_INIT = CausalGridWorld.__init__
 _ORIG_STEP = CausalGridWorld.step
 _ORIG_RESET = CausalGridWorld.reset
+_ORIG_AGENT_INIT = REEAgent.__init__
+
+
+def _probe_agent_init(self, *args, **kwargs):
+    _ORIG_AGENT_INIT(self, *args, **kwargs)
+    if _STATE.cell is not None:
+        # Held, not observed, until the cell finishes: ZGoalStreamAccumulator.observe reads
+        # the counters AT CALL TIME, and at construction they are all still zero (the one site
+        # its docstring warns about).
+        _STATE.agents.setdefault(_STATE.cell, []).append(self)
 
 
 def _record_episode(env: Any, steps: int, cause: str) -> None:
@@ -317,16 +356,27 @@ def _probe_init(self, *args, **kwargs):
 
 def _probe_step(self, action):
     cell = getattr(self, "_probe_cell", None)
-    if cell is not None and getattr(self, "_probe_hf", False):
-        # NAMED CHANGE 2: action-class histogram, hazard-free envs only (the DV window).
-        # Counted at the env boundary so it is driver-agnostic. REPORT-ONLY.
-        try:
-            key = str(int(action))
-        except (TypeError, ValueError):
-            key = str(action)[:16]
-        h = _STATE.actions.setdefault(cell, {})
-        h[key] = h.get(key, 0) + 1
     out = _ORIG_STEP(self, action)
+    if cell is not None and getattr(self, "_probe_hf", False):
+        # NAMED CHANGE 2: action-class histogram over hazard-free ticks (the DV window),
+        # counted at the env boundary so it is driver-agnostic. REPORT-ONLY.
+        #
+        # Read the env's OWN resolved action (`_last_action`), set by CausalGridWorld.step as
+        # `action.argmax().item() if action.dim() > 0 else action.item()` then `% action_dim`.
+        # Do NOT re-derive the class from the `action` ARGUMENT: the four targets pass three
+        # different types -- 883 an int, 278/435 a one-hot tensor, 231a a [1, N] continuous
+        # candidate vector -- and the first draft of this probe did re-derive it, fell through
+        # to `str(action)[:16]`, and reported 231a as using 45 distinct "action classes" with a
+        # 0.068 modal share. That is a broken instrument reading as a clean result, which is
+        # exactly the reading the readout exists to prevent, so it is read from the env now.
+        # `_ticks_unresolved` keeps "could not resolve" structurally distinct from "diverse".
+        la = getattr(self, "_last_action", None)
+        h = _STATE.actions.setdefault(cell, {})
+        if isinstance(la, (int, np.integer)):
+            key = str(int(la))
+        else:
+            key = "_unresolved"
+        h[key] = h.get(key, 0) + 1
     if cell is None:
         return out
     done, info = out[2], out[3]
@@ -361,6 +411,7 @@ def _install_instrument() -> None:
     CausalGridWorld.__init__ = _probe_init
     CausalGridWorld.step = _probe_step
     CausalGridWorld.reset = _probe_reset
+    REEAgent.__init__ = _probe_agent_init
 
 
 def _flush_live() -> None:
@@ -381,6 +432,12 @@ def _cell(cell: str, force_gate: bool):
         yield
     finally:
         _flush_live()
+        for agent in _STATE.agents.get(cell, ()):   # AFTER stepping -- see _probe_agent_init
+            try:
+                _ZG.observe(agent)
+            except Exception:
+                pass          # recording nicety -- never kill a multi-hour run for it
+        _STATE.agents[cell] = []                   # drop the strong refs
         _STATE.cell = None
         _STATE.force_gate = False
 
@@ -564,10 +621,25 @@ def _run_883(dry: bool) -> Dict[str, Any]:
         res, _zg = m.run(dry_run=dry)
     finally:
         m.arm_cell = orig
-    return _verdict_from(res.get("outcome") or res.get("status"),
-                         res.get("evidence_direction"),
-                         res.get("evidence_direction_per_claim"),
-                         None, _target_metrics(res))
+    v = _verdict_from(res.get("outcome") or res.get("status"),
+                      res.get("evidence_direction"),
+                      res.get("evidence_direction_per_claim"),
+                      None, _target_metrics(res))
+    # IMPROVEMENT 2 made AUDITABLE rather than asserted: keep the per-cell fingerprints so a
+    # reader can confirm the STOCK and OPTOUT cells really do hash differently once the gate is
+    # in the config slice (1080's did not -- autopsy lesson 3a).
+    # The hash lives under the key `arm_fingerprint` INSIDE the `arm_fingerprint` payload
+    # (arm_fingerprint.py:722), not under `fingerprint` -- the first draft of this audit read
+    # the wrong key, reported every hash as null, and so reported IMPROVEMENT 2 as not working.
+    # Reading the right key is the whole point of auditing the improvement instead of asserting
+    # it (CLAUDE.md: a guard that supplies the thing it asserts is not a guard).
+    v["arm_fingerprints"] = [
+        {"arm": r.get("arm"), "seed": r.get("seed"),
+         "fingerprint": (r.get("arm_fingerprint") or {}).get("arm_fingerprint"),
+         "substrate_hash": (r.get("arm_fingerprint") or {}).get("substrate_hash"),
+         "config_slice_declared": (r.get("arm_fingerprint") or {}).get("config_slice_declared")}
+        for r in (res.get("arm_results") or []) if isinstance(r, dict)]
+    return v
 
 
 def _run_231a(dry: bool) -> Dict[str, Any]:
@@ -633,14 +705,27 @@ def _action_diversity(cell: str, interpretable: bool) -> Dict[str, Any]:
     """
     hist = dict(_STATE.actions.get(cell) or {})
     total = sum(hist.values())
-    share = (max(hist.values()) / total) if total else None
+    n_unresolved = int(hist.get("_unresolved", 0))
+    resolved = {k: v for k, v in hist.items() if k != "_unresolved"}
+    n_resolved = sum(resolved.values())
+    share = (max(resolved.values()) / n_resolved) if n_resolved else None
+    # Three-valued by construction, so a BROKEN resolution can never read as "diverse"
+    # (CLAUDE.md, negative instruments): ready / unresolved / not_measured.
+    resolution = ("not_measured" if total == 0 else
+                  "unresolved" if n_unresolved else "ready")
     return {
-        "action_histogram": hist,
-        "n_action_classes_used": len(hist),
+        "action_histogram": resolved,
+        "n_action_classes_used": len(resolved),
         "n_ticks": total,
+        "n_ticks_resolved": n_resolved,
+        "n_ticks_unresolved": n_unresolved,
+        "action_resolution": resolution,
         "modal_action_share": share,
         "monostrategy_threshold": MONOSTRATEGY_MODAL_SHARE,
-        "monostrategy_suspect": (None if share is None or not interpretable
+        # None means CANNOT DETERMINE (not measured, unresolved ticks, or a scripted policy) --
+        # it never means "no collapse".
+        "monostrategy_suspect": (None if (share is None or not interpretable
+                                          or resolution != "ready")
                                  else bool(share >= MONOSTRATEGY_MODAL_SHARE)),
         "interpretable": bool(interpretable),
         "interpretable_note": (
@@ -649,6 +734,8 @@ def _action_diversity(cell: str, interpretable: bool) -> Dict[str, Any]:
             "actions are policy-selected; a high modal share is readable as collapse "
             "(GFLAG-0487)"),
         "gating": "report-only; enters no criterion, precondition or readiness gate",
+        "source": ("env-resolved action class (CausalGridWorld._last_action), not the driver's "
+                   "step() argument -- the four targets pass int / one-hot / continuous vector"),
     }
 
 
@@ -940,7 +1027,10 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
     undet = [c for c in cells if not c["determinable"]]
     sens = [c for c in det if c["classification"].startswith("verdict_sensitive")]
     trunc = [c for c in det if c["materially_truncated"]]
-    ready = control_ok and len(det) >= MIN_DETERMINABLE_TARGETS
+    claims_determinable = {claim: [c["queue_id"] for c in det if claim in c["direct_claims"]]
+                           for claim in AUDITED_CLAIM_IDS}
+    n_claims_covered = sum(1 for v in claims_determinable.values() if v)
+    ready = control_ok and n_claims_covered >= MIN_DETERMINABLE_CLAIMS
     n_sens = len(sens)
 
     if not ready:
@@ -989,6 +1079,37 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
                        "stock_today": {"outcome": c["stock_verdict"]["outcome"],
                                        "evidence_direction": c["stock_verdict"]["evidence_direction"]}}
                       for c in det if not c["stock_reproduces_original"]]
+    # Populated from each claim's OWN determinable targets, REGARDLESS of run-level readiness
+    # (V3-EXQ-785: a whole-run AND must not vacate a clean target's finding). A record for
+    # /governance, not a route -- outcome/label/reruns_owed_for_claims are unchanged by it.
+    per_claim_disposition: Dict[str, Any] = {}
+    for claim in AUDITED_CLAIM_IDS:
+        own = [c for c in cells if claim in c["direct_claims"]]
+        own_det = [c for c in own if c["determinable"]]
+        own_sens = [c for c in own_det if c["classification"].startswith("verdict_sensitive")]
+        if not own_det:
+            disp = "not_covered_undecided"
+        elif own_sens:
+            disp = "verdict_sensitive_rerun_owed"
+        elif any(c["materially_truncated"] for c in own_det):
+            disp = "truncation_present_verdict_robust_no_rerun_owed"
+        else:
+            disp = "not_materially_exposed_no_rerun_owed"
+        per_claim_disposition[claim] = {
+            "disposition": disp,
+            "targets": {c["queue_id"]: c["classification"] for c in own},
+            "determinable_targets": [c["queue_id"] for c in own_det],
+            "verdict_sensitive_targets": [c["queue_id"] for c in own_sens],
+            "max_stock_dv_death_frac": max(
+                (c["stock_dv_death_frac"] for c in own_det
+                 if c["stock_dv_death_frac"] is not None), default=None),
+            "monostrategy_confounded": bool(any(
+                c["action_diversity_interpretable"]
+                and any(c["monostrategy_suspect_by_arm"].get(a) for a in ARMS) for c in own_det)),
+            "historical_verdict_reproduced": [
+                c["queue_id"] for c in own_det if c["stock_reproduces_original"]],
+        }
+
     monostrategy_confounded = sorted(
         c["queue_id"] for c in cells
         if c["action_diversity_interpretable"] and any(
@@ -1031,14 +1152,17 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
             "load_bearing": False, "passed": (not c["verdict_changed"]),
             "threshold_not_applicable": "categorical equality of the target's own verdict tuple",
         })
-    non_degen = {"C_PREV_no_verdict_sensitive_target": bool(len(det) >= MIN_DETERMINABLE_TARGETS)}
+    non_degen = {"C_PREV_no_verdict_sensitive_target":
+                 bool(n_claims_covered >= MIN_DETERMINABLE_CLAIMS)}
     for c in cells:
         non_degen[f"{c['target']}::stock_dv_death_frac_below_material"] = c["determinable"]
         non_degen[f"{c['target']}::verdict_unchanged_stock_vs_optout"] = c["determinable"]
 
     readout: Dict[str, Any] = {
         "ready": int(ready), "control_ok": int(control_ok),
-        "n_targets_determinable": len(det), "n_verdict_sensitive": n_sens,
+        "n_targets_determinable": len(det),
+        "n_mandatory_claims_covered": n_claims_covered,
+        "n_verdict_sensitive": n_sens,
         "n_materially_truncated": len(trunc),
         "n_historical_not_reproduced": len(not_reproduced),
         "n_monostrategy_confounded": len(monostrategy_confounded),
@@ -1096,8 +1220,9 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
         "dry_run": bool(dry),
         "readout": readout,
         "criteria": criteria,
-        "combination_rule": ("PASS iff ready (positive control met AND >= "
-                             f"{MIN_DETERMINABLE_TARGETS} determinable targets) AND C_PREV "
+        "combination_rule": ("PASS iff ready (positive control met AND all "
+                             f"{MIN_DETERMINABLE_CLAIMS} mandatory claims covered by >= 1 "
+                             "determinable target) AND C_PREV "
                              "(zero verdict-sensitive targets). Per-target dv_death_frac / "
                              "verdict criteria are reported, not combined. The action-diversity "
                              "readout is REPORT-ONLY and enters no criterion."),
@@ -1113,6 +1238,13 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
             "family_claims_not_cleared_caveat_stands": family_unmeasured,
             "claims_not_covered": not_covered,
             "historical_verdict_not_reproduced": not_reproduced,
+            "per_claim_disposition": per_claim_disposition,
+            "claims_determinable_targets": claims_determinable,
+            "per_claim_disposition_note": (
+                "populated from each claim's OWN determinable targets whatever the run-level "
+                "readiness verdict, so one target's degeneracy cannot vacate another's "
+                "measured result (V3-EXQ-785). A RECORD, not a route: outcome, label and "
+                "reruns_owed_for_claims follow 1080's pre-registered routing unchanged."),
             "monostrategy_confounded_targets": monostrategy_confounded,
             "monostrategy_caveat": (
                 "REPORT-ONLY (GFLAG-0487/0489). A target listed in "
@@ -1136,8 +1268,10 @@ def _assemble(cells: List[Dict[str, Any]], control: Dict[str, Any], dry: bool) -
         "preconditions_all": all_pre,
         "non_degenerate": bool(ready),
         "degeneracy_reason": (None if ready else
-                              "positive control failed or fewer than "
-                              f"{MIN_DETERMINABLE_TARGETS} determinable targets"),
+                              "positive control failed, or fewer than "
+                              f"{MIN_DETERMINABLE_CLAIMS} of the mandatory claims "
+                              f"{AUDITED_CLAIM_IDS} had a determinable target "
+                              f"(covered: {n_claims_covered})"),
         "positive_control": control,
         "probe_cells": cells,
         "episode_termination_stock_hf_all_targets": all_term.stats(),
@@ -1195,7 +1329,8 @@ def main() -> Any:
         ],
         "arms": list(ARMS),
         "material_death_frac": MATERIAL_DEATH_FRAC,
-        "min_determinable_targets": MIN_DETERMINABLE_TARGETS,
+        "min_determinable_claims": MIN_DETERMINABLE_CLAIMS,
+        "audited_claim_ids": AUDITED_CLAIM_IDS,
         "monostrategy_modal_share": MONOSTRATEGY_MODAL_SHARE,
         "control": {"episodes": CONTROL_EPISODES, "steps": CONTROL_STEPS,
                     "stock_floor": CONTROL_STOCK_DEATH_FLOOR,
@@ -1211,11 +1346,14 @@ def main() -> Any:
         script_path=Path(__file__),
         started_at=t0,
         episode_termination=manifest["episode_termination_stock_hf_all_targets"],
+        z_goal_stream_stats=_ZG.stats(),
     )
     r = manifest["readout"]
     print(f"outcome: {manifest['outcome']}", flush=True)
     print(f"label: {manifest['interpretation']['label']}", flush=True)
-    print(f"determinable={r['n_targets_determinable']} sensitive={r['n_verdict_sensitive']} "
+    print(f"determinable={r['n_targets_determinable']} "
+          f"claims_covered={r['n_mandatory_claims_covered']}/{MIN_DETERMINABLE_CLAIMS} "
+          f"sensitive={r['n_verdict_sensitive']} "
           f"truncated={r['n_materially_truncated']} control_ok={r['control_ok']} "
           f"monostrategy_confounded={r['n_monostrategy_confounded']}", flush=True)
     for c in manifest["probe_cells"]:
