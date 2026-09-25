@@ -366,6 +366,16 @@ class HippocampalModule(nn.Module):
         # when enabled -- this is the dissociation test (C5).
         self.invalidation_trigger: Optional[InvalidationTrigger] = None
         self._broadcast_event_queue: List[BroadcastEvent] = []
+        # MECH-287 option B: per-step anchor-INVALIDATION drive accumulators
+        # for the PAG descending-release path (REEAgent consumes and zeroes
+        # them each waking sense() via consume_invalidation_drive()). Only
+        # genuine invalidations count: a broadcast (T3) that marked at least
+        # one active anchor inactive, and a hysteresis-fired reset (H).
+        # Ordinary boundary remaps and FIFO cap evictions do NOT count.
+        # Read-only bookkeeping: no RNG, never branched on here.
+        self._inval_t3_strength: float = 0.0
+        self._inval_t3_events: int = 0
+        self._inval_h_events: int = 0
         if getattr(config, "use_invalidation_trigger", False):
             trig_cfg = getattr(config, "invalidation_trigger", None)
             if trig_cfg is None:
@@ -4044,14 +4054,38 @@ class HippocampalModule(nn.Module):
             # keyed on (scale, stream_mixture) so we scan active anchors
             # for matching (scale, segment_id).
             if self.anchor_set is not None:
+                _invalidated = False
                 for anchor in list(self.anchor_set.active_anchors(scale=bcast.source_scale)):
                     if anchor.key[1] == bcast.source_segment_id_old:
-                        self.anchor_set.mark_inactive(
+                        if self.anchor_set.mark_inactive(
                             scale=anchor.key[0],
                             stream_mixture=anchor.key[2],
                             goal_payload=goal_payload,
-                        )
+                        ) is not None:
+                            _invalidated = True
+                if _invalidated:
+                    # MECH-287 option B drive (read-only bookkeeping).
+                    self._inval_t3_strength += float(bcast.strength)
+                    self._inval_t3_events += 1
         return reset_keys
+
+    def consume_invalidation_drive(self) -> Tuple[float, int, int]:
+        """MECH-287 option B: return and zero this step's invalidation drive.
+
+        Returns (t3_strength_sum, n_t3_events, n_hysteresis_events)
+        accumulated since the last call. Consumed once per waking sense()
+        by REEAgent when use_pag_descending_release is True, and once at
+        agent reset() to discard a previous episode's residue.
+        """
+        out = (
+            float(self._inval_t3_strength),
+            int(self._inval_t3_events),
+            int(self._inval_h_events),
+        )
+        self._inval_t3_strength = 0.0
+        self._inval_t3_events = 0
+        self._inval_h_events = 0
+        return out
 
     def reset_event_segmenter(self) -> None:
         """Reset MECH-288 event segmenter state (call on episode boundaries).
@@ -4243,9 +4277,12 @@ class HippocampalModule(nn.Module):
             and self.staleness_accumulator is not None
         ):
             staleness_lookup = self.staleness_accumulator.lookup_by_anchor_key
-        self.anchor_set.tick_hysteresis(
+        _fired = self.anchor_set.tick_hysteresis(
             self.per_stream_vs, staleness_lookup=staleness_lookup
         )
+        if _fired:
+            # MECH-287 option B drive (read-only bookkeeping).
+            self._inval_h_events += len(_fired)
 
     def reset_anchor_set(self) -> None:
         """Per-episode reset of the MECH-269 anchor set. No-op when disabled."""

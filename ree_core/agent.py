@@ -2650,10 +2650,48 @@ class REEAgent(nn.Module):
                 alpha_override=float(getattr(config, "override_alpha_pag", 0.5))
                 if getattr(config, "use_broadcast_override", False)
                 else 0.0,
+                # MECH-287 option B: hippocampal-invalidation descending
+                # release gain. 0.0 (exact no-op) unless the path is on.
+                alpha_descending=float(
+                    getattr(config, "pag_descending_release_alpha", 1.0)
+                )
+                if getattr(config, "use_pag_descending_release", False)
+                else 0.0,
             )
             self.pag_freeze_gate = PAGFreezeGate(pag_cfg)
         # Cache of last PAG freeze-gate output (diagnostics).
         self._pag_last_output: Optional[PAGFreezeGateOutput] = None
+
+        # MECH-287 option B (2026-09-25): hippocampal-invalidation -> PAG
+        # freeze-exit descending release. Live only when the master switch
+        # AND the freeze gate are on. The trace advances per waking sense()
+        # (env step); the PAG gate reads it on E3 ticks. Pure arithmetic over
+        # counters: no RNG, so behaviour is bit-identical when alpha is 0.
+        # Design: REE_assembly/evidence/planning/
+        # mech287_anchor_freeze_exit_design_20260925.md
+        self._pag_desc_enabled: bool = bool(
+            getattr(config, "use_pag_descending_release", False)
+            and self.pag_freeze_gate is not None
+        )
+        self._pag_desc_source: str = str(
+            getattr(config, "pag_descending_release_source", "invalidation")
+        )
+        if self._pag_desc_enabled and self._pag_desc_source not in (
+            "invalidation",
+            "broadcast",
+        ):
+            raise ValueError(
+                "pag_descending_release_source must be 'invalidation' or "
+                f"'broadcast', got {self._pag_desc_source!r}"
+            )
+        self._pag_desc_decay: float = float(
+            getattr(config, "pag_descending_release_decay", 0.95)
+        )
+        self._pag_desc_release_trace: float = 0.0
+        self._pag_desc_n_drive_steps: int = 0
+        self._pag_desc_n_drive_steps_while_frozen: int = 0
+        self._pag_desc_n_t3_events: int = 0
+        self._pag_desc_n_h_events: int = 0
 
         # -- MECH-287 per-episode instrument snapshots (purely additive) --
         #
@@ -4396,6 +4434,14 @@ class REEAgent(nn.Module):
         if self.pag_freeze_gate is not None:
             self.pag_freeze_gate.reset()
         self._pag_last_output = None
+        # MECH-287 option B: the descending-release trace is per-episode;
+        # discard any drive the hippocampal module accumulated since the last
+        # waking sense(). Counters are cumulative (read via
+        # pag_descending_release_diagnostics()).
+        if self._pag_desc_enabled:
+            self._pag_desc_release_trace = 0.0
+            if self.hippocampal is not None:
+                self.hippocampal.consume_invalidation_drive()
 
         # MECH-489 (SD-099): reset defensive-orienting gate per-episode state.
         if self.defensive_orienting is not None:
@@ -4673,6 +4719,33 @@ class REEAgent(nn.Module):
         scale and the accumulated fire counters (NOT called by reset(); the scale
         is per-seed, not per-episode)."""
         self._gng_safety_state = self._new_gng_safety_state()
+
+    def pag_descending_release_diagnostics(self) -> Dict[str, Any]:
+        """MECH-287 option B readout (read-only).
+
+        `enabled` False means the path is not built on this agent (master
+        switch off, or no PAG freeze gate) -- every other field is then 0.
+        `n_drive_steps_while_frozen` is the reach-in-regime instrument: env
+        steps on which an anchor invalidation drove the trace while the PAG
+        freeze was active. Zero there means the path is present but NOT
+        REACHED in the regime, which is a cannot-determine outcome for any
+        lock-DV test, never a negative. Counters are cumulative across
+        episodes; the trace is per-episode.
+        """
+        gate = self.pag_freeze_gate
+        return {
+            "enabled": bool(self._pag_desc_enabled),
+            "source": str(self._pag_desc_source),
+            "alpha": float(gate.config.alpha_descending) if gate is not None else 0.0,
+            "decay": float(self._pag_desc_decay),
+            "trace": float(self._pag_desc_release_trace),
+            "n_drive_steps": int(self._pag_desc_n_drive_steps),
+            "n_drive_steps_while_frozen": int(
+                self._pag_desc_n_drive_steps_while_frozen
+            ),
+            "n_t3_events": int(self._pag_desc_n_t3_events),
+            "n_h_events": int(self._pag_desc_n_h_events),
+        }
 
     def gng_safety_diagnostics(self) -> Dict[str, Any]:
         """MECH-449 endogenous safety producer: accumulated counters (a copy).
@@ -6508,6 +6581,24 @@ class REEAgent(nn.Module):
             self.hippocampal.update_per_region_vs(
                 new_latent, goal_state=self.goal_state
             )
+
+        # MECH-287 option B: advance the hippocampal-invalidation descending-
+        # release trace from this step's anchor invalidations (T3 broadcast
+        # resets just applied above + H hysteresis resets from tick_anchor_set).
+        # Waking path only (MECH-094): sense() is the waking stream.
+        if self._pag_desc_enabled and self.hippocampal is not None:
+            _t3_s, _t3_n, _h_n = self.hippocampal.consume_invalidation_drive()
+            _w_h = 1.0 if self._pag_desc_source == "invalidation" else 0.0
+            _drive = min(1.0, max(0.0, _t3_s + _w_h * float(_h_n)))
+            self._pag_desc_release_trace = max(
+                self._pag_desc_release_trace * self._pag_desc_decay, _drive
+            )
+            self._pag_desc_n_t3_events += int(_t3_n)
+            self._pag_desc_n_h_events += int(_h_n)
+            if _drive > 0.0:
+                self._pag_desc_n_drive_steps += 1
+                if self.pag_freeze_gate is not None and self.pag_freeze_gate.is_active:
+                    self._pag_desc_n_drive_steps_while_frozen += 1
 
         # MECH-269b: refresh per-stream snapshots from current latent when
         # V_s[s] >= vs_gate_snapshot_refresh_threshold. Runs AFTER
@@ -11044,6 +11135,10 @@ class REEAgent(nn.Module):
                 gaba_tone=pag_tone,
                 simulation_mode=False,
                 override_signal=pag_override,
+                # MECH-287 option B: 0.0 when the path is off.
+                descending_release=(
+                    self._pag_desc_release_trace if self._pag_desc_enabled else 0.0
+                ),
             )
             # SD-058 / MECH-357: ilPFC freeze-SUPPRESSION. When the learned/
             # scaffolded avoidance-efficacy x threat is high enough, the

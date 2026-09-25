@@ -3268,6 +3268,14 @@ KNOWN_UNPROBED = {
     # below an unreachable threshold. A duplicate full-agent probe would add
     # no discrimination those pins do not already provide.
     "use_endogenous_coalition_trigger",
+    # MECH-287 option B hippocampal-invalidation -> PAG freeze-exit descending
+    # release (bt0925-mech287b, 2026-09-25). Requires use_pag_freeze_gate plus
+    # the anchor-set lineage, and an untrained rollout emits no anchor
+    # invalidations on its own, so a generic probe here would be inert.
+    # tests/contracts/test_pag_descending_release.py pins the ON/OFF contrast
+    # directly on a scripted-boundary rollout: C1b bit-identity at alpha 0
+    # with a live drive, C3 agent-level reach, C5 exit-threshold liveness.
+    "use_pag_descending_release",
 }
 
 # --------------------------------------------------------------------------- #

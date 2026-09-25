@@ -106,6 +106,20 @@ class PAGFreezeGateConfig:
     # no-op (override has no effect).
     alpha_override: float = 0.0
 
+    # MECH-287 option B (2026-09-25): hippocampal-invalidation descending
+    # release. When descending_release r in [0, 1] is supplied to tick(),
+    #   exit_threshold = theta_freeze * override_factor
+    #                    * (1 + alpha_descending * r) * gaba_tone
+    # so a recent anchor invalidation (context no longer holds; the
+    # hippocampal -> mPFC -> l/vlPAG context-discrimination route, Rozeske
+    # et al. 2018) makes freeze EXIT easier. Entry is untouched. Default 0.0
+    # is an exact no-op (factor 1.0). Set from
+    # REEConfig.pag_descending_release_alpha when use_pag_descending_release
+    # is True; a driver may set it post-construction (e.g. 0 in warmup, >0 at
+    # eval entry). Design: REE_assembly/evidence/planning/
+    # mech287_anchor_freeze_exit_design_20260925.md.
+    alpha_descending: float = 0.0
+
 
 @dataclass
 class PAGFreezeGateOutput:
@@ -124,6 +138,9 @@ class PAGFreezeGateOutput:
     z_harm_a_norm: float = 0.0
     # How many ticks freeze has been active (0 when inactive).
     ticks_in_freeze: int = 0
+    # MECH-287 option B: the descending-release trace value supplied this
+    # tick (0.0 when the path is off or silent).
+    descending_release: float = 0.0
 
 
 @dataclass
@@ -389,6 +406,7 @@ class PAGFreezeGate:
         gaba_tone: float = 1.0,
         simulation_mode: bool = False,
         override_signal: float = 0.0,
+        descending_release: float = 0.0,
     ) -> PAGFreezeGateOutput:
         """Compute the freeze gate state for this step.
 
@@ -402,6 +420,10 @@ class PAGFreezeGate:
             simulation_mode: MECH-094 hypothesis-tag equivalent. True -> return
                 a zeroed output and do not update internal state. Replay / DMN
                 content must not commit the agent into freeze.
+            override_signal: SD-037 broadcast override in [0, 1].
+            descending_release: MECH-287 option B hippocampal-invalidation
+                descending-release trace in [0, 1]. Scales exit_threshold by
+                (1 + alpha_descending * descending_release). Exit only.
 
         Returns:
             PAGFreezeGateOutput with freeze_active, commit / release edges,
@@ -466,7 +488,13 @@ class PAGFreezeGate:
         # alpha_override (no-op when alpha_override=0.0 or override_signal=0.0).
         override = max(0.0, min(1.0, float(override_signal)))
         override_factor = 1.0 + float(self.config.alpha_override) * override
-        exit_threshold = float(self.config.theta_freeze) * override_factor * tone
+        # MECH-287 option B: descending release (exact 1.0 when alpha_descending
+        # or descending_release is 0, so the arithmetic is bit-identical OFF).
+        desc = max(0.0, min(1.0, float(descending_release)))
+        desc_factor = 1.0 + float(self.config.alpha_descending) * desc
+        exit_threshold = (
+            float(self.config.theta_freeze) * override_factor * desc_factor * tone
+        )
 
         # 3. Edge detection.
         commit_this_tick = False
@@ -523,6 +551,7 @@ class PAGFreezeGate:
             exit_threshold=float(exit_threshold),
             z_harm_a_norm=float(z),
             ticks_in_freeze=int(self._ticks_in_freeze),
+            descending_release=float(desc),
         )
         self._last_output = out
         return out

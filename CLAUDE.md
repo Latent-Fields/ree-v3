@@ -494,7 +494,9 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
 - **[MECH-276](docs/substrate/MECH-276-scientist-agent-counterfactual-backed.md)** — scientist-agent counterfactual-backed attribution feedstock (waking-phase mechanism feeding the MECH-275 sleep aggregator) (2026-06-23) *(~2,341 tok)*
 - **[MECH-284](docs/substrate/MECH-284-staleness-accumulator-mech-269-online.md)** — Staleness Accumulator + MECH-269 Online Hysteresis -- Phase 3 (2026-04-24) *(~1,574 tok)*
 - **[MECH-286](docs/substrate/MECH-286-override-gated-sleep-onset.md)** — Override-Gated Sleep Onset (2026-05-21) *(~379 tok)*
-- **[MECH-287](docs/substrate/MECH-287-invalidation-trigger-phase-2-iv.md)** — Invalidation Trigger -- Phase 2 iv (2026-04-22) *(~1,480 tok)*
+- **MECH-287** — 2 records, ~2,100 tok total.
+    - [Invalidation Trigger -- Phase 2 iv (2026-04-22)](docs/substrate/MECH-287-invalidation-trigger-phase-2-iv.md) *(~1,480 tok)*
+    - [PAG Descending Release -- Option B (hippocampal invalidation -> freeze exit) (2026-09-25)](docs/substrate/MECH-287-pag-descending-release-option-b.md) *(~620 tok)*
 - **[MECH-288](docs/substrate/MECH-288-event-segmenter-phase-2.md)** — Event Segmenter -- Phase 2 (2026-04-22) *(~2,202 tok)*
 - **[MECH-292](docs/substrate/MECH-292-ranked-ghost-goal-bank.md)** — Ranked Ghost-Goal Bank (2026-04-27) *(~1,444 tok)*
 - **[MECH-293](docs/substrate/MECH-293-waking-ghost-goal-probe-search.md)** — Waking Ghost-Goal Probe Search (2026-04-27) *(~1,687 tok)*

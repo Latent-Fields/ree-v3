@@ -7211,6 +7211,26 @@ class REEConfig:
     # different index.
     pag_freeze_noop_action_class: int = CAUSAL_GRID_WORLD_STAY_ACTION_CLASS
 
+    # MECH-287 option B (2026-09-25): hippocampal-invalidation -> PAG freeze
+    # EXIT descending release (hippocampus -> mPFC -> l/vlPAG context route).
+    # Master switch default False (bit-identical OFF). When True AND
+    # use_pag_freeze_gate, REEAgent keeps a per-env-step trace
+    #   r = max(r * decay, min(1, sum_T3 strength + w_H * n_H))
+    # of anchor INVALIDATIONS (T3 = a MECH-287 broadcast that marked an active
+    # anchor inactive; H = a MECH-284/269 hysteresis reset; ordinary boundary
+    # remaps do not count) and the PAG gate's exit threshold is multiplied by
+    # (1 + alpha * r). Exit only; z_harm_a and freeze entry untouched.
+    # alpha = 0 with the switch on is also bit-identical, so a driver can run
+    # warmup at alpha 0 and raise it at eval entry via
+    # agent.pag_freeze_gate.config.alpha_descending.
+    # source: "invalidation" (T3 + H, w_H = 1) or "broadcast" (T3 only).
+    # Design: REE_assembly/evidence/planning/
+    # mech287_anchor_freeze_exit_design_20260925.md
+    use_pag_descending_release: bool = False
+    pag_descending_release_alpha: float = 1.0
+    pag_descending_release_decay: float = 0.95
+    pag_descending_release_source: str = "invalidation"
+
     # ----------------------------------------------------------------
     # SD-099 (MECH-489): defensive-orienting response
     # ----------------------------------------------------------------
@@ -9026,6 +9046,11 @@ class REEConfig:
         pag_min_freeze_duration: int = 0,
         pag_max_freeze_duration: int = 0,
         pag_freeze_noop_action_class: int = CAUSAL_GRID_WORLD_STAY_ACTION_CLASS,
+        # MECH-287 option B: hippocampal-invalidation PAG descending release
+        use_pag_descending_release: bool = False,
+        pag_descending_release_alpha: float = 1.0,
+        pag_descending_release_decay: float = 0.95,
+        pag_descending_release_source: str = "invalidation",
         # SD-099 (MECH-489): defensive-orienting response
         use_defensive_orienting: bool = False,
         orienting_surprise_ema_alpha: float = 0.02,
@@ -10736,6 +10761,11 @@ class REEConfig:
         config.pag_min_freeze_duration = pag_min_freeze_duration
         config.pag_max_freeze_duration = pag_max_freeze_duration
         config.pag_freeze_noop_action_class = pag_freeze_noop_action_class
+        # MECH-287 option B: hippocampal-invalidation PAG descending release
+        config.use_pag_descending_release = use_pag_descending_release
+        config.pag_descending_release_alpha = pag_descending_release_alpha
+        config.pag_descending_release_decay = pag_descending_release_decay
+        config.pag_descending_release_source = pag_descending_release_source
 
         # SD-099 (MECH-489): defensive-orienting response
         config.use_defensive_orienting = use_defensive_orienting
