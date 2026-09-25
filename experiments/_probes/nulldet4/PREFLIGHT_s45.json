@@ -1,0 +1,287 @@
+{
+ "seed": 45,
+ "gate_n": 1058,
+ "preamble_s": 474.2,
+ "arms": {
+  "NULL0": {
+   "first600": {
+    "reward_per_100": -0.9939837606747947,
+    "harm_contacts": 21,
+    "hazard_approach": 17,
+    "benefit_approach": 76,
+    "benefit_contacts": 4,
+    "health_depleted_ends": 7
+   },
+   "all": {
+    "reward_per_100": -1.170893695731958,
+    "harm_contacts": 59,
+    "hazard_approach": 46,
+    "benefit_approach": 187,
+    "benefit_contacts": 11,
+    "health_depleted_ends": 21
+   },
+   "half1": {
+    "reward_per_100": -0.8901012949943542,
+    "harm_contacts": 22,
+    "hazard_approach": 21,
+    "benefit_approach": 79,
+    "benefit_contacts": 4,
+    "health_depleted_ends": 7
+   },
+   "half2": {
+    "reward_per_100": -1.4516860964695615,
+    "harm_contacts": 37,
+    "hazard_approach": 25,
+    "benefit_approach": 108,
+    "benefit_contacts": 7,
+    "health_depleted_ends": 14
+   },
+   "episodes_ended": 25,
+   "n_ticks": 274,
+   "n_committed_ticks": 273,
+   "theta_end": [
+    0.168893,
+    0.138688,
+    -0.01571,
+    0.045834
+   ],
+   "dtheta_sd": [
+    0.05260160288348732,
+    0.04799514201541994,
+    0.06200895899098683,
+    0.04388762546078576
+   ],
+   "n_nonzero_harm_updates": 253,
+   "harm_increment_lag1_autocorr": 0.1394719484405365,
+   "harm_increment_tau_int": 0.01742931351089627,
+   "max_abs_harm_increment": 0.48626574630733155,
+   "flip4_rate_committed": 0.2490842490842491,
+   "rel_authority_harm_end": 0.07234958717219135,
+   "w0": [
+    1.0,
+    1.0,
+    0.5,
+    1.0
+   ],
+   "rule_diagnostics": {
+    "n_windows": 272,
+    "n_updates": 253,
+    "n_event_windows": 68,
+    "outcome_mean_real": -0.07816345708773419,
+    "outcome_mean_shuffled": 0.01666695845915991,
+    "kappa": [
+     0.8401598368756402,
+     0.9529887508764358,
+     0.8195850703577183,
+     0.8592988174566454
+    ],
+    "t_final": [
+     0.4825505465760654,
+     0.39625240260163647,
+     -0.0448870597424469,
+     0.1309544023525078
+    ]
+   },
+   "dw": {
+    "z": 0.17456867791506317,
+    "sd_h_own": 0.04799514201541994,
+    "theta_harm_end": 0.138688,
+    "n_ticks": 274,
+    "fire": false
+   },
+   "wall_s": 92.2
+  },
+  "NOISYHACK": {
+   "first600": {
+    "reward_per_100": -2.8756956408421197,
+    "harm_contacts": 52,
+    "hazard_approach": 17,
+    "benefit_approach": 115,
+    "benefit_contacts": 3,
+    "health_depleted_ends": 17
+   },
+   "all": {
+    "reward_per_100": -1.610458534081777,
+    "harm_contacts": 76,
+    "hazard_approach": 34,
+    "benefit_approach": 174,
+    "benefit_contacts": 9,
+    "health_depleted_ends": 25
+   },
+   "half1": {
+    "reward_per_100": -2.6650348178545635,
+    "harm_contacts": 62,
+    "hazard_approach": 24,
+    "benefit_approach": 137,
+    "benefit_contacts": 5,
+    "health_depleted_ends": 21
+   },
+   "half2": {
+    "reward_per_100": -0.5558822503089907,
+    "harm_contacts": 14,
+    "hazard_approach": 10,
+    "benefit_approach": 37,
+    "benefit_contacts": 4,
+    "health_depleted_ends": 4
+   },
+   "episodes_ended": 29,
+   "n_ticks": 281,
+   "n_committed_ticks": 280,
+   "theta_end": [
+    -0.671452,
+    -1.386294,
+    -1.386294,
+    -0.258709
+   ],
+   "dtheta_sd": [
+    0.03964289948468948,
+    0.03363429175191555,
+    0.04952841937737007,
+    0.03773742005413106
+   ],
+   "n_nonzero_harm_updates": 208,
+   "harm_increment_lag1_autocorr": 0.23180352734375673,
+   "harm_increment_tau_int": 1.9253937379219797,
+   "max_abs_harm_increment": 0.30860564460710893,
+   "flip4_rate_committed": 0.4857142857142857,
+   "rel_authority_harm_end": -0.6141427286720534,
+   "w0": [
+    1.0,
+    1.0,
+    0.5,
+    1.0
+   ],
+   "rule_diagnostics": {
+    "h_final": [
+     -0.7000000000000001,
+     -1.3362943611198905,
+     -1.2862943611198905,
+     -0.3
+    ],
+    "g_final": [
+     0.02854804646084606,
+     -0.33357515110484326,
+     -0.13540781690191858,
+     0.04129141731553298
+    ],
+    "n_h_event_updates": 85,
+    "noise": {
+     "n_windows": 279,
+     "n_updates": 260,
+     "n_event_windows": 85,
+     "outcome_mean_real": -0.10128033794382567,
+     "outcome_mean_shuffled": 0.0004264379658579366,
+     "kappa": [
+      1.0186374565752314,
+      1.175246985654992,
+      1.1496647784010403,
+      1.031325340896926
+     ],
+     "t_final": [
+      0.08156584703098875,
+      -0.9530718602995523,
+      -0.3868794768626246,
+      0.11797547804437994
+     ]
+    }
+   },
+   "dw": {
+    "z": -2.458781272305843,
+    "sd_h_own": 0.03363429175191555,
+    "theta_harm_end": -1.386294,
+    "n_ticks": 281,
+    "fire": true
+   },
+   "wall_s": 66.7
+  },
+  "NULL1": {
+   "first600": {
+    "reward_per_100": -5.152096430758635,
+    "harm_contacts": 85,
+    "hazard_approach": 22,
+    "benefit_approach": 181,
+    "benefit_contacts": 0,
+    "health_depleted_ends": 30
+   },
+   "all": {
+    "reward_per_100": -3.84895054602623,
+    "harm_contacts": 166,
+    "hazard_approach": 56,
+    "benefit_approach": 334,
+    "benefit_contacts": 7,
+    "health_depleted_ends": 58
+   },
+   "half1": {
+    "reward_per_100": -5.269610188245773,
+    "harm_contacts": 110,
+    "hazard_approach": 38,
+    "benefit_approach": 222,
+    "benefit_contacts": 3,
+    "health_depleted_ends": 39
+   },
+   "half2": {
+    "reward_per_100": -2.428290903806687,
+    "harm_contacts": 56,
+    "hazard_approach": 18,
+    "benefit_approach": 112,
+    "benefit_contacts": 4,
+    "health_depleted_ends": 19
+   },
+   "episodes_ended": 59,
+   "n_ticks": 390,
+   "n_committed_ticks": 389,
+   "theta_end": [
+    -0.336561,
+    0.294801,
+    -0.074481,
+    -0.268105
+   ],
+   "dtheta_sd": [
+    0.035078826983800694,
+    0.029555484038229298,
+    0.03778426447815588,
+    0.028952037781869444
+   ],
+   "n_nonzero_harm_updates": 369,
+   "harm_increment_lag1_autocorr": -0.24436157167105144,
+   "harm_increment_tau_int": 1.298705615271713,
+   "max_abs_harm_increment": 0.3591861219429042,
+   "flip4_rate_committed": 0.3496143958868895,
+   "rel_authority_harm_end": 0.5211829245651948,
+   "w0": [
+    1.0,
+    1.0,
+    0.5,
+    1.0
+   ],
+   "rule_diagnostics": {
+    "n_windows": 388,
+    "n_updates": 369,
+    "n_event_windows": 173,
+    "outcome_mean_real": -0.16866562344978764,
+    "outcome_mean_shuffled": 0.0026738872663261974,
+    "kappa": [
+     0.8403023483900586,
+     0.8418026645780535,
+     0.7162323881665182,
+     0.8875838644523527
+    ],
+    "t_final": [
+     -0.9616016176480843,
+     0.8422881454732289,
+     -0.21280144154974528,
+     -0.7660147149412961
+    ]
+   },
+   "dw": {
+    "z": 0.5050781400999157,
+    "sd_h_own": 0.029555484038229298,
+    "theta_harm_end": 0.294801,
+    "n_ticks": 390,
+    "fire": false
+   },
+   "wall_s": 86.0
+  }
+ },
+ "t_total_s": 719.0
+}
