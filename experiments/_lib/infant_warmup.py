@@ -10,8 +10,10 @@ GAP-14's prerequisite (b) -- "the goal-pipeline training regime produces non-tri
 z_goal in default config" -- was cleared 2026-06-10 by V3-EXQ-603n, but 603n runs
 `scaffolded_sd054_onboarding`, NOT `InfantCurriculumScheduler`. The two harnesses are
 disjoint: 603n carries a Stage-0 forced-benefit nursery plus a Stage-H harm/survival
-co-training stage, while InfantCurriculumScheduler's Phase 0 ("babbling") is plain
-random-policy stepping with no training of any kind. So a naive "flip the crossing-count
+co-training stage, while InfantCurriculumScheduler's Phase 0 ("babbling") is the agent's
+own native E3 selection (act_with_split_obs, executed class = argmax % 4, so class 4 is
+never emitted -- NOT random-policy stepping; corrected 2026-09-25, coupled campaign plan
+F1) with no training of any kind. So a naive "flip the crossing-count
 flag and re-run 591" inherits none of 603n's z_goal-forming scaffold and produces a
 SECOND vacuous z_goal ~ 0 null -- the Phase 1 exit gate (z_goal.norm() >= 0.30) can never
 clear, for a reason that has nothing to do with the curriculum under test.
