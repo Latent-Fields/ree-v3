@@ -1823,7 +1823,26 @@ class E3TrajectorySelector(nn.Module):
         SD-016 (MECH-152): optional terrain_weight scales M/B after evaluation.
         SD-085: f_weight scales F's contribution to the score (default 1.0,
         bit-identical to pre-SD-085 behaviour).
+
+        W4 (use_e3_discounted_aggregation): the PLANNED read (called with
+        _score_depth_limit None) is replaced by the geometric-discount
+        aggregation over this same scorer's per-depth reads; see
+        _score_trajectory_discounted. Depth-limited reads (the SD-081 HABIT
+        read, and the aggregation's own per-depth calls) are unaffected.
         """
+        if (self._score_depth_limit is None
+                and getattr(self.config, "use_e3_discounted_aggregation", False)):
+            return self._score_trajectory_discounted(
+                trajectory,
+                goal_state=goal_state,
+                harm_bridge=harm_bridge,
+                terrain_weight=terrain_weight,
+                harm_forward_model=harm_forward_model,
+                z_harm_s_current=z_harm_s_current,
+                z_harm_a=z_harm_a,
+                e2_forward_pe=e2_forward_pe,
+                self_viability=self_viability,
+            )
         f = self.compute_reality_cost(trajectory)
         if harm_forward_model is not None and z_harm_s_current is not None:
             m = self.compute_harm_forward_cost(
@@ -1991,6 +2010,65 @@ class E3TrajectorySelector(nn.Module):
                 "lambda_eff": float(lambda_eff),
             }
         return score
+
+    def _score_trajectory_discounted(
+        self, trajectory: Trajectory, **score_kwargs: Any
+    ) -> torch.Tensor:
+        """W4 E3 aggregation: geometric discount over E3's own per-depth reads.
+
+            J_disc = J_2 + sum_{d=2}^{Lmax-1} gamma^(d-1) * (J_{d+1} - J_d)
+
+        J_L = score_trajectory with _score_depth_limit = L (the SD-081
+        truncation knob, so every cost term is truncated together); Lmax = the
+        z_world sequence length (horizon + 1). This is N3 proper's DISC_gamma
+        (REE_assembly probes/n3/n3_probe.py `depth_scores` + `aggregate`,
+        9608f3117a) moved into the scorer: the J_L are computed in the scorer's
+        dtype, the combination in float64 in the probe's order, and the result
+        cast back. gamma = 1 telescopes to J_Lmax (== the full-horizon read).
+
+        WHY a combination of whole depth-limited reads rather than a per-step
+        cost: F is a MEAN over transitions and other terms are not additive per
+        step, so a per-step decomposition would not be E3's own score. Reading
+        the same scorer at each depth keeps one scorer (the SD-081 discipline:
+        the habit read is this machinery depth-limited, never a second scorer).
+
+        Side-effect records written inside score_trajectory
+        (_last_traj_components, _last_commensurability_raw) come from the LAST
+        per-depth call, J_Lmax -- i.e. they describe the full-horizon read's
+        channels, not the discounted combination. Documented, not hidden.
+
+        Lmax <= 2 has no increments: returns J_Lmax (== J_2), which is the
+        full read unchanged.
+        """
+        gamma = float(getattr(self.config, "e3_aggregation_gamma", 0.5))
+        if not (0.0 < gamma <= 1.0):
+            raise ValueError(
+                "e3_aggregation_gamma must be in (0, 1]; got %r (0 collapses the "
+                "planned read onto the habit read, breaking SD-081 P1)" % gamma
+            )
+        lmax = int(self._get_world_states(trajectory).shape[1])
+        prev_depth = self._score_depth_limit
+        J: Dict[int, torch.Tensor] = {}
+        try:
+            # Ascending depth, J_Lmax LAST so the side-effect records match the
+            # full-horizon read (see docstring).
+            for L in range(2, lmax + 1) if lmax >= 2 else [lmax]:
+                self._score_depth_limit = L
+                J[L] = self.score_trajectory(trajectory, **score_kwargs)
+        finally:
+            # Not decorative: leaving the limit set would make every later
+            # full-horizon score myopic (same reason as _arbitrate_dual_system).
+            self._score_depth_limit = prev_depth
+        if lmax <= 2:
+            return J[lmax]
+        out_dtype = J[2].dtype
+        base = J[2].to(torch.float64)
+        acc = torch.zeros_like(base)
+        for d in range(2, lmax):
+            acc = acc + (gamma ** (d - 1)) * (
+                J[d + 1].to(torch.float64) - J[d].to(torch.float64)
+            )
+        return (base + acc).to(out_dtype)
 
     # ------------------------------------------------------------------ #
     # SD-081 / MECH-477: dual-system uncertainty arbitration                #
