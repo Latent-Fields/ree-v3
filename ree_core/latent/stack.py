@@ -779,6 +779,7 @@ class LatentState:
     z_harm_suffering: Optional[torch.Tensor] = None  # MECH-219 (SD-019b) controllability-gated hysteretic suffering [batch, harm_dim]; same dim as z_harm_un, magnitude = accumulator s_t. None when use_harm_suffering_accumulator is off.
     inference_convergence: Optional[Dict[str, object]] = None  # MECH-423 R2: iterative-inference settling readout. Plain-float dict {per_step_rel_delta: [floats], converged: bool, n_iters: int, final_rel_delta: float}. None when use_iterative_inference is off (legacy single-round amortized encode).
     self_recurrence_diag: Optional[Dict[str, object]] = None  # SELF-1/DR-13: z_self temporal-depth readout. Plain-float dict {active: bool, state_departure: float (||stateful z_self - instantaneous z_self||, batch-mean), e1_coupling: float, anchor_present: bool}. None when use_self_recurrence is off (legacy single-MLP + EMA z_self).
+    mode_precision_diag: Optional[Dict[str, object]] = None  # MECH-157 option A: mode-conditioned z_world precision-routing readout. Plain-float dict {active, alpha_eff, gen_coupling, anchor_present, anchor_capped, obs_weight, prior_weight, pred_weight, dist_to_obs, dist_to_pred}. None when use_mode_precision_routing is off or no operating_mode was supplied.
 
     def to_tensor(self) -> torch.Tensor:
         """Concatenate all channels into a single tensor (excludes z_harm)."""
@@ -817,6 +818,7 @@ class LatentState:
             z_harm_suffering=self.z_harm_suffering.detach() if self.z_harm_suffering is not None else None,
             inference_convergence=self.inference_convergence,  # plain-float dict; no graph to detach
             self_recurrence_diag=self.self_recurrence_diag,  # SELF-1/DR-13 plain-float dict; no graph to detach
+            mode_precision_diag=self.mode_precision_diag,  # MECH-157 plain-float dict; no graph to detach
         )
 
 
@@ -1358,6 +1360,8 @@ class LatentStack(nn.Module):
         harm_history: Optional[torch.Tensor] = None,
         volatility_signal: Optional[torch.Tensor] = None,
         self_e1_anchor: Optional[torch.Tensor] = None,
+        operating_mode: Optional[Dict[str, float]] = None,
+        world_e2_anchor: Optional[torch.Tensor] = None,
     ) -> LatentState:
         """
         Encode observation into latent state.
@@ -1394,6 +1398,13 @@ class LatentStack(nn.Module):
                           combined_init before beta_encoder. Represents running_variance
                           from E3's harm prediction error (unexpected uncertainty signal).
                           None = disabled (default, backward compat).
+            operating_mode: MECH-157 SD-032a soft mode vector {mode: prob}.
+                          Read only when use_mode_precision_routing is on;
+                          None -> legacy (mode-unconditioned) z_world blend.
+            world_e2_anchor: MECH-157 E2 forward prediction of z_world
+                          (E2.world_forward(z_world_prev, a_prev)), detached.
+                          The generative pull target; ignored when OFF, when
+                          the per-mode coupling is 0, or on shape mismatch.
 
         Returns:
             New LatentState (z_world is perspective-corrected if SD-007 enabled;
@@ -1581,7 +1592,87 @@ class LatentStack(nn.Module):
             }
         else:
             z_self  = alpha_self  * z_self  + (1 - alpha_self)  * prev_state.z_self
-        z_world = alpha_world * z_world + (1 - alpha_world) * prev_state.z_world
+        # MECH-157 option A: mode-conditioned precision routing on z_world.
+        # OFF (default) or no operating_mode supplied -> the legacy line in
+        # the else branch, byte-for-byte. ON: alpha_eff = sum_m p_m *
+        # mode_alpha_world[m] (absent mode -> base alpha_world), g_eff =
+        # sum_m p_m * mode_world_e2_coupling[m] (absent mode -> 0.0), then
+        # z = (1-g)*(alpha*z_obs + (1-alpha)*z_prev) + g*z_pred. The E2
+        # anchor is a detached TARGET (no gradient path through E2), exactly
+        # like SELF-1's self_e1_anchor.
+        mode_precision_diag: Optional[Dict[str, object]] = None
+        if (
+            operating_mode
+            and getattr(self.config, "use_mode_precision_routing", False)
+        ):
+            z_world_obs = z_world  # instantaneous (post-SD-007) estimate
+            alpha_map = getattr(self.config, "mode_alpha_world", None) or {}
+            coup_map = getattr(self.config, "mode_world_e2_coupling", None) or {}
+            alpha_eff = 0.0
+            g_eff = 0.0
+            p_total = 0.0
+            for _m, _p in operating_mode.items():
+                _pf = float(_p)
+                p_total += _pf
+                alpha_eff += _pf * float(alpha_map.get(_m, alpha_world))
+                g_eff += _pf * float(coup_map.get(_m, 0.0))
+            if p_total > 0.0:
+                alpha_eff /= p_total
+                g_eff /= p_total
+            else:
+                alpha_eff = float(alpha_world)
+                g_eff = 0.0
+            alpha_eff = min(max(alpha_eff, 0.0), 1.0)
+            g_eff = min(max(g_eff, 0.0), 1.0)
+            z_world = alpha_eff * z_world + (1 - alpha_eff) * prev_state.z_world
+            anchor_present = False
+            anchor_capped = False
+            z_pred = None
+            if world_e2_anchor is not None and g_eff > 0.0:
+                z_pred = world_e2_anchor.detach()
+                if z_pred.dim() == 1:
+                    z_pred = z_pred.unsqueeze(0)
+                if z_pred.shape == z_world.shape and bool(torch.isfinite(z_pred).all()):
+                    # Magnitude bound (see LatentStackConfig.
+                    # mode_world_e2_anchor_norm_cap): keep direction, cap the
+                    # norm at cap * ||z_obs|| per batch row.
+                    cap = float(getattr(self.config, "mode_world_e2_anchor_norm_cap", 1.0))
+                    if cap > 0.0:
+                        with torch.no_grad():
+                            _obs_n = z_world_obs.detach().norm(dim=-1, keepdim=True)
+                            _pred_n = z_pred.norm(dim=-1, keepdim=True)
+                            _scale = torch.clamp(
+                                cap * _obs_n / (_pred_n + 1e-8), max=1.0
+                            )
+                        anchor_capped = bool((_scale < 1.0).any())
+                        z_pred = z_pred * _scale
+                    z_world = (1.0 - g_eff) * z_world + g_eff * z_pred
+                    anchor_present = True
+                else:
+                    z_pred = None  # ill-formed / non-finite anchor: no pull
+            with torch.no_grad():
+                _zw = z_world.detach()
+                dist_to_obs = float((_zw - z_world_obs.detach()).norm(dim=-1).mean().item())
+                dist_to_pred = (
+                    float((_zw - z_pred).norm(dim=-1).mean().item())
+                    if z_pred is not None
+                    else None
+                )
+            g_applied = g_eff if anchor_present else 0.0
+            mode_precision_diag = {
+                "active": True,
+                "alpha_eff": float(alpha_eff),
+                "gen_coupling": float(g_eff),
+                "anchor_present": bool(anchor_present),
+                "anchor_capped": bool(anchor_capped),
+                "obs_weight": float(alpha_eff * (1.0 - g_applied)),
+                "prior_weight": float((1.0 - alpha_eff) * (1.0 - g_applied)),
+                "pred_weight": float(g_applied),
+                "dist_to_obs": dist_to_obs,
+                "dist_to_pred": dist_to_pred,
+            }
+        else:
+            z_world = alpha_world * z_world + (1 - alpha_world) * prev_state.z_world
 
         # Unified latent ablation (EXQ-044): fuse z_self and z_world into a single
         # shared representation, eliminating channel specialization. Both channels
@@ -1699,6 +1790,7 @@ class LatentStack(nn.Module):
             identity_logits=identity_logits,  # SD-049 Phase 2: None if identity classifier disabled
             inference_convergence=inference_convergence,  # MECH-423 R2: None unless use_iterative_inference
             self_recurrence_diag=self_recurrence_diag,  # SELF-1/DR-13: None unless use_self_recurrence
+            mode_precision_diag=mode_precision_diag,  # MECH-157: None unless use_mode_precision_routing + mode
         )
 
     def predict(self, state: LatentState) -> LatentState:

@@ -3539,6 +3539,12 @@ class REEAgent(nn.Module):
         # cached at _e1_tick and consumed as the self-recurrence anchor at the
         # next sense()/encode(). None until the first E1 tick / when DR-13 off.
         self._e1_predicted_next_z_self: Optional[torch.Tensor] = None
+        # MECH-157 option A: driver-settable operating-mode override for the
+        # mode-conditioned z_world precision routing (a {mode: prob} dict, or
+        # None to read the SD-032a coordinator's operating_mode). Read only
+        # when config.latent.use_mode_precision_routing is on. Persists across
+        # reset() on purpose -- it is a driver arm setting, not episode state.
+        self.mode_precision_routing_override: Optional[Dict[str, float]] = None
         self._tpj_last_agency_signal: Optional[torch.Tensor] = None
         self._tpj_last_is_self_caused: Optional[torch.Tensor] = None
 
@@ -5589,6 +5595,39 @@ class REEAgent(nn.Module):
             and getattr(self.config, "detach_carried_prev_action", False)
         ):
             _prev_action = _prev_action.detach()
+        # MECH-157 option A: mode-conditioned precision routing on z_world.
+        # Mode source: the driver override if set, else the SD-032a
+        # coordinator's operating_mode (its PREVIOUS tick -- the coordinator
+        # ticks later in the loop, same lag the AIC read uses). The generative
+        # anchor is E2.world_forward(z_world_prev, a_prev): the forward kernel
+        # the hippocampus chains into rollouts, evaluated on the previous
+        # smoothed z_world and the executed action, detached (a target, not a
+        # gradient path) under no_grad. E2.world_forward is a pure MLP, so this
+        # adds no RNG draw and no state mutation. OFF (default) -> neither is
+        # computed and encode() receives None for both -> bit-identical.
+        _m157_mode = None
+        _m157_anchor = None
+        if getattr(self.config.latent, "use_mode_precision_routing", False):
+            if self.mode_precision_routing_override is not None:
+                _m157_mode = dict(self.mode_precision_routing_override)
+            elif self.salience is not None:
+                _m157_mode = dict(self.salience.operating_mode)
+            if (
+                _m157_mode
+                and self._current_latent is not None
+                and _prev_action is not None
+            ):
+                try:
+                    _zw_prev = self._current_latent.z_world.detach()
+                    _a_prev = _prev_action.detach().to(_zw_prev.device).float()
+                    if _a_prev.dim() == 1:
+                        _a_prev = _a_prev.unsqueeze(0)
+                    if _zw_prev.dim() == 1:
+                        _zw_prev = _zw_prev.unsqueeze(0)
+                    with torch.no_grad():
+                        _m157_anchor = self.e2.world_forward(_zw_prev, _a_prev).detach()
+                except Exception:
+                    _m157_anchor = None
         new_latent = self.latent_stack.encode(
             enc_combined, self._current_latent,
             prev_action=_prev_action,
@@ -5597,6 +5636,8 @@ class REEAgent(nn.Module):
             harm_history=obs_harm_history,  # SD-011 second source (None = disabled)
             volatility_signal=vol_signal,
             self_e1_anchor=self_e1_anchor,  # SELF-1/DR-13: None unless use_self_recurrence
+            operating_mode=_m157_mode,  # MECH-157: None unless use_mode_precision_routing
+            world_e2_anchor=_m157_anchor,  # MECH-157: None unless ON + mode + prev tick
         )
         # SD-PP-1: encoder-gain update from this tick's (dz, dobs) pair.
         if self.observation_reliability is not None:

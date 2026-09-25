@@ -236,6 +236,60 @@ class LatentStackConfig:
     use_self_recurrence: bool = False
     self_recurrence_e1_coupling: float = 0.15
 
+    # MECH-157 option A (user decision 2026-09-25, rec-20260925-6231be2b;
+    # design: REE_assembly/evidence/planning/claim_synthesis_MECH-157_20260925.md
+    # + its red-team claim_synthesis_MECH-157-039_redteam_20260925.md):
+    # mode-conditioned precision routing on the SHARED z_world update. Two
+    # independent per-mode scalars, both weighted over the SD-032a soft
+    # operating_mode vector (sum_m p_m * dict[m], the MECH-267 idiom):
+    #   (1) SENSORY GAIN = per-mode ABSOLUTE alpha_world (not a multiplier on
+    #       the shipped 0.3). external_task is pinned >= 0.9 so SD-008 holds
+    #       in the external regime; low alpha in internal/replay modes is the
+    #       intended perceptual-decoupling phenotype, NOT the SD-008 defect.
+    #       A mode absent from the dict contributes the base alpha_world.
+    #   (2) GENERATIVE ("hippocampal") DRIVE = per-mode coupling g_m pulling
+    #       z_world toward the E2 forward-model prediction
+    #       E2.world_forward(z_world_prev, a_prev) -- the kernel the hippocampus
+    #       chains into rollouts -- mirroring the SELF-1 self_e1_anchor blend.
+    #       A mode absent from the dict contributes 0.0 (no pull).
+    # Update: z = (1-g)*(alpha*z_obs + (1-alpha)*z_prev) + g*z_pred.
+    # "1 - alpha" is the agent's own previous state (temporal smoothing), NOT
+    # hippocampal content (red-team D3) -- that is why (2) is a separate term.
+    # Mode source: REEAgent passes the coordinator's operating_mode (previous
+    # tick) or REEAgent.mode_precision_routing_override when set. No mode
+    # supplied -> legacy blend exactly (mode-unconditioned).
+    # Default OFF -> encode() is bit-identical and the agent computes no E2
+    # anchor. Deliberately NOT gated on HippocampalConfig.mode_conditioning_
+    # enabled, so MECH-267 rollout conditioning and this E1-state routing can
+    # be ablated one at a time (the MECH-157 falsifier's manipulation).
+    use_mode_precision_routing: bool = False
+    mode_alpha_world: Dict[str, float] = field(default_factory=lambda: {
+        "external_task": 0.9,
+        "internal_planning": 0.5,
+        "internal_replay": 0.2,
+        "offline_consolidation": 0.1,
+    })
+    mode_world_e2_coupling: Dict[str, float] = field(default_factory=lambda: {
+        "external_task": 0.0,
+        "internal_planning": 0.3,
+        "internal_replay": 0.6,
+        "offline_consolidation": 0.8,
+    })
+    # Magnitude bound on the generative anchor, as a ratio to the norm of this
+    # tick's instantaneous (observation-grounded) z_world estimate: the anchor
+    # keeps its DIRECTION and is rescaled to at most cap * ||z_obs||. Why:
+    # the pull closes a loop z_t <- g*E2(z_{t-1}) and E2.world_forward is
+    # z + delta(z), so an expansive (e.g. untrained) E2 compounds without
+    # bound -- measured 2026-09-25 at 200 real ticks, untrained E2, cap off:
+    # ||z_world|| 0.08 -> 1.4e3 (internal_replay) and 0.04 -> 2.0e10
+    # (offline_consolidation), while external_task / internal_planning stayed
+    # ~0.4-0.6. With the cap, ||z|| <= ((1-g)*alpha + g*cap) * ||z_obs|| /
+    # (1 - (1-g)*(1-alpha)): bounded for every g < 1 and every alpha > 0.
+    # (The ML parallel is compounding error in autoregressive world-model
+    # rollouts; the REE reading is that imagined content is not allowed to
+    # exceed the intensity of perceived content.) <= 0 disables the bound.
+    mode_world_e2_anchor_norm_cap: float = 1.0
+
     # SD-010: dedicated harm stream (nociceptive separation, ARC-027).
     # use_harm_stream=False by default — backward compatible with all existing experiments.
     # When True, experiments should construct a HarmEncoder and pass harm_obs separately;
@@ -11290,6 +11344,26 @@ class REEConfig:
         config.latent.self_recurrence_e1_coupling = float(
             kwargs.pop("self_recurrence_e1_coupling", 0.15)
         )
+        #   MECH-157 option A (LatentStackConfig): mode-conditioned precision
+        #   routing on the z_world update (per-mode absolute alpha_world +
+        #   per-mode pull toward the E2 forward prediction). no-op OFF. The
+        #   two dicts keep the dataclass defaults unless a caller passes one.
+        config.latent.use_mode_precision_routing = bool(
+            kwargs.pop("use_mode_precision_routing", False)
+        )
+        _m157_alpha = kwargs.pop("mode_alpha_world", None)
+        if _m157_alpha is not None:
+            config.latent.mode_alpha_world = {
+                str(k): float(v) for k, v in dict(_m157_alpha).items()
+            }
+        config.latent.mode_world_e2_anchor_norm_cap = float(
+            kwargs.pop("mode_world_e2_anchor_norm_cap", 1.0)
+        )
+        _m157_coup = kwargs.pop("mode_world_e2_coupling", None)
+        if _m157_coup is not None:
+            config.latent.mode_world_e2_coupling = {
+                str(k): float(v) for k, v in dict(_m157_coup).items()
+            }
         #   R3 (REEConfig): module-tagged interleaved cross-module consolidation.
         config.use_cross_module_consolidation = bool(
             kwargs.pop("use_cross_module_consolidation", False)

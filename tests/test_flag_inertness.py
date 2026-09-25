@@ -2858,6 +2858,12 @@ PROBED = {
     # sequence produces nonzero state_departure in self_recurrence_diag,
     # proving the recurrence carries state the instantaneous encode does not.
     "use_self_recurrence",
+    # MECH-157 option A mode-conditioned z_world precision routing. Probed by
+    # tests/contracts/test_mech157_mode_precision_routing.py: C1 pins OFF
+    # bit-identical even with a mode + E2 anchor supplied; C4 pins that a mode
+    # change moves both the sensory-gain blend and the E2-prediction pull; C7
+    # pins the agent-level override/coordinator -> E2 anchor -> encode path.
+    "use_mode_precision_routing",
     # SD-031 E2WorldForward. Probed by test_e2_world_forward.py: C1 pins
     # bit-identical OFF (agent.e2_world is None, action stream unchanged from
     # explicit-False); C4 pins the ON module is not an identity map and is
