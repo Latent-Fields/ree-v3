@@ -3648,6 +3648,18 @@ class REEAgent(nn.Module):
                 device=self.device,
             )
 
+        # Native waking trainer (design record REE_assembly
+        # evidence/planning/native_waking_trainer_design_20260925.md, 0c0f5b76ec;
+        # GFLAG-0491). Built LAST, after every module it may train exists. A plain
+        # object, not an nn.Module, so it adds nothing to parameters()/state_dict().
+        # Default OFF: nothing is imported or constructed and no RNG is drawn, so the
+        # agent is byte-identical to the pre-change code
+        # (tests/contracts/test_waking_trainer.py). Stepped from update_residue().
+        self.waking_trainer = None
+        if getattr(self.config, "waking_trainer_enabled", False):
+            from ree_core.utils.waking_trainer import WakingTrainer
+            self.waking_trainer = WakingTrainer(self, self.config)
+
     @classmethod
     def from_config(
         cls,
@@ -11859,9 +11871,28 @@ class REEAgent(nn.Module):
                 # MECH-091: harm is salient -> phase reset
                 self.clock.phase_reset()
 
+        # Native waking trainer: the one per-step consequence entry (StepHarness calls
+        # update_residue exactly once per env step), so every driver gets it with no
+        # driver edit. Waking-only (MECH-094): replay / simulation steps never train.
+        # The trainer isolates its own RNG, so the act path draws are unchanged.
+        # None at defaults -> no trainer call, byte-identical OFF.
+        metrics.update(self._waking_trainer_step(harm_signal, hypothesis_tag))
+
         metrics["harm_signal"] = harm_signal
         metrics["harm_this_episode"] = self._harm_this_episode
         return metrics
+
+    def _waking_trainer_step(self, harm_signal: float, hypothesis_tag: bool) -> Dict[str, Any]:
+        """Step the native waking trainer, if one was built (else a no-op).
+
+        A separate method so tests/contracts/test_waking_trainer.py can replace it with
+        the pre-change behaviour (no call at all) and compare a default-config rollout
+        against that reference byte-for-byte.
+        """
+        trainer = getattr(self, "waking_trainer", None)
+        if trainer is None or hypothesis_tag:
+            return {}
+        return trainer.on_waking_step(harm_signal)
 
     def record_transition(
         self,

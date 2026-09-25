@@ -7934,6 +7934,28 @@ class REEConfig:
     # matters more than the run's outcome.
     preserve_on_life_end_strict: bool = False
 
+    # --- Native waking trainer (design record REE_assembly
+    # evidence/planning/native_waking_trainer_design_20260925.md, 0c0f5b76ec; user
+    # decision 2026-09-25 Q4a hybrid / Q4b skeleton on main default-OFF; GFLAG-0491).
+    # ree_core/utils/waking_trainer.py. When False (default) the agent constructs
+    # nothing, imports nothing and draws no RNG: byte-identical to the pre-change code
+    # (tests/contracts/test_waking_trainer.py W1/W2). When True, REEAgent builds a
+    # WakingTrainer (per-member optimizer groups; this landing registers ONE member,
+    # e3.harm_eval_head regressed on experienced harm max(-harm_signal, 0) over detached
+    # z_world replay) and update_residue() steps it every waking_trainer_every_k waking
+    # ticks, inside torch.random.fork_rng with a private RNG state (the act path's draws
+    # are unchanged). Each group's gradient-reach guard (ree_core/utils/
+    # grad_reach_guard.py) is armed for its first waking_trainer_guard_min_steps
+    # optimizer steps and RAISES on FAIL (orchestrator decision Q4d). Reach (D1) only:
+    # no behavioural effect is claimed for the ON mode.
+    waking_trainer_enabled: bool = False
+    waking_trainer_every_k: int = 1          # design D2: K=1 during bring-up
+    waking_trainer_harm_eval_lr: float = 1e-3
+    waking_trainer_batch_size: int = 16
+    waking_trainer_buffer_max: int = 2000     # replay window (recent waking ticks)
+    waking_trainer_guard_min_steps: int = 8   # design 3c: G4 window; 0 disarms the guard
+    waking_trainer_seed: int = 0              # private trainer RNG seed
+
     def __post_init__(self) -> None:
         # MECH-307 master flag resolver. When the convenience master flag
         # is set, force the three substrate-side sub-flags True so callers
@@ -9488,6 +9510,18 @@ class REEConfig:
                 f"got {sd016_writepath_mode!r}"
             )
         config = cls()
+        # Native waking trainer knobs (see the REEConfig fields). from_dims SILENTLY
+        # SWALLOWS unknown kwargs, so each is popped and applied here; pinned by
+        # tests/contracts/test_waking_trainer.py W6.
+        config.waking_trainer_enabled = bool(kwargs.pop("waking_trainer_enabled", False))
+        config.waking_trainer_every_k = int(kwargs.pop("waking_trainer_every_k", 1))
+        config.waking_trainer_harm_eval_lr = float(
+            kwargs.pop("waking_trainer_harm_eval_lr", 1e-3))
+        config.waking_trainer_batch_size = int(kwargs.pop("waking_trainer_batch_size", 16))
+        config.waking_trainer_buffer_max = int(kwargs.pop("waking_trainer_buffer_max", 2000))
+        config.waking_trainer_guard_min_steps = int(
+            kwargs.pop("waking_trainer_guard_min_steps", 8))
+        config.waking_trainer_seed = int(kwargs.pop("waking_trainer_seed", 0))
 
         # Observation dims
         config.latent.body_obs_dim = body_obs_dim

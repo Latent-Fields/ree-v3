@@ -2352,6 +2352,13 @@ def test_use_loop_local_eligibility_traces_excludes_the_losing_loops_channel():
 
 # Flags with a behavioural probe in this file (asserting ON changes an observable).
 PROBED = {
+    # Native waking trainer (2026-09-25, session bt0925-wtrainer; design record
+    # REE_assembly evidence/planning/native_waking_trainer_design_20260925.md).
+    # Probed by tests/contracts/test_waking_trainer.py, not here: W1/W2 (OFF builds
+    # nothing and a default rollout is byte-identical to the pre-change code path),
+    # against W4 (ON: e3.harm_eval_head receives gradient and moves, guard PASS) and
+    # W5 (ON with a disconnected loss: the guard FAILs and the trainer raises).
+    "waking_trainer_enabled",
     # SD-PP-1..4 precision-provenance substrate (2026-09-22, session
     # compassionate-pike-fe9174; contract REE_assembly/docs/architecture/
     # precision_provenance_substrate_spec.md). Probed by
