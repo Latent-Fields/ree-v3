@@ -3618,6 +3618,42 @@ class ResidueConfig:
     # knob, do NOT calibrate it). 0.15 in particular is the HARM field's value, tuned
     # against a DIFFERENT (0.125) manifold and a different readout, and would exceed
     # the whole 0.07 benefit manifold measured above.
+    #
+    # THREE CONSTRAINTS ON WHATEVER VALUE IS EVENTUALLY PRE-REGISTERED. All measured
+    # 2026-09-25 by this build's red-team; none of them picks the value, they bound it.
+    #
+    # (a) CO-SCALE da_jitter_radius, or you invert the DV you are trying to measure.
+    #     add_residue_cluster jitters each DA-allocated center by
+    #     randn * da_jitter_radius (default 0.1 below; the live SD-024 run used 0.3).
+    #     Either is far wider than a bandwidth that resolves a 0.07 manifold, so the
+    #     cluster lands outside the narrowed kernel and density at the reward site goes
+    #     to ZERO -- while SD-024's DV says cluster allocation RAISES density. Measured
+    #     single-center -> 3-center density ratio: 2.3753 / 2.9232 with the knob OFF
+    #     (jitter 0.3 / 0.1, both correct), 0.0000 at bw 0.02 with jitter 0.3 AND with
+    #     the default 0.1, and 1.5687 only once jitter reaches 0.01. Empirically
+    #     jitter <= ~bw/2. PRE-REGISTER THE PAIR, never the bandwidth alone.
+    # (b) STAY ABOVE THE MEASURED WITHIN-CELL SPREAD -- the same floor hazard
+    #     harm_field_bandwidth documents at 0.15, where seed 0 INVERTED at 0.065
+    #     because the kernel got narrower than the class it had to generalise over.
+    #     Below the spread the read collapses toward zero even AT the contact state.
+    #     The within-cell spread of the live benefit manifold is NOT YET MEASURED
+    #     (EXP-1391's P0 owes it), which is why no floor VALUE is given here.
+    # (c) A BARE RATIO CRITERION IS NOT ENOUGH ON ITS OWN. The registered validation
+    #     criterion (held-out/contact density < 0.5x) is also satisfied by an
+    #     arbitrarily narrow kernel where everything reads ~0, contact included --
+    #     measured PASS at bw 0.001 with contact density 0.00000. Pair it with an
+    #     absolute floor on the contact-state density, scaled to the active center
+    #     count. The contract file's `assert d_contact > 1.0` is that floor in fixture
+    #     form; the criterion as registered in substrate_queue.json does NOT yet carry
+    #     one, and that gap is recorded there as an unratified red-team recommendation
+    #     rather than silently applied, because the criterion's wording came from the
+    #     user.
+    #
+    # DO NOT SPELL "OFF" AS 0.0. None is the OFF idiom for this knob; 0.0 is accepted
+    # with no validation and makes the Gaussian denominator 0, so density AT a center is
+    # NaN. The sibling knobs (harm_field_bandwidth, safety_terrain_bandwidth) share this
+    # and are deliberately left alone -- validating all three is a separate change,
+    # recorded but not made by this build.
     benefit_field_bandwidth: Optional[float] = None
     # SD-024 (MECH-232): DA-modulated RBF center density on the BENEFIT terrain.
     # When a reward encounter carries a phasic dopamine signal (benefit_magnitude *
@@ -9194,6 +9230,17 @@ class REEConfig:
         # before **kwargs so no existing positional index moves.
         # None -> kernel_bandwidth (bit-identical OFF). No recommended value: see
         # the ResidueConfig.benefit_field_bandwidth comment for why.
+        #
+        # THIS KWARG ALONE IS INERT, because the switches it depends on are NOT wired
+        # into from_dims (measured 2026-09-25): benefit_terrain_enabled,
+        # use_da_modulated_rbf_density, da_allocation_scale, da_jitter_radius,
+        # da_bandwidth_narrowing and da_benefit_num_centers are reachable only via the
+        # ResidueConfig constructor or a post-hoc attribute set, which is what the
+        # drivers in this family already do. A caller passing only this kwarg therefore
+        # gets an armed bandwidth on a terrain that never turns on. Wiring those six is
+        # a separate change, deliberately not bundled here -- note the consequence that
+        # constraint (a) above (co-scale da_jitter_radius) cannot be applied through
+        # from_dims today either.
         benefit_field_bandwidth: Optional[float] = None,
         **kwargs,
     ) -> "REEConfig":

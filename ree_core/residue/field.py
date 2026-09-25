@@ -526,18 +526,51 @@ class ResidueField(nn.Module):
         # so this mirrors effective_harm_bandwidth above. A plain float, NOT a buffer:
         # state_dict / checkpoint shape is unchanged.
         #
-        # ONE CONSTRUCTOR SITE IS THE COMPLETE WIRING HERE, and that is a measured
-        # claim rather than an assumption -- it is exactly the trap the harm knob's
-        # comment warns about. All four benefit consumers read the RBFLayer's own
-        # bandwidth: evaluate_benefit -> RBFLayer.forward -> _two_bw_sq;
+        # ONE CONSTRUCTOR SITE IS THE COMPLETE WIRING OF THE *READS*, and that is a
+        # measured claim rather than an assumption -- it is exactly the trap the harm
+        # knob's comment warns about. All four benefit consumers read the RBFLayer's
+        # own bandwidth: evaluate_benefit -> RBFLayer.forward -> _two_bw_sq;
         # compute_benefit_density -> compute_local_density (bandwidth=None -> the same
         # _two_bw_sq); add_residue (no bandwidth term); and add_residue_cluster, whose
         # per-center narrowing is computed from float(self.bandwidth) as its base and
-        # whose center_bandwidths buffer is initialised from the constructor argument.
+        # whose center_bandwidths buffer is SEEDED from the constructor argument.
         # Unlike the harm field there is NO distillation-sampling site to wire:
         # integrate() is harm-only (self.rbf_field / self._harm_history) and the
         # benefit field has no neural_field counterpart, so there is no second
         # consumer that could silently keep sampling at the shared 1.0.
+        #
+        # TWO CARVE-OUTS, both measured 2026-09-25 by the build's own red-team and
+        # both specific to the SD-024 per-center path (use_da_modulated_rbf_density);
+        # on the default scalar path neither exists, because center_bandwidths is not
+        # registered at all.
+        #
+        # (1) SEEDED IS NOT THE SAME AS OWNED: center_bandwidths is a registered
+        #     BUFFER, and _two_bw_sq PREFERS it over self.bandwidth. So a
+        #     load_state_dict() from a checkpoint written before this knob (or at a
+        #     different value) silently restores the OLD per-center scale while
+        #     self.bandwidth and effective_benefit_bandwidth both still report the
+        #     armed one -- structurally present, functionally inert, no warning.
+        #     Measured: a pre-knob checkpoint restored into a field armed at 0.02 put
+        #     the held-out/contact density ratio back to 0.99877 (the original defect)
+        #     against 0.05270 for the same config without the restore. No live call
+        #     site restores the benefit RBF's state_dict today, so this is latent, not
+        #     a current regression. Pinned by
+        #     test_f4_state_dict_restore_can_silently_defeat_the_knob.
+        #
+        # (2) THE JITTER RADIUS MUST BE CO-SCALED, and this is the one that changes a
+        #     SCIENTIFIC reading rather than a mechanism. add_residue_cluster jitters
+        #     each allocated center by randn * da_jitter_radius; ResidueConfig's
+        #     default is 0.1 and the live SD-024 run used 0.3, both far wider than any
+        #     bandwidth that resolves a 0.07 manifold. The cluster therefore lands
+        #     entirely outside the narrowed kernel and density at the reward site goes
+        #     to ZERO -- so narrowing the bandwidth fixes the SPATIAL defect and
+        #     simultaneously INVERTS SD-024's own DV (cluster allocation is supposed to
+        #     RAISE density). Measured single-center -> 3-center cluster density ratio:
+        #     2.3753 (bw off / jitter 0.3) and 2.9232 (off / 0.1) both rise correctly;
+        #     0.0000 at bw 0.02 with jitter 0.3 AND with the default 0.1; 1.5687 only
+        #     once jitter is brought to 0.01. Empirically jitter <= ~bw/2. EXP-1391
+        #     must pre-register the PAIR, never the bandwidth alone. Pinned by
+        #     test_f1_da_cluster_dv_inverts_at_the_default_jitter_radius.
         _benefit_bw = getattr(self.config, "benefit_field_bandwidth", None)
         if _benefit_bw is None:
             self.effective_benefit_bandwidth = self.config.kernel_bandwidth

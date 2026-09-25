@@ -60,13 +60,27 @@ from ree_core.residue.field import ResidueField
 
 WORLD_DIM = 8
 
-# The MEASURED live-manifold geometry (orch0924-sd024, 2026-09-24). These are
-# facts about the substrate, not tuning choices.
-MANIFOLD_MAX_PAIRWISE = 0.07
-MANIFOLD_RADIUS = 0.33
+# MEASURED live-manifold geometry (orch0924-sd024, 2026-09-24, quoted via the chip
+# prompt -- the primary artifacts are uncommitted and machine-local to DLAPTOP, so
+# EXP-1391's P0 must RE-MEASURE rather than cite these).
+MANIFOLD_MAX_PAIRWISE = 0.07    # max pairwise distance over 180 visited states
+MANIFOLD_RADIUS = 0.33          # ||z_world||
+N_BENEFIT_CENTERS = 23          # centers active in the measured run
+
+# ASSUMED FOR THIS FIXTURE -- NOT MEASURED. The source measurement gives 7 grid cells
+# over a 0.07 manifold but no per-cell separation and no within-cell spread, and the
+# registry entry's own ready_blocked_by makes the within-cell spread something
+# EXP-1391's P0 still OWES. They are set here only to build a geometry the criterion
+# can be exercised against.
+#
+# READ THIS BEFORE RE-DERIVING A BANDWIDTH FROM THEM. Together they bracket one:
+# WITHIN_CELL_SPREAD < bw < GRID_CELL_SEP gives 0.004 < bw < 0.05, i.e. ~0.02 -- which
+# is exactly the fixture value below. That bracket is an artifact of these two ASSUMED
+# numbers, not a result. The floor half in particular is the one the harm knob measured
+# an INVERSION below (see constraint (b) in the ResidueConfig comment), so a real value
+# needs a real spread measurement.
 GRID_CELL_SEP = 0.05            # two states in different grid cells, inside 0.07
 WITHIN_CELL_SPREAD = 0.004
-N_BENEFIT_CENTERS = 23          # centers active in the measured run
 
 # A bandwidth that RESOLVES the geometry above -- a test fixture, NOT the
 # operating value (see the module docstring). Arithmetic: at bw 0.02 a
@@ -86,6 +100,12 @@ def _cfg(benefit_bw=None, kernel_bw=1.0, benefit_on=True, da=False):
     if da:
         cfg.use_da_modulated_rbf_density = True
         cfg.da_allocation_scale = 4.0
+        # 0.01, NOT the config default 0.1 -- and that is a deliberate coupling
+        # choice, not an arbitrary constant. The default (and the 0.3 the live SD-024
+        # run used) scatters DA-allocated centers outside any manifold-resolving
+        # kernel, which zeroes the density at the reward site. See
+        # test_f1_da_cluster_dv_inverts_at_the_default_jitter_radius, which is the
+        # cell that pins that failure rather than hiding behind this override.
         cfg.da_jitter_radius = 0.01
         cfg.da_bandwidth_narrowing = 0.5
     return cfg
@@ -486,3 +506,172 @@ def test_c5_harm_knob_still_wins_on_the_harm_field_when_both_are_armed():
     assert rf.rbf_field.bandwidth == pytest.approx(0.15)
     assert rf.benefit_rbf_field.bandwidth == pytest.approx(_RESOLVABILITY_DEMO_BW)
     assert rf.effective_harm_bandwidth != rf.effective_benefit_bandwidth
+
+
+# ---------------------------------------------------------------------------
+# Red-team findings, 2026-09-25 (this build's own adversarial review).
+# Each of these FAILED to be covered by C1-C5 and is pinned here so the gap
+# cannot silently reopen. F-1 is the one that changes a SCIENTIFIC reading.
+# ---------------------------------------------------------------------------
+
+def _da_cfg(benefit_bw, jitter):
+    cfg = _cfg(benefit_bw=benefit_bw, da=True)
+    cfg.da_jitter_radius = jitter
+    cfg.da_bandwidth_narrowing = 0.0      # isolate the JITTER term
+    return cfg
+
+
+def _single_vs_cluster_density(benefit_bw, jitter):
+    """SD-024's DV: does a DA-allocated CLUSTER read denser than a single center?"""
+    z = torch.zeros(WORLD_DIM)
+    rf1 = ResidueField(_da_cfg(benefit_bw, jitter))
+    rf1.accumulate_benefit(z, benefit_magnitude=1.0, dopamine_signal=0.0)
+    d_single = float(rf1.compute_benefit_density(z.unsqueeze(0))[0].detach())
+
+    torch.manual_seed(1)
+    rf2 = ResidueField(_da_cfg(benefit_bw, jitter))
+    rf2.accumulate_benefit(z, benefit_magnitude=1.0, dopamine_signal=0.6)
+    d_cluster = float(rf2.compute_benefit_density(z.unsqueeze(0))[0].detach())
+    assert int(rf2.benefit_rbf_field.active_mask.sum()) > 1, "DA cluster did not allocate"
+    return d_single, d_cluster
+
+
+def test_f1_da_cluster_dv_inverts_at_the_default_jitter_radius():
+    """F-1: narrowing the bandwidth fixes the SPATIAL defect and INVERTS SD-024's DV.
+
+    add_residue_cluster jitters each allocated center by randn * da_jitter_radius.
+    At the CONFIG DEFAULT (0.1) -- and at the 0.3 the live SD-024 run used -- the
+    cluster lands outside a manifold-resolving kernel, so density at the reward site
+    goes to ZERO, the opposite of what SD-024 predicts. The bandwidth and the jitter
+    radius must be pre-registered as a PAIR.
+
+    Asserted as a DIRECTION change, not a magnitude, so it is robust to the fixture
+    geometry. The default is read from ResidueConfig rather than restated, so a change
+    to that default cannot leave this test asserting a stale number.
+    """
+    default_jitter = ResidueConfig().da_jitter_radius
+    assert default_jitter > _RESOLVABILITY_DEMO_BW, (
+        "this contract assumes the default jitter is WIDER than a resolving bandwidth; "
+        f"default={default_jitter} demo_bw={_RESOLVABILITY_DEMO_BW}"
+    )
+
+    # Knob OFF: the DV points the right way at the default jitter.
+    off_single, off_cluster = _single_vs_cluster_density(None, default_jitter)
+    assert off_cluster > off_single, (
+        f"baseline DV already broken: single={off_single} cluster={off_cluster}"
+    )
+
+    # Knob ARMED at the same jitter: the DV INVERTS. This is the finding.
+    on_single, on_cluster = _single_vs_cluster_density(
+        _RESOLVABILITY_DEMO_BW, default_jitter
+    )
+    assert on_cluster < on_single, (
+        "expected the DA-cluster density to COLLAPSE below the single-center density "
+        f"at jitter={default_jitter} with the knob armed; got single={on_single} "
+        f"cluster={on_cluster}. If this now passes the other way the coupling was "
+        "fixed -- update constraint (a) in the ResidueConfig comment."
+    )
+
+
+def test_f1_co_scaling_the_jitter_restores_the_dv():
+    """The other half: the inversion is CURABLE, so F-1 is a coupling not a dead end.
+
+    Without this cell the test above could be satisfied by a knob that breaks the DV
+    unconditionally, which would be a reason not to ship rather than a constraint.
+    """
+    co_scaled = _RESOLVABILITY_DEMO_BW / 2.0
+    single, cluster = _single_vs_cluster_density(_RESOLVABILITY_DEMO_BW, co_scaled)
+    assert cluster > single, (
+        f"co-scaled jitter {co_scaled} should restore the DV; "
+        f"got single={single} cluster={cluster}"
+    )
+
+
+def test_f4_state_dict_restore_can_silently_defeat_the_knob():
+    """F-4: on the SD-024 per-center path the constructor only SEEDS the scale.
+
+    center_bandwidths is a registered BUFFER and _two_bw_sq PREFERS it over
+    self.bandwidth, so a checkpoint written before this knob restores the OLD scale
+    while effective_benefit_bandwidth still reports the armed one -- structurally
+    present, functionally inert. No live call site restores the benefit RBF's
+    state_dict today, so this pins a LATENT hazard; if a future change adds one, this
+    cell is what says the knob needs re-asserting after the load.
+    """
+    z = torch.zeros(WORLD_DIM)
+    stale = ResidueField(_da_cfg(None, 0.004))        # pre-knob: inherits 1.0
+    torch.manual_seed(3)
+    for _ in range(8):
+        stale.accumulate_benefit(z + 0.004 * torch.randn(WORLD_DIM), 1.0, dopamine_signal=0.6)
+    ckpt = {k: v.clone() for k, v in stale.state_dict().items()}
+    assert set(ckpt["benefit_rbf_field.center_bandwidths"].tolist()) == {1.0}
+
+    armed = ResidueField(_da_cfg(_RESOLVABILITY_DEMO_BW, 0.004))
+    assert armed.benefit_rbf_field.center_bandwidths.max() == pytest.approx(
+        _RESOLVABILITY_DEMO_BW
+    )
+    armed.load_state_dict(ckpt)
+
+    # The scalar and the reported effective value BOTH still say "armed" ...
+    assert armed.benefit_rbf_field.bandwidth == pytest.approx(_RESOLVABILITY_DEMO_BW)
+    assert armed.effective_benefit_bandwidth == pytest.approx(_RESOLVABILITY_DEMO_BW)
+    # ... while the buffer that actually governs the read has reverted.
+    assert set(armed.benefit_rbf_field.center_bandwidths.tolist()) == {1.0}
+
+    held = z.clone()
+    held[1] += GRID_CELL_SEP
+    d_c = float(armed.compute_benefit_density(z.unsqueeze(0))[0].detach())
+    d_h = float(armed.compute_benefit_density(held.unsqueeze(0))[0].detach())
+    assert d_h > 0.9 * d_c, (
+        "the restored 1.0 should put the read back into saturation; "
+        f"contact={d_c} heldout={d_h}"
+    )
+
+
+def test_f4_the_scalar_path_has_no_such_buffer():
+    """Bounds F-4 to the DA path -- without this the hazard reads broader than it is."""
+    rf = ResidueField(_cfg(benefit_bw=_RESOLVABILITY_DEMO_BW, da=False))
+    assert rf.benefit_rbf_field.per_center_bandwidth is False
+    assert not any("center_bandwidths" in k for k in rf.state_dict())
+
+
+@pytest.mark.parametrize("spread", [0.004, 0.02])
+def test_f3_below_the_within_cell_spread_the_read_collapses(spread):
+    """F-3: the FLOOR hazard, the mechanism harm_field_bandwidth documents at 0.15.
+
+    A kernel narrower than the within-cell spread stops generalising within the cell,
+    so the read collapses toward zero even AT the contact state -- which is how the
+    harm field INVERTED at bw 0.065. Pinned as a magnitude collapse (deterministic)
+    rather than by reproducing an inversion (seed-dependent). Parametrised over two
+    spreads so a single lucky geometry cannot carry it.
+    """
+    def contact_density(bw):
+        rf = ResidueField(_cfg(benefit_bw=bw))
+        torch.manual_seed(5)
+        contact = torch.zeros(WORLD_DIM)
+        contact[0] = MANIFOLD_RADIUS / (WORLD_DIM ** 0.5)
+        for _ in range(N_BENEFIT_CENTERS):
+            rf.accumulate_benefit(contact + spread * torch.randn(WORLD_DIM), 1.0)
+        return float(rf.compute_benefit_density(contact.unsqueeze(0))[0].detach())
+
+    above = contact_density(spread * 5.0)
+    below = contact_density(spread / 10.0)
+    assert below < 0.5 * above, (
+        f"at spread={spread}: a kernel far below the within-cell spread should collapse "
+        f"the in-class read; got below={below} above={above}"
+    )
+
+
+def test_f2_the_ratio_criterion_alone_admits_a_degenerate_pass():
+    """F-2: why the contract's `d_contact > 1.0` floor is load-bearing, not decoration.
+
+    The registered criterion is a pure RATIO, and a ratio is satisfied by a kernel so
+    narrow that everything reads ~0 including the contact state. This cell pins that
+    the degenerate region exists and that the floor is what excludes it -- so nobody
+    later "simplifies" the floor away as redundant with the ratio.
+    """
+    contact_d, held_d = _measured_manifold_density(1e-3)
+    # The ratio criterion is satisfied ...
+    assert held_d < 0.5 * contact_d
+    # ... while the field is dead, which the floor catches and the ratio cannot.
+    assert contact_d < 1.0, f"expected a collapsed contact read, got {contact_d}"
+
