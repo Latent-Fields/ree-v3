@@ -47,11 +47,19 @@
   CORRECTION (same day): the first version of this record said "80/80 ticks" and
   "10/60 ticks"; those counted latched `_dacc_last_*` re-reads on non-E3 steps
   (~10x pseudo-replication), not fresh evaluations. The direction was unaffected.
+  PAYOFF-INTEGRATOR CAVEAT (found by the V3-EXQ-1104 red-team, same day): the scale
+  numbers above were measured at dacc_weight=1.0, where the dACC payoff proxy
+  (-e3.last_scores of the previous tick) makes e3.last_scores an undamped integrator
+  (|last_scores| max 2553 -> 23404 over 1500 steps), so the "payoff range" they are
+  compared against grows with elapsed ticks. Treat them as an upper bound on the
+  scale gap, not a measurement of it. Registered as substrate_queue
+  `sd032b-payoff-self-feedback-integrator`; evidence question GFLAG-0507.
+  V3-EXQ-1104 runs at dacc_weight=0.5 (bounded).
   E2_harm_a quality caveat: SD-PP-B9 (open, degrading) measured E2_harm_a BELOW the
   z(t-1) persistence predictor on V3-EXQ-1062a, so the cross-candidate effort
   spread may be dominated by model error -- liveness here is not validity; see the
   validation experiment.
   Contract: `tests/contracts/test_sd032b_candidate_effort_proxy.py` (9 tests; all 9
   FAIL against the pre-amendment tree -- effort_term uniform at 97.35 over K=32).
-  Validation experiment: not yet queued (see WORKSPACE_STATE / claim note).
+  Validation experiment: V3-EXQ-1104 (diagnostic, claim-free; within-tick counterfactuals).
   See SD-032b, MECH-258, MECH-268, MECH-267.
