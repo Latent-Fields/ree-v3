@@ -421,6 +421,14 @@ class GhostGoalBank:
         WEIGHTED composite -- this is the raw per-anchor values that
         rank() computes and discards by default.
 
+        INSTRUMENTATION ONLY (GFLAG-0484; coupled-loop-repair campaign plan section 8
+        F3). This dump (MECH-468 type D) has zero production callers in
+        ree_core or experiments (git grep at ree-v3 origin/main, 2026-09-25): nothing
+        reads it to select, score, gate or train.
+        It is a recording surface for offline analysis. No evidence may read it as a
+        consumer of the relation it records, and a populated dump is not evidence that
+        the relation reaches behaviour.
+
         Covers only the direct-admission loop (anchors clearing
         goal_match_floor on their own cosine); SD-097 relational-successor
         entries admitted via _admit_relational_successors are not yet

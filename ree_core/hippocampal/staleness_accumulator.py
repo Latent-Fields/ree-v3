@@ -203,6 +203,14 @@ class StalenessAccumulator:
         This is the only way to recover per-broadcast, per-anchor credit
         -- snapshot()/get_stats() expose only the post-leak,
         post-accumulation region aggregate.
+
+        INSTRUMENTATION ONLY (GFLAG-0484; coupled-loop-repair campaign plan section 8
+        F3). This dump (MECH-468 type E) has zero production callers in
+        ree_core or experiments (git grep at ree-v3 origin/main, 2026-09-25): nothing
+        reads it to select, score, gate or train.
+        It is a recording surface for offline analysis. No evidence may read it as a
+        consumer of the relation it records, and a populated dump is not evidence that
+        the relation reaches behaviour.
         """
         return list(self._edge_log)
 

@@ -69,3 +69,8 @@
   `attribution_mode=stream_overlap`, not the default `equal` (fully-connected by
   construction per the spike).
   See MECH-468, MECH-469, MECH-470.
+
+- Note (2026-09-25, GFLAG-0484; coupled-loop-repair campaign plan section 8 F3): all four
+  dumps are INSTRUMENTATION ONLY. They have zero production callers in ree_core or
+  experiments, so no evidence may read them as a consumer of the relation they record.
+  Their docstrings say so.

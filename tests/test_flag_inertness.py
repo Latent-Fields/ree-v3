@@ -2366,6 +2366,11 @@ PROBED = {
     # guard PASS) and T5 (ON with a disconnected loss: the trainer raises).
     "waking_trainer_e1_enabled",
     "waking_trainer_e2_self_enabled",
+    # Structured babbling source (2026-09-25, session bt0925-t1w2a; campaign W2a).
+    # Probed by tests/contracts/test_structured_babbling.py: B1/B2 (OFF: never imported
+    # or constructed; rollout byte-identical to the pre-change path) against B3 (ON: the
+    # agent holds a StructuredBabbler emitting every class incl. stay, runs 1..4).
+    "structured_babbling_enabled",
     # SD-PP-1..4 precision-provenance substrate (2026-09-22, session
     # compassionate-pike-fe9174; contract REE_assembly/docs/architecture/
     # precision_provenance_substrate_spec.md). Probed by

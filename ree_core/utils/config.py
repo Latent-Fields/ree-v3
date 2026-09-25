@@ -8066,6 +8066,20 @@ class REEConfig:
     waking_trainer_e2_self_enabled: bool = False
     waking_trainer_e2_self_lr: float = 1e-3
 
+    # Structured babbling source (coupled-loop-repair campaign W2a; REE_assembly
+    # evidence/planning/coupled_loop_repair_campaign_plan.md section 3 W2, the L2 form
+    # of babbling_e2_action_coverage_probe_20260925.md). When True REEAgent builds
+    # ree_core/developmental/structured_babbling.py StructuredBabbler: a class drawn
+    # uniformly over ALL action classes (incl. stay), held for a run length uniform in
+    # {1..structured_babbling_max_run}, repeated, from its own seeded numpy Generator.
+    # Nothing calls it. n_classes 0 -> config.e2.action_dim (the env action count
+    # from_dims was given). Default False: nothing built or imported
+    # (tests/contracts/test_structured_babbling.py).
+    structured_babbling_enabled: bool = False
+    structured_babbling_n_classes: int = 0
+    structured_babbling_max_run: int = 4
+    structured_babbling_seed: int = 0
+
     def __post_init__(self) -> None:
         # MECH-307 master flag resolver. When the convenience master flag
         # is set, force the three substrate-side sub-flags True so callers
@@ -9648,6 +9662,12 @@ class REEConfig:
         config.waking_trainer_e2_self_enabled = bool(
             kwargs.pop("waking_trainer_e2_self_enabled", False))
         config.waking_trainer_e2_self_lr = float(kwargs.pop("waking_trainer_e2_self_lr", 1e-3))
+        # W2a structured babbling (tests/contracts/test_structured_babbling.py B7).
+        config.structured_babbling_enabled = bool(
+            kwargs.pop("structured_babbling_enabled", False))
+        config.structured_babbling_n_classes = int(kwargs.pop("structured_babbling_n_classes", 0))
+        config.structured_babbling_max_run = int(kwargs.pop("structured_babbling_max_run", 4))
+        config.structured_babbling_seed = int(kwargs.pop("structured_babbling_seed", 0))
 
         # Observation dims
         config.latent.body_obs_dim = body_obs_dim

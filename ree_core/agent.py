@@ -3710,6 +3710,16 @@ class REEAgent(nn.Module):
         if getattr(self.config, "waking_trainer_enabled", False):
             from ree_core.utils.waking_trainer import WakingTrainer
             self.waking_trainer = WakingTrainer(self, self.config)
+        # Structured babbling source (coupled-loop-repair campaign W2a; REE_assembly
+        # evidence/planning/coupled_loop_repair_campaign_plan.md section 3 W2). A pure
+        # generator with its OWN numpy Generator: constructing it draws nothing from the
+        # global RNG. Nothing in ree_core calls it (its consumer is campaign branch work),
+        # and it is not wired into any policy. Default OFF: not imported, not built
+        # (tests/contracts/test_structured_babbling.py).
+        self.structured_babbler = None
+        if getattr(self.config, "structured_babbling_enabled", False):
+            from ree_core.developmental.structured_babbling import StructuredBabbler
+            self.structured_babbler = StructuredBabbler.from_config(self.config)
 
     @classmethod
     def from_config(

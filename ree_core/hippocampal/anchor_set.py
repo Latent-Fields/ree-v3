@@ -579,6 +579,14 @@ class AnchorSet:
     def dump_relational_snapshot(self, scale: Optional[str] = None) -> Dict[str, Any]:
         """Read-side relational-edge dump over the dual-trace anchor pool.
 
+        INSTRUMENTATION ONLY (GFLAG-0484; coupled-loop-repair campaign plan section 8
+        F3). This dump (MECH-468 types A and C) has zero production callers in
+        ree_core or experiments (git grep at ree-v3 origin/main, 2026-09-25): nothing
+        reads it to select, score, gate or train.
+        It is a recording surface for offline analysis. No evidence may read it as a
+        consumer of the relation it records, and a populated dump is not evidence that
+        the relation reaches behaviour.
+
         No-op (returns {}) unless config.record_relational_snapshot is
         True -- pure recording, no behaviour change to write_anchor,
         tick_hysteresis, or any selection path.
