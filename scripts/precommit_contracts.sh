@@ -602,9 +602,24 @@ record_validation_cache_result() {
     # collision). validation_cache.py `record` defaults to ree_commit.py
     # --to-remote-tip for exactly this reason and needs no flag from here --
     # but --push is what makes that mode available, so do NOT drop it below.
+    #
+    # env -u (2026-09-25, chip-20260925-precommit-cache-index-leak-fix): git
+    # exports the OUTER commit's GIT_INDEX_FILE -- and, from a linked worktree,
+    # GIT_DIR -- to this hook, and record's nested ree_commit.py inherited them.
+    # Its throwaway-worktree git calls then acted on the lander's own index and
+    # gitdir: reproduced in a sandbox, the lander's staged set was reset, its
+    # HEAD moved onto the cache commit, its commit failed, and the structural
+    # re-apply fired this hook again -- the nested full gate seen on the hub
+    # 2026-09-25 12:08-12:41 (REE_Working docs/reference/
+    # commit_latency_diagnosis_20260925.md R4/P2). Same scrub the router call
+    # below already applies; record needs none of them (every path it uses is
+    # passed explicitly). validation_cache.py scrubs again, and ree_commit.py
+    # refuses loudly if a caller ever leaks them -- do not drop this line on
+    # the strength of those backstops.
     [ "${REE_PRECOMMIT_VALIDATION_CACHE_DISABLE:-0}" = "1" ] && return 0
     [ -f "$VALIDATION_CACHE_PY" ] || return 0
-    "$PY" "$VALIDATION_CACHE_PY" record "${VALIDATION_CACHE_ARGS[@]}" --result "$1" --push >&2 || true
+    env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
+        "$PY" "$VALIDATION_CACHE_PY" record "${VALIDATION_CACHE_ARGS[@]}" --result "$1" --push >&2 || true
 }
 
 if [ "${REE_PRECOMMIT_VALIDATION_CACHE_DISABLE:-0}" != "1" ] && [ -f "$VALIDATION_CACHE_PY" ]; then

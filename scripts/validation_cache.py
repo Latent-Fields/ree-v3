@@ -97,6 +97,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -126,6 +127,10 @@ def _resolve_umbrella_root(script_dir: Path) -> Path:
             ["git", "-C", str(script_dir), "rev-parse",
              "--path-format=absolute", "--git-common-dir"],
             capture_output=True, text=True, timeout=10,
+            # -C script_dir must decide, not a hook's inherited GIT_DIR (see
+            # SCRUBBED_GIT_ENV_VARS below; this runs at import, before the scrub).
+            env={k: v for k, v in os.environ.items()
+                 if k not in ("GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE")},
         )
     except Exception:
         return fallback
@@ -172,6 +177,47 @@ MAX_COMMIT_ATTEMPTS = 3
 RELEVANT_TREES = ("ree_core", "experiments/_lib")
 
 REE_COMMIT_DEFAULT = _UMBRELLA_ROOT / "scripts" / "ree_commit.py"
+
+# NO NESTED GATE (2026-09-25, chip-20260925-precommit-cache-index-leak-fix;
+# docs/reference/commit_latency_diagnosis_20260925.md R4/P2 in REE_Working).
+# The record commits ONE file, .contract_validation_cache.json, from INSIDE a
+# pre-commit hook. Firing the hook again for that commit can only ever re-run
+# Blocks 1-1e on a path none of them keys on -- Block 2 never triggers on the
+# cache file alone -- so --no-verify loses nothing, and it removes the nested
+# hook invocation entirely. Passed only when the umbrella's ree_commit_once()
+# accepts it (added the same day), so a ree-v3 tree newer than the umbrella
+# checkout degrades to the old call instead of raising TypeError on every record.
+try:
+    import inspect as _inspect
+    _NO_VERIFY_KW = ({"no_verify": True}
+                     if "no_verify" in _inspect.signature(ree_commit_once).parameters
+                     else {})
+except (TypeError, ValueError):  # signature unavailable -- keep the old call
+    _NO_VERIFY_KW = {}
+
+# THE CALLER'S GIT ENVIRONMENT IS NOT OURS (same date/chip). `record` runs inside
+# precommit_contracts.sh, i.e. inside a pre-commit hook, and git exports the
+# OUTER commit's GIT_INDEX_FILE (and, in a linked worktree, GIT_DIR) to that
+# hook. Inherited by ree_commit.py, every throwaway-worktree git call it makes
+# acted on the lander's own index and gitdir: reproduced in a sandbox, the
+# lander's staged set was reset, its HEAD was moved onto the cache commit, its
+# own commit failed, and the structural re-apply fired the hook again (the
+# nested 33-min gate of 2026-09-25). Everything `record` needs is named
+# explicitly (--repo-root / --hash-root / --cache-path), so these variables
+# carry nothing it wants. precommit_contracts.sh also unsets them at the call
+# site; this is the same scrub for any other caller, and ree_commit.py refuses
+# (loudly, nothing landed) if a caller still leaks them.
+SCRUBBED_GIT_ENV_VARS = ("GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE")
+
+
+def scrub_inherited_git_env(environ=None):
+    """Remove SCRUBBED_GIT_ENV_VARS from `environ` (default os.environ), in
+    place. Returns the names that were present."""
+    environ = os.environ if environ is None else environ
+    removed = [k for k in SCRUBBED_GIT_ENV_VARS if k in environ]
+    for k in removed:
+        del environ[k]
+    return removed
 
 
 def utc_now() -> str:
@@ -496,6 +542,7 @@ def _write_and_commit_pass(cache_path: Path, repo_root, tier: str, session_id, p
                     # docstring. ree_commit_once() makes this a no-op when
                     # push is False (--to-remote-tip requires --push).
                     to_remote_tip=remote_tip,
+                    **_NO_VERIFY_KW
                 )
             except CommitLandedLocally as landed:
                 return ("record: committed %s locally but a later step failed (exit %d) -- "
@@ -514,6 +561,10 @@ def _write_and_commit_pass(cache_path: Path, repo_root, tier: str, session_id, p
 
 
 def cmd_record(args) -> int:
+    scrubbed = scrub_inherited_git_env()
+    if scrubbed:
+        log("record: ignoring the caller's inherited %s (a pre-commit hook's "
+            "env describes the OUTER commit, not this one)" % ", ".join(scrubbed))
     cache_path = Path(args.cache_path) if args.cache_path else \
         Path(args.repo_root).resolve() / DEFAULT_CACHE_REL
     if args.result == "fail":
