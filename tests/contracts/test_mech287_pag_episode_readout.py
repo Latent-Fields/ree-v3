@@ -176,8 +176,15 @@ def test_c3_episode_ending_frozen_is_not_counted_as_a_release():
 # C4 -- THE BLIND SPOT                                               #
 # ------------------------------------------------------------------ #
 
-def test_c4_blind_spot_naive_read_moves_with_episode_count_the_dv_does_not():
+def test_c4_blind_spot_naive_read_reverses_direction_the_dv_does_not():
     """The measurement that FAILS against the old cumulative read.
+
+    What this shows is a DIRECTION REVERSAL, not a magnitude drift: the naive
+    read FALLS (2.0 -> 1.5) as genuine re-commits RISE (1 -> 2 per episode),
+    because the unmatched ends-frozen commit it carries in its numerator is an
+    episode-boundary term, not a re-commit. The DV reads the rate correctly at
+    every episode count. (The naive read happens to be flat in n here; C3 is
+    where n_commits - n_releases == n_episodes is pinned.)
 
     F7 FIX: built at V3-EXQ-475's REAL shape -- nonzero releases AND nonzero
     ends-frozen -- so the naive read is well defined (no 0/0, no invented
@@ -670,17 +677,80 @@ def test_c14_cap_forced_releases_are_reported_separately():
     assert c["releases_all_forced_by_cap"] is False
 
 
-def test_c15_in_progress_episode_is_not_counted_as_having_ended_frozen():
-    """F10: an episode that has not ended cannot be reported as ended-frozen."""
+def test_c15_ended_frozen_numerator_and_denominator_are_consistent():
+    """The ended-frozen tally must use the SAME episode set as n_episodes.
+
+    Regression guard. The first F10 fix stopped folding the in-progress
+    episode into `episodes_ending_frozen` while `n_episodes` still counted it,
+    so `frac_episodes_ending_frozen` read 0.8 where every episode had in fact
+    ended frozen -- and it did so under RESET-AT-START, the very driver shape
+    the F3 fix exists to support. Every other field (commits, releases,
+    recommits) folds the current episode, so this one must too;
+    `current_episode_frozen` is what reports the in-progress state separately.
+    """
     gate = _gate()
-    gate.tick(z_harm_a_norm=HIGH, gaba_tone=1.0)     # commits, still frozen
+    for _ in range(5):
+        gate.reset()                       # RESET-AT-START, no trailing reset
+        _drive(gate, EP_ENDS_FROZEN)
+
     ep = gate.episode_diagnostics()
-    assert ep["episodes_ending_frozen"] == 0
-    assert ep["frac_episodes_ending_frozen"] == 0.0
+    assert ep["n_episodes"] == 5
+    assert ep["episodes_ending_frozen"] == 5, (
+        "the numerator dropped the in-progress episode the denominator counts")
+    assert ep["frac_episodes_ending_frozen"] == pytest.approx(1.0)
     assert ep["current_episode_frozen"] is True
 
-    gate.reset()                                      # NOW it has ended frozen
-    assert gate.episode_diagnostics()["episodes_ending_frozen"] == 1
+    # Excluding the current episode must stay self-consistent too.
+    x = gate.episode_diagnostics(include_current=False)
+    assert x["n_episodes"] == 4
+    assert x["episodes_ending_frozen"] == 4
+    assert x["frac_episodes_ending_frozen"] == pytest.approx(1.0)
+
+
+def test_c15b_recommit_opportunity_flag_separates_a_structural_zero():
+    """A sustained lock has no releases, so the DV is 0.0 BY CONSTRUCTION.
+
+    V3-EXQ-475's eval recorded freeze_active_steps 1000.0 against a 5 x 200 =
+    1000-step eval on all three seeds -- freeze-active on every step, hence no
+    within-episode release and no possible re-commit. `dv_measurable` (was any
+    episode observed?) cannot distinguish that from a real measured zero;
+    `recommit_opportunity_present` is the flag that can.
+    """
+    locked = _gate()
+    _run_episodes(locked, EP_ENDS_FROZEN, 5)       # never releases
+    e = locked.episode_diagnostics()
+    assert e["releases"] == 0
+    assert e["recommits_per_episode"] == 0.0
+    assert e["dv_measurable"] is True              # episodes WERE observed
+    assert e["recommit_opportunity_present"] is False, (
+        "a run with no within-episode release never gave the DV an occasion "
+        "to be non-zero; 0.0 there is structural, not a measured null")
+    assert e["recommits_per_release_measurable"] is False
+
+    # A genuine measured zero: releases happened, re-commits did not.
+    single = _gate()
+    _run_episodes(single, [HIGH, LOW], 5)          # commit, release, no re-commit
+    g = single.episode_diagnostics()
+    assert g["releases"] == 5
+    assert g["recommits_per_episode"] == 0.0
+    assert g["recommit_opportunity_present"] is True
+
+
+def test_c15c_bool_flags_have_int_companions_that_survive_the_indexer():
+    """build_experiment_indexes.py's _is_number excludes bool.
+
+    Without int companions a flat metrics dump loses the entire
+    cannot-determine surface -- the exact fail-silent shape these flags exist
+    to prevent.
+    """
+    gate = _gate()
+    _run_episodes(gate, EP_TWO_CYCLES, 2)
+    e = gate.episode_diagnostics()
+    for k in ("dv_measurable", "recommit_opportunity_present",
+              "records_truncated", "current_episode_frozen"):
+        assert isinstance(e[k], bool)
+        assert e[k + "_int"] == int(e[k])
+        assert isinstance(e[k + "_int"], int) and not isinstance(e[k + "_int"], bool)
 
 
 def test_c16_agent_totals_are_exact_past_the_bounded_record_list():
@@ -723,3 +793,94 @@ def test_c16b_agent_phase_is_stamped_at_episode_start():
     assert agent.get_mech287_episode_readout(phase="warmup")["n_episodes"] == 4
     assert agent.get_mech287_episode_readout(phase="eval")["n_episodes"] == 2
     assert agent.get_mech287_episode_readout(phase="eval")["n_broadcast_total"] == 10
+
+
+def test_c17_records_truncated_detects_phase_filtered_eviction():
+    """F12, properly. The deque is a GLOBAL FIFO: the earliest phase goes first.
+
+    Comparing the phase-scoped count against the global maxlen could never see
+    this -- the phase count stays below maxlen while its rows are already
+    being evicted (measured 7692 of 8000 warmup rows returned, flag False).
+    The flag must compare against the rows ACTUALLY RETURNED for that phase.
+    """
+    gate = _gate()
+    gate.set_phase("warmup")
+    _run_episodes(gate, [HIGH, LOW], 8000)
+    gate.set_phase("eval")
+    _run_episodes(gate, [HIGH, LOW], 500)
+
+    wu = gate.episode_diagnostics(phase="warmup")
+    rows = gate.episode_records(phase="warmup")
+    assert wu["n_episodes"] == 8000, "aggregates must stay exact"
+    assert len(rows) < 8000, "the fixture must actually evict warmup rows"
+    assert wu["records_truncated"] is True, (
+        "a phase-filtered record list came back short and the flag said "
+        "complete -- %d of %d rows" % (len(rows), wu["n_episodes"]))
+
+    # And it must NOT fire where nothing has been evicted.
+    small = _gate()
+    _run_episodes(small, [HIGH, LOW], 3)
+    _drive(small, [HIGH, LOW])            # one in progress
+    d = small.episode_diagnostics()
+    assert d["n_episodes"] == 4
+    assert len(small.episode_records()) == 4
+    assert d["records_truncated"] is False
+
+
+def test_c18_agent_flags_an_uncaptured_in_progress_episode():
+    """F5's third denominator: the agent counts FINALISED episodes only.
+
+    Under RESET-AT-START with no trailing reset the gate reports 5 episodes
+    and the agent 4, so every agent-side per-episode rate is computed over
+    n-1 -- 20% at a 5-episode eval. The readout must say so.
+    """
+    agent = _agent_with_instruments()
+    trig = agent.hippocampal.invalidation_trigger
+
+    for _ in range(5):
+        agent.reset()
+        trig._n_broadcast = 2
+        agent._step_count = 4
+
+    ro = agent.get_mech287_episode_readout()
+    assert ro["n_episodes"] == 4, "fixture: the 5th episode is uncaptured"
+    assert ro["pending_uncaptured_episode"] is True, (
+        "the readout is short one episode and did not say so")
+
+    agent.capture_mech287_episode_snapshot()
+    ro2 = agent.get_mech287_episode_readout()
+    assert ro2["n_episodes"] == 5
+    assert ro2["pending_uncaptured_episode"] is False
+
+
+def test_c19_agent_and_gate_agree_on_the_phase_of_one_episode():
+    """F6: the agent counts env steps, the gate counts E3 ticks.
+
+    Between an env step and the episode's first E3 tick the two disagreed
+    about whether an episode was under way, so one set_mech287_phase() call
+    could label the SAME episode two different ways in the two readouts.
+    """
+    from ree_core.utils.config import REEConfig
+    from ree_core.agent import REEAgent
+    cfg = REEConfig.from_dims(
+        body_obs_dim=12, world_obs_dim=250, action_dim=4,
+        use_pag_freeze_gate=True,
+        use_event_segmenter=True,
+        use_invalidation_trigger=True,
+    )
+    agent = REEAgent(cfg)
+    assert agent.pag_freeze_gate is not None
+    assert agent.hippocampal.invalidation_trigger is not None
+
+    agent.set_mech287_phase("warmup")
+    agent.reset()
+    # The gate has ticked (an E3 tick happened) but no env step is recorded --
+    # the window where the two clocks used to disagree.
+    agent.pag_freeze_gate.tick(z_harm_a_norm=HIGH, gaba_tone=1.0)
+    assert agent.pag_freeze_gate.episode_started is True
+    assert agent._step_count == 0
+
+    agent.set_mech287_phase("eval")
+    assert agent._mech287_episode_phase == "warmup", (
+        "the agent re-labelled an episode the gate had already started")
+    assert agent.pag_freeze_gate._episode_phase == "warmup"

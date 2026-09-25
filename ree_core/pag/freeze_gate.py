@@ -357,6 +357,15 @@ class PAGFreezeGate:
         freeze committed in warmup could be RELEASED inside eval -- giving an
         eval scope with releases > commits and scoring the next commit as a
         re-commit off a release whose commit belongs to the previous phase.
+
+        !! THIS METHOD IS THEREFORE BEHAVIOURAL, not a pure readout operation.
+        Clearing the freeze lifts the action constraint and re-arms the
+        sustained-input accumulator, so a tick right after a MID-EPISODE call
+        can produce a commit that would not otherwise have fired. It also
+        finalises and then discards the in-progress episode. CALL IT ONLY
+        IMMEDIATELY AFTER agent.reset(), at a phase boundary, where the freeze
+        is already clear and the call is behaviourally a no-op. Never
+        mid-episode.
         """
         self.reset()
         self._n_ticks = 0
@@ -532,7 +541,8 @@ class PAGFreezeGate:
         run (reset() does not clear them), and an episode ending frozen
         consumes a commit with no release. So `n_commits / n_releases` is NOT
         "re-commits per release": it is dominated by episode count. For the DV
-        read `episode_recommits_per_episode` below, or episode_diagnostics().
+        read `episode_allphase_recommits_per_episode` below, or -- better,
+        because it is phase-scoped -- episode_diagnostics(phase="eval").
 
         F4 FIX (2026-09-25): the ride-along keys are named `episode_allphase_*`
         because they are exactly that -- episode_diagnostics() with NO phase
@@ -561,6 +571,7 @@ class PAGFreezeGate:
             "recommits_per_episode",
             "recommits_per_release",
             "dv_measurable",
+            "recommit_opportunity_present",
             "dv_name",
         ):
             d["episode_allphase_" + k] = ep[k]
@@ -593,9 +604,29 @@ class PAGFreezeGate:
         put it in an experiment's criteria. The claim-text amendment is
         /governance's (GFLAG-0477 and the stale_note raised alongside this).
 
-        `recommits_per_episode` is unbounded and does not saturate, so the
-        manipulation can move it. It is NOT commensurable with V3-EXQ-475's
-        "~12.9", which was the cumulative-counter artifact.
+        `recommits_per_episode` is unbounded and does not saturate. It is NOT
+        commensurable with V3-EXQ-475's "~12.9", which was the
+        cumulative-counter artifact.
+
+        TWO LIMITS, both measured -- state them in any experiment that uses it:
+
+        (a) IT NEEDS RELEASE OPPORTUNITY. A re-commit requires a within-episode
+            release first, so in a SUSTAINED-LOCK regime -- no releases at all
+            -- the DV is 0.0 by construction. That is not hypothetical: it is
+            V3-EXQ-475's recorded eval. Its manifest reports
+            seed{0,1,2}_freeze_active_steps = 1000.0 against a 5 x 200 =
+            1000-step eval, i.e. the agent was freeze-active on EVERY eval
+            step, so the eval phase holds zero releases and zero possible
+            re-commits (the 6/5/5 cumulative releases come from warmup). Check
+            `recommit_opportunity_present` before reading the DV as a null.
+        (b) IT IS NOT NORMALISED TO EXPOSURE. Identical gate dynamics at
+            episode lengths 250/500/1000/2000 give 61/124/249/499, while
+            recommits / e3_ticks is flat at ~0.244-0.2495. Hold episode length
+            fixed across arms, or report the per-e3_tick rate alongside --
+            `e3_ticks` is in this dict for that. Note e3_ticks is not simply
+            steps/e3_steps_per_tick: MultiRateClock.advance() fires an extra E3
+            tick on phase_reset(), which MECH-091 triggers on harm, so the
+            denominator is itself arm-dependent.
 
         Args:
             phase: restrict to episodes labelled with this phase (see
@@ -628,6 +659,10 @@ class PAGFreezeGate:
                 agg["releases"] += cur.releases
                 agg["recommits"] += cur.recommits
                 agg["releases_forced_by_cap"] += cur.releases_forced_by_cap
+                # Every other field folds the in-progress episode, so this one
+                # must too: a finalised-only numerator over an include-current
+                # denominator reported 0.8 where the truth was 1.0.
+                agg["episodes_ending_frozen"] += int(cur.ended_frozen)
 
         n_ep = max(int(agg["n_episodes"]), 1)
         out = dict(agg)
@@ -648,23 +683,60 @@ class PAGFreezeGate:
             float(agg["episodes_ending_frozen"]) / float(n_ep)
         )
         out["current_episode_frozen"] = bool(cur.ended_frozen) if cur else False
-        # Explicit cannot-determine category. The DV is a per-EPISODE rate, so
-        # it is measurable once any episode has been observed; a run with no
-        # episodes at all is the undetermined case, not a measured zero.
+        # -- Cannot-determine categories. Three distinct ones; do not merge. --
+        # (1) Was there any episode at all to average over?
         out["dv_measurable"] = bool(agg["n_episodes"] > 0)
+        # (2) Did the DV have any OCCASION to be non-zero? A re-commit requires
+        #     a within-episode release first, so with zero releases the DV is
+        #     0.0 BY CONSTRUCTION, not as a measured null. This matters: the
+        #     sustained-lock regime MECH-287's non-degeneracy precondition asks
+        #     the comparator to reproduce has NO within-episode releases at all
+        #     -- V3-EXQ-475 recorded freeze_active_steps 1000/1000 on all three
+        #     seeds over a 5 x 200 = 1000-step eval, so its eval phase contains
+        #     zero releases and therefore zero possible re-commits. A run that
+        #     reports dv_value 0.0 with this flag False has measured nothing.
+        out["recommit_opportunity_present"] = bool(agg["releases"] > 0)
+        # (3) The secondary per-release ratio's own denominator.
+        out["recommits_per_release_measurable"] = bool(agg["releases"] > 0)
         # F9: cap-forced releases are not threshold exits. A nonzero count here
         # means max_freeze_duration is shaping the release rate.
         out["releases_all_forced_by_cap"] = bool(
             agg["releases"] > 0
             and agg["releases_forced_by_cap"] == agg["releases"]
         )
-        # F12: episode_records() is a bounded FIFO, so the EARLIEST phase's
-        # rows are evicted first and a phase-filtered record list can come back
-        # short (or empty) while these aggregates remain exact.
-        out["records_truncated"] = bool(
-            agg["n_episodes"] > self._episode_records.maxlen
+        out["frac_releases_forced_by_cap"] = (
+            float(agg["releases_forced_by_cap"]) / float(agg["releases"])
+            if agg["releases"] > 0
+            else 0.0
         )
+        # F12: episode_records() is a bounded FIFO over ALL phases, so the
+        # EARLIEST phase's rows are evicted first and a phase-filtered list can
+        # come back short while these aggregates stay exact. Compare against
+        # the rows ACTUALLY RETURNED for this phase -- comparing against the
+        # global maxlen both missed that case (8000 warmup episodes, 7692 rows
+        # returned, flag False) and fired spuriously at maxlen+1-in-progress.
+        out["records_truncated"] = bool(
+            agg["n_episodes"]
+            > len(self.episode_records(phase=phase, include_current=include_current))
+        )
+        # build_experiment_indexes.py's _is_number EXCLUDES bool, so a flat
+        # metrics dump silently drops every flag above -- i.e. the whole
+        # negative-instrument surface. Emit int companions that survive it.
+        for k in (
+            "dv_measurable",
+            "recommit_opportunity_present",
+            "recommits_per_release_measurable",
+            "records_truncated",
+            "current_episode_frozen",
+            "releases_all_forced_by_cap",
+        ):
+            out[k + "_int"] = int(bool(out[k]))
         return out
+
+    @property
+    def episode_started(self) -> bool:
+        """True once this episode has ticked (so its phase label is fixed)."""
+        return bool(self._episode_started)
 
     @property
     def episode_phases(self) -> List[str]:

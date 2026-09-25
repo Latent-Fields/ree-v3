@@ -3726,13 +3726,28 @@ class REEAgent(nn.Module):
         phase. Purely a readout label: no behavioural effect.
         """
         self._mech287_phase = str(phase)
-        if int(self._step_count) <= 0:
+        if not self._mech287_episode_in_progress():
             # F3: no step has run since the last reset, so the episode that
             # starts next is the one this label belongs to. An episode already
             # in progress keeps the label it started with.
             self._mech287_episode_phase = str(phase)
         if self.pag_freeze_gate is not None:
             self.pag_freeze_gate.set_phase(str(phase))
+
+    def _mech287_episode_in_progress(self) -> bool:
+        """True once this episode has started, by EITHER clock.
+
+        The agent counts environment steps and PAGFreezeGate counts E3 ticks,
+        and select_action() returns early on non-E3 ticks -- so between an
+        env step and the episode's first E3 tick the two disagree about
+        whether an episode is under way. Taking the OR keeps one
+        set_mech287_phase() call from labelling the same episode two different
+        ways in the two readouts.
+        """
+        if int(self._step_count) > 0:
+            return True
+        gate = self.pag_freeze_gate
+        return bool(gate is not None and gate.episode_started)
 
     def _capture_mech287_episode_snapshot(self) -> None:
         """Snapshot this episode's broadcast / staleness stats before reset().
@@ -3755,7 +3770,7 @@ class REEAgent(nn.Module):
             return
         if not self._mech287_snapshot_pending:
             return
-        if int(self._step_count) <= 0:
+        if not self._mech287_episode_in_progress():
             return
 
         trig = getattr(self.hippocampal, "invalidation_trigger", None)
@@ -3934,12 +3949,39 @@ class REEAgent(nn.Module):
                 float(agg["n_broadcast_total"]) / float(n_trig) if n_trig else 0.0
             ),
             # F6: the TOTALS above are exact; only the record LIST is bounded.
+            # Compare against the rows ACTUALLY returned for this phase -- the
+            # deque is a global FIFO, so the earliest phase's rows are evicted
+            # first and a phase-scoped count stays below maxlen while rows for
+            # it have already gone (measured 7692 of 8000 warmup rows, with a
+            # maxlen comparison reporting False).
             "records_truncated": bool(
-                int(agg["n_episodes"]) > self._mech287_episode_snapshots.maxlen
+                int(agg["n_episodes"])
+                > len(self.get_mech287_episode_records(phase=phase))
+            ),
+            # This readout counts FINALISED episodes only -- unlike
+            # PAGFreezeGate.episode_diagnostics, which folds the in-progress
+            # one. If a run ends without a trailing reset and without an
+            # explicit capture_mech287_episode_snapshot(), the last episode is
+            # missing here and every per-episode rate below is computed over
+            # n-1 (20% at a 5-episode eval). This flag says when that is so.
+            "pending_uncaptured_episode": bool(
+                self._mech287_snapshot_pending
+                and self._mech287_episode_in_progress()
             ),
             # F2: these fields are end-of-episode reads, not peaks.
             "staleness_is_end_of_episode_not_peak": True,
         }
+        # build_experiment_indexes.py's _is_number EXCLUDES bool, so a flat
+        # metrics dump drops every flag above -- the whole negative-instrument
+        # surface. Emit int companions that survive it.
+        for k in (
+            "instrument_present",
+            "trigger_present",
+            "staleness_present",
+            "records_truncated",
+            "pending_uncaptured_episode",
+        ):
+            out[k + "_int"] = int(bool(out[k]))
         return out
 
     def get_mech287_episode_records(self, phase: Optional[str] = None) -> list:
