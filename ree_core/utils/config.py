@@ -8137,6 +8137,20 @@ class REEConfig:
     waking_trainer_e2_world_objective: str = "mse"      # or "infonce" (native SD-056)
     waking_trainer_e2_world_grad_clip: float = 1.0      # L2R recipe; <= 0 disables
     waking_trainer_e2_world_updates_per_step: int = 1   # replay ratio per waking step
+    # W6a world-encoder member (coupled-loop-repair campaign plan section 3 W-trainer, Q4c;
+    # branch integration/coupled-loop-repair only). WorldEncoderMember trains SD-070's P0a
+    # objective THROUGH THE LIVE SENSE PATH (world_obs_encoder -> latent_stack.encode over
+    # a recorded raw warm-up window, the ZSelfP0 _native_chain pattern): group =
+    # world_obs_encoder + split_encoder.world_encoder + world_precision_logit + trainer
+    # heads. With W3 ON its re-encode cache invalidates after every step here. Needs
+    # waking_trainer_enabled. Default False -> never imported or constructed. Pinned by
+    # tests/contracts/test_w6a_world_encoder_member.py.
+    waking_trainer_world_encoder_enabled: bool = False
+    waking_trainer_world_encoder_lr: float = 1e-3        # SD-070 learning_rate
+    waking_trainer_world_encoder_batch_size: int = 64    # SD-070 batch_size
+    waking_trainer_world_encoder_window: int = 0         # 0 = auto from latent.alpha_world
+    waking_trainer_world_encoder_grad_clip: float = 1.0  # SD-070 max_grad_norm; <= 0 disables
+    waking_trainer_world_encoder_updates_per_step: int = 1
 
     # Structured babbling source (coupled-loop-repair campaign W2a; REE_assembly
     # evidence/planning/coupled_loop_repair_campaign_plan.md section 3 W2, the L2 form
@@ -9775,6 +9789,19 @@ class REEConfig:
             kwargs.pop("waking_trainer_e2_world_grad_clip", 1.0))
         config.waking_trainer_e2_world_updates_per_step = int(
             kwargs.pop("waking_trainer_e2_world_updates_per_step", 1))
+        # W6a world-encoder member (tests/contracts/test_w6a_world_encoder_member.py W6a-10).
+        config.waking_trainer_world_encoder_enabled = bool(
+            kwargs.pop("waking_trainer_world_encoder_enabled", False))
+        config.waking_trainer_world_encoder_lr = float(
+            kwargs.pop("waking_trainer_world_encoder_lr", 1e-3))
+        config.waking_trainer_world_encoder_batch_size = int(
+            kwargs.pop("waking_trainer_world_encoder_batch_size", 64))
+        config.waking_trainer_world_encoder_window = int(
+            kwargs.pop("waking_trainer_world_encoder_window", 0))
+        config.waking_trainer_world_encoder_grad_clip = float(
+            kwargs.pop("waking_trainer_world_encoder_grad_clip", 1.0))
+        config.waking_trainer_world_encoder_updates_per_step = int(
+            kwargs.pop("waking_trainer_world_encoder_updates_per_step", 1))
         # W2a structured babbling (tests/contracts/test_structured_babbling.py B7).
         config.structured_babbling_enabled = bool(
             kwargs.pop("structured_babbling_enabled", False))

@@ -34,7 +34,11 @@ What this landing contains (and deliberately does not)
 * W3 (branch ``integration/coupled-loop-repair`` only): ``E2WorldMember`` behind
   ``waking_trainer_e2_world_enabled`` -- the E2 world head over a trainer-owned raw-obs
   buffer with a FROZEN retained babbling set, re-encoded at replay (see its docstring).
-* NOT registered here (later branch work): SD-070 P0, ZSelfP0, the terrain prior.
+* W6a (branch only): ``WorldEncoderMember`` (``waking_trainer_world_encoder.py``) behind
+  ``waking_trainer_world_encoder_enabled`` -- SD-070's P0a objective trained through the
+  LIVE sense path (``world_obs_encoder -> latent_stack.encode``), the ZSelfP0
+  ``_native_chain`` pattern.
+* NOT registered here (later branch work): ZSelfP0, the terrain prior.
   ``WakingTrainer.register`` is the seam they plug into.
 
 Retained-graph hazard (design section 2 (iii)): ``agent._last_action`` is NOT detached by
@@ -713,6 +717,21 @@ class WakingTrainer:
                     grad_clip=float(getattr(config, "waking_trainer_e2_world_grad_clip", 1.0)),
                     updates_per_step=int(getattr(config, "waking_trainer_e2_world_updates_per_step", 1)),
                 ))
+            # W6a world-encoder member (branch; default OFF, read defensively; OFF ->
+            # never imported). SD-070 P0a on the LIVE sense path; registered AFTER W3 so
+            # W3's next replay re-encodes through the encoder this member just stepped.
+            if bool(getattr(config, "waking_trainer_world_encoder_enabled", False)):
+                from ree_core.utils.waking_trainer_world_encoder import WorldEncoderMember
+                members.append(WorldEncoderMember(
+                    agent,
+                    lr=float(getattr(config, "waking_trainer_world_encoder_lr", 1e-3)),
+                    batch_size=int(getattr(config, "waking_trainer_world_encoder_batch_size", 64)),
+                    buffer_max=buffer_max,
+                    window=int(getattr(config, "waking_trainer_world_encoder_window", 0)),
+                    grad_clip=float(getattr(config, "waking_trainer_world_encoder_grad_clip", 1.0)),
+                    updates_per_step=int(getattr(config, "waking_trainer_world_encoder_updates_per_step", 1)),
+                    seed=seed,
+                ))
         for m in members:
             self.register(m)
 
@@ -785,6 +804,16 @@ class WakingTrainer:
             with torch.random.fork_rng(devices=[]):
                 torch.set_rng_state(self._rng_state)
                 try:
+                    # A member whose loss reaches tensors OUTSIDE its group (W6a: the
+                    # depth stack / z_self path through top-down) opts in to having those
+                    # tensors' .grad restored after its step, so its backward neither
+                    # accumulates there nor contaminates a driver's own gradients. The guard
+                    # still sees the leak (it observes before the restore).
+                    saved_outside = None
+                    if getattr(member, "restore_outside_grads", False):
+                        own = {id(p) for _, p in member.named_parameters()}
+                        saved_outside = [(p, None if p.grad is None else p.grad.clone())
+                                         for p in self._agent.parameters() if id(p) not in own]
                     with torch.enable_grad():
                         loss = member.loss(self._agent)
                         if loss is None or not loss.requires_grad:
@@ -796,10 +825,17 @@ class WakingTrainer:
                             guard.observe_optimizer(opt)
                         clip = getattr(member, "grad_clip", None)
                         if clip:
+                            # A member may clip a subset (W6a: the encoder path only, as
+                            # SD-070's max_grad_norm); default = its whole group.
+                            clip_params = getattr(member, "clip_parameters", None)
                             torch.nn.utils.clip_grad_norm_(
-                                [p for _, p in member.named_parameters()], float(clip))
+                                clip_params() if callable(clip_params)
+                                else [p for _, p in member.named_parameters()], float(clip))
                         opt.step()
                         opt.zero_grad(set_to_none=True)
+                        if saved_outside is not None:
+                            for p, g in saved_outside:
+                                p.grad = g
                         loss_val = float(loss.detach().item())
                 finally:
                     self._rng_state = torch.get_rng_state()
