@@ -272,10 +272,20 @@ class E2FastPredictor(nn.Module):
         """
         z_pred_actual = self.world_forward(z_world, a_actual)
         z_pred_cf = self.world_forward(z_world, a_cf)
-        # EPSILON UNDER THE SQRT: guards the DERIVATIVE BLOW-UP as the two
-        # predictions approach each other. d||d||/dd = d/||d||, which is
-        # numerically unstable for tiny non-zero ||d||; the epsilon bounds the
-        # denominator. Measured benefit is in that near-zero regime.
+        # EPSILON UNDER THE SQRT (rationale corrected 2026-09-25, chip-20260922-
+        # e2fast-epsilon-rationale -- superseded the "derivative blow-up" framing
+        # below, which was measured FALSE for the sibling implementations in
+        # 2a748d6 and never propagated to this copy). d||d||/dd = d/||d|| has
+        # UNIT NORM for every nonzero d -- it does NOT blow up (measured stable
+        # at 1.0 from ||d||=1e-2 down to ||d||=1e-20), so there is no blow-up
+        # here for an epsilon to guard against. What the epsilon actually does
+        # is ATTENUATE the gradient in exactly the near-collapse regime where
+        # the head most needs it (10x down at ||d||=1e-7, 1e4x down at
+        # ||d||=1e-10) -- a pessimisation there, not a fix. It is inert above
+        # ||d||~1e-6. Kept as-is (no behaviour change) pending SD-PP-B5's own
+        # call on whether to remove it -- see tests/contracts/
+        # test_action_sensitivity_gate.py for values that would shift by
+        # ~sqrt(eps) if it were dropped.
         #
         # WHAT IT DOES NOT DO -- stated because the obvious reading is wrong.
         # It does NOT rescue the EXACTLY-collapsed case. At d == 0 the gradient
