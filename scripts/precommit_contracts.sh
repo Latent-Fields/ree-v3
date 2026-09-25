@@ -843,6 +843,14 @@ if [ "$TARGET" = "remote" ]; then
     REMOTE_PID=""; LOCAL_PID=""; LOCAL_LOCK_HELD=""
 
     cleanup_race() {
+        # TERM the ROUTER itself, then its subshell. The router is the
+        # subshell's CHILD, so killing only the subshell orphaned it and its
+        # detached suite ran on unread -- after a local-race win, or a gate
+        # killed mid-run (REE_Working commit_latency_diagnosis_20260925.md R5/P5;
+        # the hub's orphaned 12:08-12:41 run). remote_pytest.sh (REE_Working
+        # 2568d2b4b+) stops its remote run by run dir on TERM; an older one just
+        # exits, as before. A router that already finished has no child here.
+        [ -n "$REMOTE_PID" ] && pkill -TERM -P "$REMOTE_PID" >/dev/null 2>&1
         [ -n "$REMOTE_PID" ] && kill "$REMOTE_PID" >/dev/null 2>&1
         [ -n "$LOCAL_PID" ] && kill "$LOCAL_PID" >/dev/null 2>&1
         [ -n "$LOCAL_LOCK_HELD" ] && rmdir "$RACE_LOCK_DIR" >/dev/null 2>&1
@@ -858,7 +866,18 @@ if [ "$TARGET" = "remote" ]; then
     # when it re-runs this hook) so the router's own git calls see the
     # normal repo; it tests on-disk content, which is exactly what
     # ree_commit commits.
-    ( cd "$RUN_ROOT" && env -u GIT_INDEX_FILE -u GIT_DIR "$REMOTE_PYTEST" tests/contracts -q --tb=line >"$REMOTE_LOG" 2>&1
+    #
+    # REMOTE_PYTEST_CALLER_PID=$$ registers THIS gate with the router (P5
+    # second half): if the gate dies without signalling it -- SIGKILL, an
+    # OOM kill -- the router notices within seconds and stops the remote run
+    # instead of finishing a suite nobody will read. ($$ is the gate's pid,
+    # also inside this subshell.)
+    # REMOTE_PYTEST_CACHE_CREDIT=0: the router's own P1b cache credit is for
+    # ad-hoc runs on a clean branch tree; this gate records its own result
+    # below (record_validation_cache_result), keyed on the staged tree. The
+    # stage is a detached worktree, which the router already refuses to
+    # credit -- this says it explicitly rather than relying on that.
+    ( cd "$RUN_ROOT" && env -u GIT_INDEX_FILE -u GIT_DIR REMOTE_PYTEST_CALLER_PID=$$ REMOTE_PYTEST_CACHE_CREDIT=0 "$REMOTE_PYTEST" tests/contracts -q --tb=line >"$REMOTE_LOG" 2>&1
       echo $? >"$REMOTE_RC" ) &
     REMOTE_PID=$!
 
