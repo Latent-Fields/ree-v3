@@ -31,6 +31,16 @@ Logic:
 Non-trainable: pure arithmetic over scalars and a small counter. No gradient
 flow. Reset per episode.
 
+MECH-287 instrument note (2026-09-25): the three long-standing counters
+_n_ticks / _n_commits / _n_releases are CUMULATIVE across every episode --
+reset() has never cleared them -- and an episode ending while frozen consumes
+a commit with no matching release. The ratio n_commits / n_releases is
+therefore an episode-count artifact, not "re-commits per release". A
+phase-scoped per-episode readout (episode_diagnostics / episode_records /
+set_phase / reset_diagnostics) is provided ALONGSIDE; the cumulative counters
+keep their existing semantics so no prior experiment's numbers move. Analysis:
+REE_assembly/evidence/planning/mech287_dv_instrument_confound_20260924.md.
+
 Master switch: REEConfig.use_pag_freeze_gate (default False) gates instantiation
 and wiring. With the flag off, agents behave bit-identically to legacy.
 
@@ -39,8 +49,9 @@ without updating internal state. Replay / DMN content must not commit the
 agent into a behavioural freeze state.
 """
 
+from collections import deque
 from dataclasses import dataclass
-from typing import Optional
+from typing import Deque, Dict, List, Optional
 
 
 @dataclass
@@ -106,6 +117,48 @@ class PAGFreezeGateOutput:
     ticks_in_freeze: int = 0
 
 
+@dataclass
+class PAGEpisodeRecord:
+    """MECH-287 instrument: one finalised episode's freeze summary.
+
+    `recommits` is the quantity MECH-287's DV text means by "freeze
+    re-commit count per PAG release" -- a commit that happened AFTER a
+    release WITHIN THE SAME EPISODE. A commit that opens an episode is
+    not a re-commit, and an episode that ends while still frozen records
+    `ended_frozen=True` and contributes NO release.
+    """
+
+    index: int = 0
+    phase: str = ""
+    ticks: int = 0
+    commits: int = 0
+    releases: int = 0
+    recommits: int = 0
+    ended_frozen: bool = False
+
+    def as_dict(self) -> dict:
+        return {
+            "index": int(self.index),
+            "phase": str(self.phase),
+            "ticks": int(self.ticks),
+            "commits": int(self.commits),
+            "releases": int(self.releases),
+            "recommits": int(self.recommits),
+            "ended_frozen": bool(self.ended_frozen),
+        }
+
+
+def _empty_agg() -> Dict[str, int]:
+    return {
+        "n_episodes": 0,
+        "ticks": 0,
+        "commits": 0,
+        "releases": 0,
+        "recommits": 0,
+        "episodes_ending_frozen": 0,
+    }
+
+
 class PAGFreezeGate:
     """MECH-279 PAG-analog committed-freeze gate.
 
@@ -118,7 +171,17 @@ class PAGFreezeGate:
 
       is_active        Convenience property mirroring last freeze_active.
 
-      diagnostics      Dict of running counters.
+      diagnostics      Dict of running counters (cumulative; see its docstring
+                       for the MECH-287 confound warning). Also carries the
+                       additive episode_* keys from episode_diagnostics().
+
+      episode_diagnostics(phase=None, include_current=True)
+                       MECH-287 phase-scoped per-episode readout. This is the
+                       instrument for "freeze re-commit count per PAG release";
+                       the cumulative counters are NOT.
+      episode_records(phase=None)   Per-episode detail rows.
+      set_phase(label)              Label subsequent episodes ("warmup"/"eval").
+      reset_diagnostics()           Explicit eval-phase reset of ALL counters.
 
     State (per episode):
       _freeze_active                   bool, current freeze status
@@ -140,14 +203,113 @@ class PAGFreezeGate:
         self._n_commits: int = 0
         self._n_releases: int = 0
 
+        # -- MECH-287 phase-scoped per-episode readout (purely additive) --
+        #
+        # WHY THIS EXISTS. The three counters above are CUMULATIVE: reset()
+        # deliberately does not clear them, so across a run they span every
+        # warmup and eval episode. Worse, an episode that ends while frozen
+        # consumes a commit with NO matching release (reset() clears the
+        # freeze without incrementing _n_releases), which makes
+        #     n_commits - n_releases  <=  n_episodes
+        # and turns the naive ratio n_commits / n_releases into a function of
+        # EPISODE COUNT rather than of re-commit behaviour after a release.
+        # V3-EXQ-475's headline "~12.9 re-commits per release" (71/6, 70/5,
+        # 64/5 over 65 episodes) is that artifact. See
+        # REE_assembly/evidence/planning/mech287_dv_instrument_confound_20260924.md.
+        #
+        # The fields below are read-only bookkeeping accumulated alongside the
+        # cumulative counters. They consume no RNG and are never branched on,
+        # so the agent's behaviour is bit-identical whether or not anything
+        # reads them. The cumulative counters' semantics are UNCHANGED.
+        self._episode_index: int = 0
+        self._episode_ticks: int = 0
+        self._episode_commits: int = 0
+        self._episode_releases: int = 0
+        self._episode_recommits: int = 0
+        self._episode_released_yet: bool = False
+        self._phase: str = ""
+        # Exact per-phase aggregates. Independent of the bounded record list
+        # below, so a long run's totals stay exact even once records roll off.
+        self._episode_agg: Dict[str, Dict[str, int]] = {}
+        self._episode_records: Deque[PAGEpisodeRecord] = deque(maxlen=8192)
+
     # -- State management --
 
+    def set_phase(self, phase: str) -> None:
+        """MECH-287: label episodes finalised from now on (e.g. "warmup" / "eval").
+
+        Applies to the CURRENTLY in-progress episode and every later one, so
+        call it at a phase boundary (immediately before the first episode of
+        the new phase). Purely a readout label: no behavioural effect.
+        """
+        self._phase = str(phase)
+
+    def _finalize_episode(self) -> None:
+        """MECH-287: roll the in-progress episode into the per-episode readout.
+
+        Called by reset() (the per-episode boundary) and folded in read-only
+        by the readout accessors so the LAST episode of a run -- which nothing
+        ever calls reset() after -- is not silently dropped.
+        """
+        if self._episode_ticks == 0:
+            # Nothing ticked: a double reset(), or a reset() before the first
+            # episode. Recording it would inflate n_episodes with phantoms.
+            return
+        rec = PAGEpisodeRecord(
+            index=int(self._episode_index),
+            phase=str(self._phase),
+            ticks=int(self._episode_ticks),
+            commits=int(self._episode_commits),
+            releases=int(self._episode_releases),
+            recommits=int(self._episode_recommits),
+            ended_frozen=bool(self._freeze_active),
+        )
+        self._episode_records.append(rec)
+        agg = self._episode_agg.setdefault(rec.phase, _empty_agg())
+        agg["n_episodes"] += 1
+        agg["ticks"] += rec.ticks
+        agg["commits"] += rec.commits
+        agg["releases"] += rec.releases
+        agg["recommits"] += rec.recommits
+        agg["episodes_ending_frozen"] += int(rec.ended_frozen)
+        self._episode_index += 1
+        self._episode_ticks = 0
+        self._episode_commits = 0
+        self._episode_releases = 0
+        self._episode_recommits = 0
+        self._episode_released_yet = False
+
     def reset(self) -> None:
-        """Clear per-episode state."""
+        """Clear per-episode state.
+
+        MECH-287 note: this finalises the per-episode readout record FIRST
+        (capturing whether the episode ended still frozen), then clears the
+        per-episode state exactly as before. The cumulative counters
+        _n_ticks / _n_commits / _n_releases are deliberately NOT cleared --
+        that is long-standing behaviour other experiments depend on. Use
+        reset_diagnostics() for an explicit phase-scoped counter reset.
+        """
+        self._finalize_episode()
         self._freeze_active = False
         self._duration_above_threshold = 0
         self._ticks_in_freeze = 0
         self._last_output = PAGFreezeGateOutput()
+
+    def reset_diagnostics(self) -> None:
+        """MECH-287: explicitly zero ALL counters, cumulative ones included.
+
+        The "explicit eval-phase reset" option: call this at eval entry so the
+        cumulative counters describe the eval phase alone rather than
+        warmup+eval. Not called by reset() and not called by the agent -- a
+        driver must opt in, so no existing experiment's numbers change.
+        """
+        self._finalize_episode()
+        self._n_ticks = 0
+        self._n_commits = 0
+        self._n_releases = 0
+        self._episode_index = 0
+        self._episode_agg = {}
+        self._episode_records.clear()
 
     @property
     def is_active(self) -> bool:
@@ -209,6 +371,7 @@ class PAGFreezeGate:
             return out
 
         self._n_ticks += 1
+        self._episode_ticks += 1
 
         z = float(z_harm_a_norm)
         # Clamp gaba_tone to non-negative; values <0 are not biologically
@@ -247,6 +410,12 @@ class PAGFreezeGate:
                 self._ticks_in_freeze = 0  # will increment to 1 below
                 commit_this_tick = True
                 self._n_commits += 1
+                # MECH-287: a commit that follows a release WITHIN THIS
+                # EPISODE is a genuine re-commit. The episode's opening
+                # commit is not.
+                self._episode_commits += 1
+                if self._episode_released_yet:
+                    self._episode_recommits += 1
 
         # 5. Exit check (only when active and not just committed).
         if self._freeze_active and not commit_this_tick:
@@ -260,6 +429,8 @@ class PAGFreezeGate:
                 self._freeze_active = False
                 release_this_tick = True
                 self._n_releases += 1
+                self._episode_releases += 1
+                self._episode_released_yet = True
                 # Reset both the freeze-duration counter and the sustained-
                 # input accumulator on release so the next commit requires a
                 # fresh run-up.
@@ -290,7 +461,15 @@ class PAGFreezeGate:
 
     @property
     def diagnostics(self) -> dict:
-        return {
+        """Cumulative counters, UNCHANGED semantics, plus the MECH-287 readout.
+
+        WARNING -- n_commits / n_releases / n_ticks span EVERY episode of the
+        run (reset() does not clear them), and an episode ending frozen
+        consumes a commit with no release. So `n_commits / n_releases` is NOT
+        "re-commits per release": it is dominated by episode count. For that
+        DV read `episode_recommits_per_release` below, or episode_diagnostics.
+        """
+        d = {
             "n_ticks": int(self._n_ticks),
             "n_commits": int(self._n_commits),
             "n_releases": int(self._n_releases),
@@ -298,3 +477,87 @@ class PAGFreezeGate:
             "duration_above_threshold": int(self._duration_above_threshold),
             "ticks_in_freeze": int(self._ticks_in_freeze),
         }
+        # Additive MECH-287 keys, so manifest writers that dump this dict
+        # wholesale pick up the repaired DV without any driver change.
+        ep = self.episode_diagnostics()
+        for k in (
+            "n_episodes",
+            "episodes_ending_frozen",
+            "commits",
+            "releases",
+            "recommits",
+            "recommits_per_release",
+        ):
+            d["episode_" + k] = ep[k]
+        return d
+
+    # -- MECH-287 phase-scoped per-episode readout --
+
+    def episode_diagnostics(
+        self,
+        phase: Optional[str] = None,
+        include_current: bool = True,
+    ) -> dict:
+        """The repaired MECH-287 DV: per-episode freeze commit/release deltas.
+
+        Args:
+            phase: restrict to episodes labelled with this phase (see
+                set_phase). None = every phase.
+            include_current: fold the in-progress, not-yet-reset episode in.
+                Default True because nothing calls reset() after a run's LAST
+                episode, so a post-loop read would otherwise silently drop it.
+
+        Returns a dict whose headline field is `recommits_per_release` --
+        re-commits that followed a release in the same episode, per release.
+        Unlike n_commits / n_releases it does not move with episode count.
+        `episodes_ending_frozen` is reported alongside because it is exactly
+        the quantity the old ratio was confounded WITH.
+        """
+        agg = _empty_agg()
+        for ph, a in self._episode_agg.items():
+            if phase is not None and ph != phase:
+                continue
+            for k in agg:
+                agg[k] += a[k]
+
+        if include_current and self._episode_ticks > 0:
+            if phase is None or self._phase == phase:
+                agg["n_episodes"] += 1
+                agg["ticks"] += int(self._episode_ticks)
+                agg["commits"] += int(self._episode_commits)
+                agg["releases"] += int(self._episode_releases)
+                agg["recommits"] += int(self._episode_recommits)
+                agg["episodes_ending_frozen"] += int(self._freeze_active)
+
+        n_ep = max(int(agg["n_episodes"]), 1)
+        out = dict(agg)
+        out["phase"] = phase if phase is not None else "*"
+        out["recommits_per_release"] = (
+            float(agg["recommits"]) / float(agg["releases"])
+            if agg["releases"] > 0
+            else 0.0
+        )
+        out["commits_per_episode"] = float(agg["commits"]) / float(n_ep)
+        out["releases_per_episode"] = float(agg["releases"]) / float(n_ep)
+        out["recommits_per_episode"] = float(agg["recommits"]) / float(n_ep)
+        out["frac_episodes_ending_frozen"] = (
+            float(agg["episodes_ending_frozen"]) / float(n_ep)
+        )
+        # Explicit cannot-determine category: a zero DV with no releases at
+        # all means the instrument never had an occasion to measure, which is
+        # NOT the same reading as "re-commits did not happen after releases".
+        out["dv_measurable"] = bool(agg["releases"] > 0)
+        return out
+
+    @property
+    def episode_phases(self) -> List[str]:
+        """Phase labels seen so far, in first-finalised order."""
+        return list(self._episode_agg.keys())
+
+    def episode_records(self, phase: Optional[str] = None) -> List[dict]:
+        """Finalised per-episode records (bounded to the most recent 8192)."""
+        return [
+            r.as_dict()
+            for r in self._episode_records
+            if phase is None or r.phase == phase
+        ]

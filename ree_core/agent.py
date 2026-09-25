@@ -2646,6 +2646,27 @@ class REEAgent(nn.Module):
         # Cache of last PAG freeze-gate output (diagnostics).
         self._pag_last_output: Optional[PAGFreezeGateOutput] = None
 
+        # -- MECH-287 per-episode instrument snapshots (purely additive) --
+        #
+        # WHY. reset() calls reset_invalidation_trigger() and
+        # reset_staleness_accumulator(), which zero _n_broadcast and clear the
+        # staleness map. A post-loop get_stats() read therefore sees only the
+        # LAST episode -- measured directly in V3-EXQ-1097's dry run, where a
+        # per-episode tracker read mean_staleness_peak=0.432 against a
+        # post-loop staleness_max=0.000 and n_integrations=0. These snapshots
+        # are taken BEFORE those resets fire, so the evidence survives the
+        # episode boundary. Read-only bookkeeping: no RNG, never branched on,
+        # so behaviour is bit-identical whether or not anything reads them.
+        # See REE_assembly/evidence/planning/mech287_dv_instrument_confound_20260924.md
+        self._mech287_episode_snapshots: deque = deque(maxlen=8192)
+        self._mech287_episode_index: int = 0
+        self._mech287_phase: str = ""
+        # True while an episode is in progress that has not been snapshotted.
+        # Consumed by the capture, re-armed by reset(); together with the
+        # _step_count > 0 test it makes the capture exactly-once per episode
+        # whether it is driven by reset() or called explicitly at loop end.
+        self._mech287_snapshot_pending: bool = True
+
         # MECH-489 (SD-099): defensive-orienting response. Phasic sibling of
         # MECH-279 -- separate gate, separate (onset-detector) trigger,
         # composed via OR with pag_freeze_gate at the action-constraint site
@@ -3684,8 +3705,162 @@ class REEAgent(nn.Module):
             # inert this tick (no pressure), never an exception into the loop.
             return 0.0
 
+    # -- MECH-287 per-episode instrument readout --
+
+    def set_mech287_phase(self, phase: str) -> None:
+        """Label the episodes recorded from now on (e.g. "warmup" / "eval").
+
+        Forwards to PAGFreezeGate.set_phase so one call phase-scopes BOTH the
+        freeze-gate re-commit readout and the broadcast / staleness snapshots.
+        Call it at a phase boundary, before the first episode of the new
+        phase. Purely a readout label: no behavioural effect.
+        """
+        self._mech287_phase = str(phase)
+        if self.pag_freeze_gate is not None:
+            self.pag_freeze_gate.set_phase(str(phase))
+
+    def _capture_mech287_episode_snapshot(self) -> None:
+        """Snapshot this episode's broadcast / staleness stats before reset().
+
+        MECH-287 / MECH-284 instrument. reset_invalidation_trigger() and
+        reset_staleness_accumulator() zero these counters at every episode
+        boundary, so a post-loop get_stats() read reports only the final
+        episode. Called from reset() ABOVE both of those calls -- do not move
+        it below them, and do not fold it into either flag's `if`: the two
+        modules are independently gated and either may be on alone.
+
+        Exactly-once per episode: skipped when no tick has run since the last
+        reset (a back-to-back reset, or a reset before the first episode --
+        recording those would inflate the episode denominator with phantoms)
+        and when this episode has already been snapshotted explicitly.
+
+        Read-only: consumes no RNG, touches no module state.
+        """
+        if self.hippocampal is None:
+            return
+        if not self._mech287_snapshot_pending:
+            return
+        if int(self._step_count) <= 0:
+            return
+
+        trig = getattr(self.hippocampal, "invalidation_trigger", None)
+        stale = getattr(self.hippocampal, "staleness_accumulator", None)
+        if trig is None and stale is None:
+            # Neither instrument is constructed -- nothing to snapshot, and
+            # recording an all-zero row would fabricate a denominator.
+            return
+
+        snap = {
+            "index": int(self._mech287_episode_index),
+            "phase": str(self._mech287_phase),
+            "trigger_present": trig is not None,
+            "staleness_present": stale is not None,
+        }
+        if trig is not None:
+            ts = trig.get_stats()
+            snap["n_broadcast"] = int(ts.get("n_broadcast", 0))
+            snap["n_suppressed"] = int(ts.get("n_suppressed", 0))
+            snap["tonic_estimate"] = float(ts.get("tonic_estimate", 0.0))
+        if stale is not None:
+            ss = stale.get_stats()
+            snap["n_integrations"] = int(ss.get("n_integrations", 0))
+            snap["n_regions"] = int(ss.get("n_regions", 0))
+            snap["max_staleness"] = float(ss.get("max_staleness", 0.0))
+            snap["mean_staleness"] = float(ss.get("mean_staleness", 0.0))
+
+        self._mech287_episode_snapshots.append(snap)
+        self._mech287_episode_index += 1
+        self._mech287_snapshot_pending = False
+
+    def capture_mech287_episode_snapshot(self) -> None:
+        """Explicitly snapshot the CURRENT episode (MECH-287 instrument).
+
+        Call this once after the final episode of a run: nothing calls reset()
+        after it, so without this the last episode is missing from the
+        readout. Safe to call redundantly -- a following reset() will not
+        record the same episode twice.
+        """
+        self._capture_mech287_episode_snapshot()
+
+    def get_mech287_episode_readout(self, phase: Optional[str] = None) -> dict:
+        """Aggregate the per-episode broadcast / staleness snapshots.
+
+        Args:
+            phase: restrict to episodes labelled with this phase. None = all.
+
+        The peak fields are what a post-loop get_stats() read cannot recover:
+        `staleness_peak_over_episodes` is the max across episodes, whereas the
+        live accumulator only ever holds the current (usually final) one.
+
+        `instrument_present` is an explicit cannot-determine flag. When it is
+        False the zeros below mean "nothing was constructed to measure with",
+        NOT "the mechanism was silent" -- with use_invalidation_trigger=False
+        the trigger is never built, so n_broadcast is 0 BY CONSTRUCTION.
+        """
+        rows = [
+            r for r in self._mech287_episode_snapshots
+            if phase is None or r.get("phase") == phase
+        ]
+        n_ep = len(rows)
+        trig_rows = [r for r in rows if r.get("trigger_present")]
+        stale_rows = [r for r in rows if r.get("staleness_present")]
+
+        def _sum(rs, k):
+            return sum(int(r.get(k, 0)) for r in rs)
+
+        def _peak(rs, k):
+            return max([float(r.get(k, 0.0)) for r in rs], default=0.0)
+
+        out = {
+            "phase": phase if phase is not None else "*",
+            "n_episodes": int(n_ep),
+            "instrument_present": bool(trig_rows or stale_rows),
+            "trigger_present": bool(trig_rows),
+            "staleness_present": bool(stale_rows),
+            "n_broadcast_total": _sum(trig_rows, "n_broadcast"),
+            "n_suppressed_total": _sum(trig_rows, "n_suppressed"),
+            "n_integrations_total": _sum(stale_rows, "n_integrations"),
+            "broadcast_peak_per_episode": int(_peak(trig_rows, "n_broadcast")),
+            "staleness_peak_over_episodes": _peak(stale_rows, "max_staleness"),
+            "mean_staleness_peak": (
+                sum(float(r.get("max_staleness", 0.0)) for r in stale_rows)
+                / float(len(stale_rows))
+                if stale_rows
+                else 0.0
+            ),
+            "episodes_with_broadcast": sum(
+                1 for r in trig_rows if int(r.get("n_broadcast", 0)) > 0
+            ),
+            "episodes_with_integration": sum(
+                1 for r in stale_rows if int(r.get("n_integrations", 0)) > 0
+            ),
+        }
+        out["mean_broadcast_per_episode"] = (
+            float(out["n_broadcast_total"]) / float(len(trig_rows))
+            if trig_rows
+            else 0.0
+        )
+        return out
+
+    def get_mech287_episode_records(self, phase: Optional[str] = None) -> list:
+        """The raw per-episode snapshot rows (bounded to the most recent 8192)."""
+        return [
+            dict(r) for r in self._mech287_episode_snapshots
+            if phase is None or r.get("phase") == phase
+        ]
+
     def reset(self) -> None:
         """Reset agent for a new episode. Does NOT reset residue (invariant)."""
+        # MECH-287 instrument: snapshot this episode's broadcast / staleness
+        # stats FIRST, before anything below erases them (specifically
+        # reset_invalidation_trigger() and reset_staleness_accumulator(), and
+        # the `self._step_count = 0` this guard reads). Read-only.
+        self._capture_mech287_episode_snapshot()
+        # Re-arm for the episode that starts now. Unconditional, so an
+        # explicit end-of-loop capture_mech287_episode_snapshot() followed by
+        # reset() records exactly one row, not two.
+        self._mech287_snapshot_pending = True
+
         # MECH-165: flush waking trajectory to exploration buffer before reset
         self._flush_exploration_episode()
 

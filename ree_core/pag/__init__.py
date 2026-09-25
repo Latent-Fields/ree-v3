@@ -9,6 +9,7 @@ Currently hosts:
 """
 
 from ree_core.pag.freeze_gate import (
+    PAGEpisodeRecord,
     PAGFreezeGate,
     PAGFreezeGateConfig,
     PAGFreezeGateOutput,
@@ -20,6 +21,7 @@ from ree_core.pag.defensive_orienting import (
 )
 
 __all__ = [
+    "PAGEpisodeRecord",
     "PAGFreezeGate",
     "PAGFreezeGateConfig",
     "PAGFreezeGateOutput",
