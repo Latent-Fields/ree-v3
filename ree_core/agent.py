@@ -2659,6 +2659,12 @@ class REEAgent(nn.Module):
         # so behaviour is bit-identical whether or not anything reads them.
         # See REE_assembly/evidence/planning/mech287_dv_instrument_confound_20260924.md
         self._mech287_episode_snapshots: deque = deque(maxlen=8192)
+        # F6 FIX (2026-09-25): exact per-phase aggregates, maintained
+        # independently of the bounded deque above. Previously the readout
+        # aggregated FROM the deque, so past 8192 episodes every total was
+        # silently truncated with no dropped-row count -- the fail-silent
+        # shape (a wrong denominator that reads as a measurement).
+        self._mech287_episode_agg: dict = {}
         self._mech287_episode_index: int = 0
         self._mech287_phase: str = ""
         # True while an episode is in progress that has not been snapshotted.
@@ -2666,6 +2672,10 @@ class REEAgent(nn.Module):
         # _step_count > 0 test it makes the capture exactly-once per episode
         # whether it is driven by reset() or called explicitly at loop end.
         self._mech287_snapshot_pending: bool = True
+        # F3: the label the IN-PROGRESS episode was stamped with. An episode
+        # is "started" exactly when _step_count > 0 (reset() zeroes it), so no
+        # separate flag and no hot-path write is needed.
+        self._mech287_episode_phase: str = ""
 
         # MECH-489 (SD-099): defensive-orienting response. Phasic sibling of
         # MECH-279 -- separate gate, separate (onset-detector) trigger,
@@ -3716,6 +3726,11 @@ class REEAgent(nn.Module):
         phase. Purely a readout label: no behavioural effect.
         """
         self._mech287_phase = str(phase)
+        if int(self._step_count) <= 0:
+            # F3: no step has run since the last reset, so the episode that
+            # starts next is the one this label belongs to. An episode already
+            # in progress keeps the label it started with.
+            self._mech287_episode_phase = str(phase)
         if self.pag_freeze_gate is not None:
             self.pag_freeze_gate.set_phase(str(phase))
 
@@ -3752,7 +3767,7 @@ class REEAgent(nn.Module):
 
         snap = {
             "index": int(self._mech287_episode_index),
-            "phase": str(self._mech287_phase),
+            "phase": str(self._mech287_episode_phase),
             "trigger_present": trig is not None,
             "staleness_present": stale is not None,
         }
@@ -3765,20 +3780,70 @@ class REEAgent(nn.Module):
             ss = stale.get_stats()
             snap["n_integrations"] = int(ss.get("n_integrations", 0))
             snap["n_regions"] = int(ss.get("n_regions", 0))
-            snap["max_staleness"] = float(ss.get("max_staleness", 0.0))
-            snap["mean_staleness"] = float(ss.get("mean_staleness", 0.0))
+            # F2 FIX (2026-09-25): named for what they ARE -- the value at
+            # the END of the episode, after leak. NOT a within-episode peak.
+            snap["staleness_at_episode_end"] = float(ss.get("max_staleness", 0.0))
+            snap["mean_staleness_at_episode_end"] = float(
+                ss.get("mean_staleness", 0.0)
+            )
 
         self._mech287_episode_snapshots.append(snap)
+        self._mech287_roll_into_aggregate(snap)
         self._mech287_episode_index += 1
         self._mech287_snapshot_pending = False
+
+    def _mech287_roll_into_aggregate(self, snap: dict) -> None:
+        """F6: accumulate a snapshot into the exact, unbounded per-phase totals."""
+        agg = self._mech287_episode_agg.setdefault(
+            str(snap.get("phase", "")),
+            {
+                "n_episodes": 0,
+                "n_trigger_episodes": 0,
+                "n_staleness_episodes": 0,
+                "n_broadcast_total": 0,
+                "n_suppressed_total": 0,
+                "n_integrations_total": 0,
+                "broadcast_peak_per_episode": 0,
+                "staleness_at_episode_end_max": 0.0,
+                "staleness_at_episode_end_sum": 0.0,
+                "episodes_with_broadcast": 0,
+                "episodes_with_integration": 0,
+            },
+        )
+        agg["n_episodes"] += 1
+        if snap.get("trigger_present"):
+            agg["n_trigger_episodes"] += 1
+            nb = int(snap.get("n_broadcast", 0))
+            agg["n_broadcast_total"] += nb
+            agg["n_suppressed_total"] += int(snap.get("n_suppressed", 0))
+            agg["broadcast_peak_per_episode"] = max(
+                int(agg["broadcast_peak_per_episode"]), nb
+            )
+            agg["episodes_with_broadcast"] += int(nb > 0)
+        if snap.get("staleness_present"):
+            agg["n_staleness_episodes"] += 1
+            ni = int(snap.get("n_integrations", 0))
+            agg["n_integrations_total"] += ni
+            ms = float(snap.get("staleness_at_episode_end", 0.0))
+            agg["staleness_at_episode_end_max"] = max(
+                float(agg["staleness_at_episode_end_max"]), ms
+            )
+            agg["staleness_at_episode_end_sum"] += ms
+            agg["episodes_with_integration"] += int(ni > 0)
 
     def capture_mech287_episode_snapshot(self) -> None:
         """Explicitly snapshot the CURRENT episode (MECH-287 instrument).
 
-        Call this once after the final episode of a run: nothing calls reset()
+        Call this once AFTER the final episode of a run: nothing calls reset()
         after it, so without this the last episode is missing from the
         readout. Safe to call redundantly -- a following reset() will not
         record the same episode twice.
+
+        F15 (2026-09-25): "safe to call redundantly" is true of the ROW COUNT,
+        not of the row's CONTENT. Calling this MID-episode freezes the row at
+        the mid-episode values and the rest of that episode is never recorded
+        (the re-arm happens only in reset()). Call it at the end of the final
+        episode, not partway through one.
         """
         self._capture_mech287_episode_snapshot()
 
@@ -3788,80 +3853,101 @@ class REEAgent(nn.Module):
         Args:
             phase: restrict to episodes labelled with this phase. None = all.
 
-        !! staleness_peak_over_episodes / mean_staleness_peak ARE MISNAMED --
-        red-team BLOCKING 2026-09-25, re-measured. They are the max ACROSS
-        episodes of each episode's END-OF-EPISODE value, NOT a within-episode
-        peak. StalenessAccumulator.tick_leak() multiplies every region by
-        leak_factor (default 0.995) on EVERY tick, and drops rows below
-        drop_epsilon=1e-6 entirely. Over a 1000-step episode a peak of 0.4325
-        decays to 0.00288 -- 0.67% of it -- and after ~2589 quiet ticks the
-        map is empty and max_staleness is exactly 0.0. So these fields do NOT
-        recover the 0.432 the V3-EXQ-1097 dry run measured with a genuine
-        within-episode peak tracker; they reproduce the 0.000 that motivated
-        this build. A real peak needs a running max where integrate() /
-        tick_leak() run, which is a hippocampal-module change and is part of
-        the owed decision (chip-20260925-mech287-dv-choice).
+        F2 (2026-09-25) -- READ THE FIELD NAMES LITERALLY. The staleness
+        fields are `staleness_at_episode_end_*`, NOT peaks. They used to be
+        called `staleness_peak_over_episodes` / `mean_staleness_peak`, which
+        was wrong: StalenessAccumulator.tick_leak() multiplies every region by
+        leak_factor (default 0.995) on EVERY tick and deletes rows below
+        drop_epsilon=1e-6, so over a 1000-step episode a peak of 0.4325 has
+        decayed to 0.00288 -- 0.67% of it -- and after ~2589 quiet ticks the
+        map is empty and the value is exactly 0.0. So these are a LOWER BOUND
+        of unknown tightness on the within-episode peak, and where the episode
+        ends quiet they read ~0 however loud it was. A true within-episode
+        peak needs a running max where integrate() / tick_leak() run, which is
+        a hippocampal-module change registered separately as substrate_queue
+        entry `staleness_within_episode_peak_tracker`.
 
         The COUNT fields (n_broadcast_total, n_suppressed_total,
         n_integrations_total, episodes_with_*) are monotone counters and ARE
-        sound -- the capture-before-erase ordering repair works for them.
+        sound -- the capture-before-erase ordering repair works for them, and
+        they are what a post-loop get_stats() read genuinely cannot recover.
+
+        F6 (2026-09-25): these totals come from exact per-phase aggregates
+        maintained alongside the bounded record deque, so they stay correct
+        past 8192 episodes; `records_truncated` says when the RECORD LIST (not
+        the totals) has started rolling off.
 
         `instrument_present` is an explicit cannot-determine flag. When it is
         False the zeros below mean "nothing was constructed to measure with",
         NOT "the mechanism was silent" -- with use_invalidation_trigger=False
         the trigger is never built, so n_broadcast is 0 BY CONSTRUCTION.
         """
-        # KNOWN DEFECT (red-team 2026-09-25): unlike PAGFreezeGate, which
-        # keeps exact aggregates separate from its bounded record list, this
-        # aggregates FROM the deque(maxlen=8192). Past 8192 episodes every
-        # total here is silently truncated with no dropped-row count.
-        rows = [
-            r for r in self._mech287_episode_snapshots
-            if phase is None or r.get("phase") == phase
-        ]
-        n_ep = len(rows)
-        trig_rows = [r for r in rows if r.get("trigger_present")]
-        stale_rows = [r for r in rows if r.get("staleness_present")]
+        keys = (
+            "n_episodes", "n_trigger_episodes", "n_staleness_episodes",
+            "n_broadcast_total", "n_suppressed_total", "n_integrations_total",
+            "episodes_with_broadcast", "episodes_with_integration",
+        )
+        agg = {k: 0 for k in keys}
+        agg["broadcast_peak_per_episode"] = 0
+        agg["staleness_at_episode_end_max"] = 0.0
+        agg["staleness_at_episode_end_sum"] = 0.0
+        for ph, a in self._mech287_episode_agg.items():
+            if phase is not None and ph != phase:
+                continue
+            for k in keys:
+                agg[k] += int(a[k])
+            agg["broadcast_peak_per_episode"] = max(
+                int(agg["broadcast_peak_per_episode"]),
+                int(a["broadcast_peak_per_episode"]),
+            )
+            agg["staleness_at_episode_end_max"] = max(
+                float(agg["staleness_at_episode_end_max"]),
+                float(a["staleness_at_episode_end_max"]),
+            )
+            agg["staleness_at_episode_end_sum"] += float(
+                a["staleness_at_episode_end_sum"]
+            )
 
-        def _sum(rs, k):
-            return sum(int(r.get(k, 0)) for r in rs)
-
-        def _peak(rs, k):
-            return max([float(r.get(k, 0.0)) for r in rs], default=0.0)
-
+        n_trig = int(agg["n_trigger_episodes"])
+        n_stale = int(agg["n_staleness_episodes"])
         out = {
             "phase": phase if phase is not None else "*",
-            "n_episodes": int(n_ep),
-            "instrument_present": bool(trig_rows or stale_rows),
-            "trigger_present": bool(trig_rows),
-            "staleness_present": bool(stale_rows),
-            "n_broadcast_total": _sum(trig_rows, "n_broadcast"),
-            "n_suppressed_total": _sum(trig_rows, "n_suppressed"),
-            "n_integrations_total": _sum(stale_rows, "n_integrations"),
-            "broadcast_peak_per_episode": int(_peak(trig_rows, "n_broadcast")),
-            "staleness_peak_over_episodes": _peak(stale_rows, "max_staleness"),
-            "mean_staleness_peak": (
-                sum(float(r.get("max_staleness", 0.0)) for r in stale_rows)
-                / float(len(stale_rows))
-                if stale_rows
+            "n_episodes": int(agg["n_episodes"]),
+            "instrument_present": bool(n_trig or n_stale),
+            "trigger_present": bool(n_trig),
+            "staleness_present": bool(n_stale),
+            "n_broadcast_total": int(agg["n_broadcast_total"]),
+            "n_suppressed_total": int(agg["n_suppressed_total"]),
+            "n_integrations_total": int(agg["n_integrations_total"]),
+            "broadcast_peak_per_episode": int(agg["broadcast_peak_per_episode"]),
+            "staleness_at_episode_end_max": float(
+                agg["staleness_at_episode_end_max"]
+            ),
+            "mean_staleness_at_episode_end": (
+                float(agg["staleness_at_episode_end_sum"]) / float(n_stale)
+                if n_stale
                 else 0.0
             ),
-            "episodes_with_broadcast": sum(
-                1 for r in trig_rows if int(r.get("n_broadcast", 0)) > 0
+            "episodes_with_broadcast": int(agg["episodes_with_broadcast"]),
+            "episodes_with_integration": int(agg["episodes_with_integration"]),
+            "mean_broadcast_per_episode": (
+                float(agg["n_broadcast_total"]) / float(n_trig) if n_trig else 0.0
             ),
-            "episodes_with_integration": sum(
-                1 for r in stale_rows if int(r.get("n_integrations", 0)) > 0
+            # F6: the TOTALS above are exact; only the record LIST is bounded.
+            "records_truncated": bool(
+                int(agg["n_episodes"]) > self._mech287_episode_snapshots.maxlen
             ),
+            # F2: these fields are end-of-episode reads, not peaks.
+            "staleness_is_end_of_episode_not_peak": True,
         }
-        out["mean_broadcast_per_episode"] = (
-            float(out["n_broadcast_total"]) / float(len(trig_rows))
-            if trig_rows
-            else 0.0
-        )
         return out
 
     def get_mech287_episode_records(self, phase: Optional[str] = None) -> list:
-        """The raw per-episode snapshot rows (bounded to the most recent 8192)."""
+        """The raw per-episode snapshot rows (bounded to the most recent 8192).
+
+        F6: bounded. `get_mech287_episode_readout()["records_truncated"]` says
+        when rows have started rolling off; the readout's TOTALS stay exact.
+        """
         return [
             dict(r) for r in self._mech287_episode_snapshots
             if phase is None or r.get("phase") == phase
@@ -3876,8 +3962,11 @@ class REEAgent(nn.Module):
         self._capture_mech287_episode_snapshot()
         # Re-arm for the episode that starts now. Unconditional, so an
         # explicit end-of-loop capture_mech287_episode_snapshot() followed by
-        # reset() records exactly one row, not two.
+        # reset() records exactly one row, not two. The label rolls forward
+        # here too (F3), so the episode starting now carries the current
+        # phase even if the capture above returned early.
         self._mech287_snapshot_pending = True
+        self._mech287_episode_phase = str(self._mech287_phase)
 
         # MECH-165: flush waking trajectory to exploration buffer before reset
         self._flush_exploration_episode()
