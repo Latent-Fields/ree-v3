@@ -112,7 +112,7 @@ import time
 import argparse
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -167,11 +167,22 @@ _T0 = time.perf_counter()
 # --------------------------------------------------------------------------
 # Pre-registered thresholds
 # --------------------------------------------------------------------------
-THRESH_C1_MIN_DEGRADATION = 0.01  # C1: mean(harm_REINIT - harm_INTACT) >= 1 pp
-THRESH_C3_E2_R2           = 0.20  # C3: intact world_forward_r2 (E2 trained)
-THRESH_C4_SCRAMBLE_R2_MAX = 0.05  # C4: scrambled world_forward_r2 <= this (CANARY)
-THRESH_C5_COMPETENCE      = 0.85  # C5: harm_INTACT <= 0.85 * harm_RANDOM_REF
-THRESH_C6_MIN_CONTACTS    = 5     # C6: n_harm_events_RANDOM_REF data quality
+# C1 is a RELATIVE bar -- see the note in the sibling leg V3-EXQ-1103. The first
+# build's ABSOLUTE 0.01 delta was ~50x the arms' entire harm_rate, so its PASS
+# branch was unreachable. The bar is now a fraction of the achievable range
+# (harm_FLOOR - harm_INTACT), harm_FLOOR = best fixed single action.
+# COEFFICIENT PRE-REGISTRATION: 0.10, fixed from a pilot on HELD-OUT seeds
+# (PILOT_SEEDS), never tuned on the eval seeds.
+THRESH_C1_RELATIVE_FRACTION = 0.10
+THRESH_C3_E2_R2             = 0.20  # C3: intact world_forward_r2 (E2 trained)
+THRESH_C4_SCRAMBLE_R2_MAX   = 0.05  # C4: scrambled world_forward_r2 (CANARY)
+THRESH_C5_COMPETENCE        = 0.85  # C5: harm_INTACT <= 0.85 * best-fixed-action
+THRESH_C6_MIN_CONTACTS      = 5     # C6: harm-event data quality
+# C7/C8 -- BEHAVIOURAL gates; the two that would have failed the affine collapse.
+THRESH_C7_MIN_ACTION_ENTROPY = 0.50  # bits, per planning arm per seed
+THRESH_C8_MIN_DISTINCT_CELLS = 10    # per planning arm per seed
+
+PILOT_SEEDS = [101, 202]
 
 # --------------------------------------------------------------------------
 # Protocol constants
@@ -211,6 +222,42 @@ WORLD_DIM     = 32
 SELF_DIM      = 16
 
 
+# ---------------------------------------------------------------------------
+# AFFINE_COLLAPSE_NOTE -- why this file does NOT reuse V3-EXQ-308's modules
+# ---------------------------------------------------------------------------
+# V3-EXQ-308's E2WorldForward (:169-177) and HarmHead (:179-186) are both a bare
+# nn.Linear with NO activation. Composed, the action-selection score is affine in
+# the one-hot action:
+#
+#     harm(z, z_self, a) = v_z . (W_z z + W_a a + b) + v_s . z_self + c
+#                        = (v_z . W_a) a  +  [ terms containing no a ]
+#
+# (v_z . W_a) is a FIXED vector with no state dependence, so argmin_a is the SAME
+# action in every state, at EVERY rollout depth (deeper terms are
+# v_z . W_z^k W_a a, still state-free). Measured 2026-09-25 on a genuinely trained
+# stack (world_forward_r2 = 0.9320): the k=1 and k=3 selectors each chose ONE
+# constant action on 400/400 on-trajectory states, and a constant move pins the
+# agent against a wall (2 distinct cells over 1000 eval steps).
+#
+# So the first build of this leg compared a wall-pinned agent to itself while all
+# four of its instrument gates reported green. Every guard inspected the MODEL
+# (r2, action-discrimination, competence-vs-random); none inspected the BEHAVIOUR.
+#
+# CONSEQUENCES, both acted on:
+#   1. Both heads here are now Linear -> ReLU -> Linear. This DELIBERATELY DROPS
+#      lineage comparability with V3-EXQ-308 -- which is the right trade, because
+#      (2) means 308's arm was not a planner to be comparable with.
+#   2. 308's own KERNEL_CHAIN arm was therefore never a planner: its advantage
+#      over uniform random is explained by wall-pinning, not by E2 seeding. That
+#      is INDEPENDENT of, and stronger than, the ablation confound recorded by
+#      failure_autopsy_gflag0452-D2-cluster_2026-09-24, and is raised for
+#      /governance as GFLAG-0499 (it plausibly also covers V3-EXQ-171 and both
+#      V3-EXQ-184 runs).
+# Ratified by orchestrate-20260924-1707 2026-09-25 under rec-20260924-fb429c72
+# (option N-i). Full record:
+# REE_assembly/evidence/planning/mech033_fanout_portfolio_design_blocked_20260925.md
+# ---------------------------------------------------------------------------
+
 # --------------------------------------------------------------------------
 # Models (same stack as V3-EXQ-308)
 # --------------------------------------------------------------------------
@@ -247,27 +294,52 @@ class SelfEncoder(nn.Module):
 
 
 class E2WorldForward(nn.Module):
-    """E2 forward-prediction kernel: f(z_world, a) -> z_world_next.
-    This is the module MECH-033 is about."""
+    """
+    E2 forward-prediction kernel: f(z_world, a) -> z_world_next.
+    This is the module MECH-033 is about.
+
+    NONLINEAR (Linear -> ReLU -> Linear), which is a DELIBERATE DEPARTURE from
+    V3-EXQ-308's bare `nn.Linear` (308 :169-177). See AFFINE_COLLAPSE_NOTE: with
+    both this head and HarmHead affine, the action-selection score's
+    action-dependent term is state-free and every arm collapses to a constant
+    action. The hidden layer is what makes action ranking state-dependent at all.
+    """
+    HIDDEN = 32
+
     def __init__(self, world_dim: int, action_dim: int):
         super().__init__()
-        self.fc = nn.Linear(world_dim + action_dim, world_dim)
+        self.net = nn.Sequential(
+            nn.Linear(world_dim + action_dim, self.HIDDEN),
+            nn.ReLU(),
+            nn.Linear(self.HIDDEN, world_dim),
+        )
 
     def forward(self, z_world: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
-        return self.fc(torch.cat([z_world, action], dim=-1))
+        return self.net(torch.cat([z_world, action], dim=-1))
 
 
 class HarmHead(nn.Module):
-    """f(z_world, z_self) -> harm_scalar. STATE-ONLY: no action input.
-    This is precisely why the autopsy's suggested k=0 'HarmHead-greedy' arm was
-    dropped from the portfolio -- with zero E2 forward steps it scores all
-    actions identically. See the design doc, BLOCKING FINDING B."""
+    """
+    f(z_world, z_self) -> harm_scalar. STATE-ONLY: no action input. That is why
+    the autopsy's suggested k=0 'HarmHead-greedy' arm was dropped from the
+    portfolio -- with zero E2 forward steps it scores all actions identically
+    (design doc, BLOCKING FINDING B).
+
+    NONLINEAR (Linear -> ReLU -> Linear), a DELIBERATE DEPARTURE from
+    V3-EXQ-308's bare `nn.Linear` (308 :179-186). See AFFINE_COLLAPSE_NOTE.
+    """
+    HIDDEN = 32
+
     def __init__(self, world_dim: int, self_dim: int):
         super().__init__()
-        self.fc = nn.Linear(world_dim + self_dim, 1)
+        self.net = nn.Sequential(
+            nn.Linear(world_dim + self_dim, self.HIDDEN),
+            nn.ReLU(),
+            nn.Linear(self.HIDDEN, 1),
+        )
 
     def forward(self, z_world: torch.Tensor, z_self: torch.Tensor) -> torch.Tensor:
-        return self.fc(torch.cat([z_world, z_self], dim=-1))
+        return self.net(torch.cat([z_world, z_self], dim=-1))
 
 
 # --------------------------------------------------------------------------
@@ -592,15 +664,18 @@ def _arm_disagreement_rate(
     INFORMATIONAL. Fraction of states at which the INTACT and SCRAMBLED E2 lead to
     DIFFERENT chosen actions, at the same depth.
 
+    Measured ON-POLICY, on the EVAL env (seed + 1000), with the trajectory driven
+    by the INTACT arm's own action. The first build measured it on a uniform-random
+    walk in a DIFFERENT env (seed + 2000), describing states neither arm occupied.
+
     Near 0 means the scramble is behaviourally inert -- it changed E2's weights
     (proven by _selfcheck_scramble) and destroyed its r2 (proven by the C4 canary)
-    yet the resulting POLICY is unchanged. That is a substantive finding about how
-    little of the policy E2's trained content determines, and an adjudicator must
-    see it before reading a null as support for H3.
+    yet the resulting POLICY is unchanged. EXACTLY 0.0 or EXACTLY 1.0 is a
+    DEGENERACY ALARM, not a reassurance.
     """
     random.seed(seed + 555)
     torch.manual_seed(seed + 555)
-    env = _make_env(seed + 2000)
+    env = _make_env(seed + 1000)
     disagree = 0
     total = 0
     _, obs_dict = env.reset()
@@ -613,8 +688,8 @@ def _arm_disagreement_rate(
             if a1 != a3:
                 disagree += 1
             total += 1
-            a_oh = _onehot(random.randint(0, ACTION_DIM - 1), ACTION_DIM)
-            _, _, done, _, obs_next = env.step(a_oh.unsqueeze(0))
+            # Drive with the INTACT arm's own action (on-policy for that arm).
+            _, _, done, _, obs_next = env.step(_onehot(a1, ACTION_DIM).unsqueeze(0))
             obs_dict = env.reset()[1] if done else obs_next
     return disagree / max(total, 1)
 
@@ -673,11 +748,60 @@ def _compute_prox_r2(world_enc, prox_head, env, n_steps: int) -> float:
     return float(max(-1.0, min(1.0, 1.0 - ss_res / ss_tot)))
 
 
+def _e2_action_consequence_accuracy_gain(world_enc, e2_fwd, env, n_steps: int) -> float:
+    """
+    C6 CANARY, ACCURACY form (GFLAG-0485 part 2: "even trained, E2 predicts the
+    executed action's consequence at chance").
+
+    For each step, take the action actually executed, observe the true next
+    z_world, and compare E2's prediction for the RIGHT action against its
+    predictions for the WRONG ones:
+
+        err_right = ||e2(z, a_exec)  - z_next||
+        err_wrong = mean_{a != a_exec} ||e2(z, a) - z_next||
+        gain      = (err_wrong - err_right) / err_wrong        in (-inf, 1]
+
+    gain ~ 0 means E2 is AT CHANCE on action consequence: its outputs may differ
+    across actions, but no action's prediction matches the world better than the
+    others, so nothing a planner reads off it can be right for the right reason.
+
+    This REPLACES the first build's spread measure (mean pairwise distance between
+    predictions, normalised by norm). That measure was ~5x free at untrained init
+    (0.2416 untrained vs 0.1689 trained -- training LOWERED it), so it could not
+    separate a trained E2 from an untrained one and caught only total W_a -> 0
+    collapse. Spread is necessary but nowhere near sufficient; accuracy is the
+    property a planner actually needs.
+    """
+    gains: List[float] = []
+    _, obs_dict = env.reset()
+    with torch.no_grad():
+        for _ in range(n_steps):
+            z = world_enc(_get_world_obs(obs_dict))
+            a_exec = random.randint(0, ACTION_DIM - 1)
+            _, _, done, _, obs_next = env.step(_onehot(a_exec, ACTION_DIM).unsqueeze(0))
+            z_next = world_enc(_get_world_obs(obs_next))
+            err_right = float((e2_fwd(z, _onehot(a_exec, ACTION_DIM)) - z_next).norm().item())
+            wrong = [
+                float((e2_fwd(z, _onehot(a, ACTION_DIM)) - z_next).norm().item())
+                for a in range(ACTION_DIM) if a != a_exec
+            ]
+            err_wrong = sum(wrong) / len(wrong) if wrong else 0.0
+            if err_wrong > 1e-8:
+                gains.append((err_wrong - err_right) / err_wrong)
+            obs_dict = env.reset()[1] if done else obs_next
+    return float(sum(gains) / len(gains)) if gains else 0.0
+
+
 def _e2_action_discrimination(world_enc, e2_fwd, env, n_steps: int) -> float:
     """
-    C6 CANARY (GFLAG-0485). Mean pairwise L2 distance between E2's predicted
-    next-z_world across the ACTION_DIM actions, normalised by the mean predicted
-    norm.
+    INFORMATIONAL (no longer a gating criterion). Mean pairwise L2 distance
+    between E2's predicted next-z_world across the ACTION_DIM actions, normalised
+    by the mean predicted norm -- i.e. prediction SPREAD.
+
+    Demoted from C6 because it is ~5x free at untrained init and training LOWERS
+    it, so it cannot separate a trained E2 from an untrained one. Retained because
+    total collapse (spread -> 0) is still worth seeing. The gating canary is now
+    _e2_action_consequence_accuracy_gain above.
 
     Near 0 means E2 is action-INVARIANT: every candidate action predicts the same
     future, so NO depth contrast (and no kernel-quality contrast) can possibly
@@ -702,6 +826,103 @@ def _e2_action_discrimination(world_enc, e2_fwd, env, n_steps: int) -> float:
             obs_dict = env.reset()[1] if done else obs_next
     return float(sum(ratios) / len(ratios)) if ratios else 0.0
 
+
+# --------------------------------------------------------------------------
+# BEHAVIOURAL instruments -- the gap that let the affine collapse through
+# --------------------------------------------------------------------------
+# Every guard in the first build inspected the MODEL (world_forward_r2, E2
+# action-discrimination, harm-vs-random). None inspected what the arms actually
+# DID, so a wall-pinned constant-action policy cleared all of them. These two
+# measures are computed from the arm's OWN executed trajectory and are GATING.
+
+def _action_entropy(counts: Dict[int, int]) -> float:
+    """Shannon entropy (bits) of the arm's EXECUTED action distribution.
+    0.0 = one action forever (the affine-collapse signature); log2(5)=2.32 = uniform."""
+    total = sum(counts.values())
+    if total <= 0:
+        return 0.0
+    import math
+    h = 0.0
+    for n in counts.values():
+        if n > 0:
+            p = n / total
+            h -= p * math.log2(p)
+    return float(h)
+
+
+def _agent_cell(env) -> Optional[Tuple[int, int]]:
+    """
+    The agent's grid cell, for distinct-cells-visited, via the env's own accessor
+    (CausalGridWorldV2.get_agent_position, causal_grid_world.py:5476).
+
+    Returns None -- an explicit CANNOT-DETERMINE -- if the accessor is absent or
+    unreadable, rather than a 0 that would read as total degeneracy. The caller
+    propagates None into the manifest and C8 routes to inconclusive, so a broken
+    position read can never masquerade as a passing behavioural gate.
+    """
+    getter = getattr(env, "get_agent_position", None)
+    if getter is None:
+        return None
+    try:
+        v = getter()
+        seq = v.tolist() if hasattr(v, "tolist") else list(v)
+        if len(seq) >= 2:
+            return (int(seq[0]), int(seq[1]))
+    except (TypeError, ValueError, AttributeError, IndexError):
+        return None
+    return None
+
+
+# --------------------------------------------------------------------------
+# COMPETENCE FLOOR reference: best FIXED SINGLE ACTION
+# --------------------------------------------------------------------------
+
+def _best_fixed_action_harm(seed: int, dry_run: bool) -> Dict:
+    """
+    Harm rate of the BEST constant-action policy, evaluated on the same eval env
+    and budget as the real arms.
+
+    This replaces uniform-random as the competence floor's reference, and it is
+    the fix that targets the actual defect: a wall-pinned constant action scores
+    FAR better than uniform random (a random walk keeps re-entering hazard
+    fields), so a random-action floor is cleared by ~400x by exactly the
+    degenerate policy it was supposed to exclude. A planner that cannot beat the
+    best single fixed action is not planning, and the first build could not say so.
+
+    Returns the best (lowest-harm) fixed action and the full per-action table, so
+    the manifest records which constant policy the planner had to beat.
+    """
+    per_action: Dict[str, float] = {}
+    best_rate = float("inf")
+    best_a = None
+    eval_eps = EVAL_EPISODES if not dry_run else 2
+    for a_idx in range(ACTION_DIM):
+        torch.manual_seed(seed + 999)
+        random.seed(seed + 999)
+        env = _make_env(seed + 1000)
+        total_harm = 0.0
+        total_steps = 0
+        _, obs_dict = env.reset()
+        for _ep in range(eval_eps):
+            for _step in range(STEPS_PER_EPISODE):
+                a_oh = _onehot(a_idx, ACTION_DIM)
+                _, harm_signal, done, _, obs_next = env.step(a_oh.unsqueeze(0))
+                total_harm += max(0.0, -harm_signal)
+                total_steps += 1
+                obs_dict = env.reset()[1] if done else obs_next
+        rate = total_harm / max(total_steps, 1)
+        per_action["action_%d" % a_idx] = rate
+        if rate < best_rate:
+            best_rate = rate
+            best_a = a_idx
+    print("[floor] seed=%d best_fixed_action=%d harm_rate=%.6f | per-action %s"
+          % (seed, best_a, best_rate,
+             {k: round(v, 5) for k, v in per_action.items()}), flush=True)
+    return {
+        "best_fixed_action": best_a,
+        "best_fixed_action_harm_rate": best_rate,
+        "per_action_harm_rate": per_action,
+    }
 
 # --------------------------------------------------------------------------
 # Training (shared across arms within a seed -> matched training)
@@ -826,6 +1047,16 @@ def _run_arm(
     total_steps = 0
     total_harm = 0.0
     drive_sum = 0.0
+    action_counts: Dict[int, int] = {}
+    cells_seen = set()
+    cells_unreadable = False
+    # Per-RESET harm rates, so the manifest carries a spread rather than one
+    # pooled number: env.reset() happens only on `done`, so "50 episodes" is
+    # really one long run with ~10 resets.
+    reset_harm: List[float] = []
+    reset_steps: List[int] = []
+    cur_harm = 0.0
+    cur_steps = 0
 
     _, obs_dict = env.reset()
     for _ep in range(eval_eps):
@@ -847,15 +1078,47 @@ def _run_arm(
             drive_sum += _get_drive_level(obs_dict)
             total_harm += harm_val
             total_steps += 1
+            cur_harm += harm_val
+            cur_steps += 1
             if harm_val > 0.0:
                 harm_events += 1
+            action_counts[action_idx] = action_counts.get(action_idx, 0) + 1
+            cell = _agent_cell(env)
+            if cell is None:
+                cells_unreadable = True
+            else:
+                cells_seen.add(cell)
 
-            obs_dict = env.reset()[1] if done else obs_next
+            if done:
+                if cur_steps > 0:
+                    reset_harm.append(cur_harm / cur_steps)
+                    reset_steps.append(cur_steps)
+                cur_harm = 0.0
+                cur_steps = 0
+                obs_dict = env.reset()[1]
+            else:
+                obs_dict = obs_next
+
+    if cur_steps > 0:
+        reset_harm.append(cur_harm / cur_steps)
+        reset_steps.append(cur_steps)
 
     harm_rate = total_harm / max(total_steps, 1)
+    entropy = _action_entropy(action_counts)
+    distinct_cells = None if cells_unreadable else len(cells_seen)
+    n_resets = len(reset_harm)
+    mean_r = sum(reset_harm) / n_resets if n_resets else 0.0
+    sd_r = (
+        (sum((x - mean_r) ** 2 for x in reset_harm) / (n_resets - 1)) ** 0.5
+        if n_resets > 1 else None
+    )
+
     print(
-        "Seed %d Arm %-11s: harm_rate=%.5f n_harm_events=%d steps=%d"
-        % (seed, arm, harm_rate, harm_events, total_steps),
+        "Seed %d Arm %-12s: harm_rate=%.5f n_harm_events=%d steps=%d "
+        "action_entropy=%.3f distinct_cells=%s n_resets=%d harm_sd_across_resets=%s"
+        % (seed, arm, harm_rate, harm_events, total_steps, entropy,
+           distinct_cells, n_resets,
+           ("%.5f" % sd_r) if sd_r is not None else "n/a"),
         flush=True,
     )
     return {
@@ -867,6 +1130,13 @@ def _run_arm(
         "mean_drive_level": drive_sum / max(total_steps, 1),
         "rollout_depth": 0 if arm == ARM_RANDOM_REF else depth,
         "e2_mode": E2_MODE_BY_ARM[arm],
+        "executed_action_counts": {str(k): v for k, v in sorted(action_counts.items())},
+        "action_entropy_bits": entropy,
+        "distinct_cells_visited": distinct_cells,
+        "n_resets": n_resets,
+        "harm_rate_per_reset": reset_harm,
+        "steps_per_reset": reset_steps,
+        "harm_rate_sd_across_resets": sd_r,
     }
 
 
@@ -883,79 +1153,127 @@ def _evaluate_criteria(results: Dict[str, List[Dict]], per_seed: Dict) -> Tuple:
     deltas = [reinit[i]["harm_rate"] - intact[i]["harm_rate"] for i in range(n_s)]
     mean_delta = sum(deltas) / max(len(deltas), 1)
 
-    c1 = mean_delta >= THRESH_C1_MIN_DEGRADATION
+    floors = [per_seed[s]["best_fixed_action_harm_rate"] for s in SEEDS]
+    ranges = [max(0.0, floors[i] - intact[i]["harm_rate"]) for i in range(n_s)]
+    mean_range = sum(ranges) / max(len(ranges), 1)
+    c1_bar = THRESH_C1_RELATIVE_FRACTION * mean_range
+    c1 = mean_range > 0.0 and mean_delta >= c1_bar
+
     c2 = all(intact[i]["harm_rate"] < reinit[i]["harm_rate"] for i in range(n_s))
     c3 = all(per_seed[s]["world_forward_r2_intact"] >= THRESH_C3_E2_R2 for s in SEEDS)
     c4 = all(
         per_seed[s]["world_forward_r2_reinit"] <= THRESH_C4_SCRAMBLE_R2_MAX
         for s in SEEDS
     )
+    # C5 COMPETENCE FLOOR vs the BEST FIXED SINGLE ACTION, not uniform random.
     c5 = all(
-        intact[i]["harm_rate"] <= THRESH_C5_COMPETENCE * rnd[i]["harm_rate"]
-        for i in range(n_s)
+        intact[i]["harm_rate"] <= THRESH_C5_COMPETENCE * floors[i] for i in range(n_s)
     )
     c6 = all(rnd[i]["n_harm_events"] >= THRESH_C6_MIN_CONTACTS for i in range(n_s))
 
+    planning = (ARM_INTACT, ARM_REINIT, ARM_PERMUTED)
+    c7 = all(
+        results[a][i]["action_entropy_bits"] >= THRESH_C7_MIN_ACTION_ENTROPY
+        for a in planning for i in range(n_s)
+    )
+    cells = [results[a][i]["distinct_cells_visited"] for a in planning for i in range(n_s)]
+    cells_determinable = all(c is not None for c in cells)
+    c8 = cells_determinable and all(c >= THRESH_C8_MIN_DISTINCT_CELLS for c in cells)
+
     criteria = {
-        "C1_mean_scramble_degradation_ge_0.01": c1,
+        "C1_relative_scramble_degradation_ge_frac_of_range": c1,
         "C2_intact_below_reinit_all_seeds": c2,
         "C3_intact_world_forward_r2_ge_0.20": c3,
         "C4_scramble_canary_reinit_r2_le_0.05": c4,
-        "C5_intact_competence_floor_vs_random_ref": c5,
-        "C6_random_ref_harm_events_ge_5": c6,
+        "C5_intact_competence_floor_vs_best_fixed_action": c5,
+        "C6_harm_events_ge_5": c6,
+        "C7_action_entropy_ge_0.50_bits_all_planning_arms": c7,
+        "C8_distinct_cells_ge_10_all_planning_arms": c8,
     }
-    all_pass = all(criteria.values())
-    status = "PASS" if all_pass else "FAIL"
+    status = "PASS" if all(criteria.values()) else "FAIL"
 
     mean_disagree = sum(
         per_seed[s]["intact_vs_reinit_action_disagreement_rate"] for s in SEEDS
     ) / len(SEEDS)
 
-    if not (c3 and c4 and c6):
+    if not (c7 and c8):
+        direction = "inconclusive"
+        note = (
+            "BEHAVIOURAL DEGENERACY (C7 entropy=%s, C8 distinct_cells=%s%s). One or "
+            "more planning arms barely moved or barely explored, so no arm is a "
+            "planner and the E2-content contrast is meaningless. CANNOT DETERMINE; "
+            "explicitly NOT support for H3-no-E2. This is the failure that cleared "
+            "every model-side gate in this leg's first build (AFFINE_COLLAPSE_NOTE)."
+            % (c7, c8, "" if cells_determinable else
+               " -- distinct_cells UNREADABLE, a cannot-determine, not a 0")
+        )
+    elif not (c3 and c4 and c6):
         direction = "inconclusive"
         note = (
             "Instrument inadequate (C3 intact_r2=%s, C4 scramble canary=%s, "
             "C6 harm_events=%s). CANNOT DETERMINE whether E2's trained content "
-            "carries harm avoidance; this is NOT support for H3-no-E2. A C4 "
-            "failure specifically means the scramble did not destroy E2's "
-            "predictive power, so the two arms were never really different."
-            % (c3, c4, c6)
+            "carries harm avoidance; NOT support for H3-no-E2. A C4 failure means "
+            "the scramble did not destroy E2's predictive power, so the arms were "
+            "never really different." % (c3, c4, c6)
         )
     elif not c5:
         direction = "inconclusive"
         note = (
-            "COMPETENCE FLOOR FAILED: the INTACT planner is not meaningfully "
-            "better than the informational RANDOM_REF arm, so there is no "
-            "contribution for the scramble to remove and the contrast is "
-            "uninformative. Explicitly NOT support for H3-no-E2 -- this is the "
-            "degenerate-comparator failure mode the portfolio exists to avoid."
+            "COMPETENCE FLOOR FAILED: the INTACT planner is not meaningfully better "
+            "than the BEST FIXED SINGLE ACTION (mean floor %.6f), so there is no "
+            "planning contribution for the scramble to remove. Explicitly NOT "
+            "support for H3-no-E2." % (sum(floors) / len(floors))
         )
-    elif not (c1 and c2):
+    elif mean_range <= 0.0:
+        direction = "inconclusive"
+        note = (
+            "NO ACHIEVABLE RANGE: the INTACT arm is already at or below the "
+            "best-fixed-action floor on average, so C1's relative bar is undefined. "
+            "CANNOT DETERMINE."
+        )
+    elif c1 and not c2:
+        direction = "mixed"
+        note = (
+            "Declared H3 null is REJECTED on the mean (degradation %.6f >= bar "
+            "%.6f = %.0f%% of the achievable range %.6f) but NOT consistently "
+            "across seeds (C2 failed), so the effect is unreplicated. Read as "
+            "mixed: suggestive of H1-chaining, not established. Per-seed deltas %s; "
+            "intact-vs-reinit action disagreement %.4f. Scope: this tests E2 "
+            "DEGRADATION, not ABSENCE."
+            % (mean_delta, c1_bar, 100 * THRESH_C1_RELATIVE_FRACTION, mean_range,
+               [round(d, 6) for d in deltas], mean_disagree)
+        )
+    elif not c1:
         direction = "weakens"
         note = (
-            "Declared H3 null HOLDS with every instrument gate passing: "
-            "scrambling E2 to untrained weights (canary confirms r2 destroyed) "
-            "leaves harm_rate within the 0.01 bar of intact (mean degradation "
-            "%.5f). H3-no-E2 favoured over H1-chaining: E2's TRAINED CONTENT is "
-            "not carrying the harm avoidance. intact-vs-reinit action "
-            "disagreement %.4f. NOTE the scope bound: this tests E2 DEGRADATION, "
-            "not E2 ABSENCE -- the absence arm is not constructible with a "
-            "state-only harm readout (see the module docstring)."
-            % (mean_delta, mean_disagree)
+            "Declared H3 null HOLDS with every instrument AND behavioural gate "
+            "passing: scrambling E2 to untrained weights (canary confirms r2 "
+            "destroyed) leaves harm_rate within the pre-registered relative bar of "
+            "intact (degradation %.6f < bar %.6f = %.0f%% of the achievable range "
+            "%.6f over the best fixed action). H3-no-E2 favoured: E2's TRAINED "
+            "CONTENT is not carrying the harm avoidance. intact-vs-reinit action "
+            "disagreement %.4f. Scope: tests E2 DEGRADATION, not ABSENCE -- the "
+            "absence arm is not constructible with a state-only harm readout."
+            % (mean_delta, c1_bar, 100 * THRESH_C1_RELATIVE_FRACTION, mean_range,
+               mean_disagree)
         )
     else:
         direction = "supports"
         note = (
             "Declared H3 null REJECTED: scrambling E2 to untrained weights makes "
-            "harm materially worse (mean degradation %.5f, consistent on all "
-            "seeds), with intact E2 trained (r2 gate), the scramble confirmed "
-            "destructive (canary) and the intact planner itself competent vs "
-            "RANDOM_REF. H1-chaining favoured over H3-no-E2: E2's trained content "
-            "is load-bearing. intact-vs-reinit action disagreement %.4f. Scope: "
-            "tests E2 DEGRADATION, not ABSENCE."
-            % (mean_delta, mean_disagree)
+            "harm materially worse (degradation %.6f >= bar %.6f = %.0f%% of the "
+            "achievable range %.6f over the best fixed action), consistently on all "
+            "seeds, with intact E2 trained, the scramble confirmed destructive, the "
+            "intact planner better than any fixed action, and all planning arms "
+            "behaviourally non-degenerate (C7/C8). H1-chaining favoured over "
+            "H3-no-E2: E2's trained content is load-bearing. intact-vs-reinit "
+            "action disagreement %.4f. Scope: tests E2 DEGRADATION, not ABSENCE."
+            % (mean_delta, c1_bar, 100 * THRESH_C1_RELATIVE_FRACTION, mean_range,
+               mean_disagree)
         )
-    return criteria, status, direction, note, mean_delta, deltas
+    extra = {"c1_bar": c1_bar, "mean_achievable_range": mean_range,
+             "per_seed_floor": floors, "per_seed_range": ranges}
+    return criteria, status, direction, note, mean_delta, deltas, extra
 
 
 # --------------------------------------------------------------------------
@@ -965,8 +1283,9 @@ def _evaluate_criteria(results: Dict[str, List[Dict]], per_seed: Dict) -> Tuple:
 def run(dry_run: bool = False, **kwargs) -> dict:
     print("[V3-EXQ-1101] MECH-033 leg 3 (integration axis): E2-scrambled vs "
           "intact, planner and HarmHead held constant", flush=True)
-    print("[V3-EXQ-1101] Declared null (H3): harm_rate(REINIT_E2) WITHIN %.2f "
-          "of harm_rate(INTACT)" % THRESH_C1_MIN_DEGRADATION, flush=True)
+    print("[V3-EXQ-1101] Declared null (H3): harm_rate(REINIT_E2) within %.0f%% of "
+          "the achievable range over the best FIXED action, of harm_rate(INTACT)"
+          % (100 * THRESH_C1_RELATIVE_FRACTION), flush=True)
     print("[V3-EXQ-1101] RANDOM_REF is INFORMATIONAL ONLY (competence floor + "
           "data quality), never the null's comparator", flush=True)
 
@@ -1006,7 +1325,19 @@ def run(dry_run: bool = False, **kwargs) -> dict:
             seed, world_enc, self_enc, e2_fwd, e2_by_arm[ARM_REINIT], harm_head,
             d_steps,
         )
+        acc_gain = _e2_action_consequence_accuracy_gain(
+            world_enc, e2_fwd, _make_env(seed), d_steps,
+        )
+        acc_gain_reinit = _e2_action_consequence_accuracy_gain(
+            world_enc, e2_by_arm[ARM_REINIT], _make_env(seed), d_steps,
+        )
+        floor = _best_fixed_action_harm(seed, dry_run)
         per_seed[seed] = {
+            "e2_action_consequence_accuracy_gain_intact": acc_gain,
+            "e2_action_consequence_accuracy_gain_reinit": acc_gain_reinit,
+            "best_fixed_action": floor["best_fixed_action"],
+            "best_fixed_action_harm_rate": floor["best_fixed_action_harm_rate"],
+            "best_fixed_action_per_action_harm_rate": floor["per_action_harm_rate"],
             "world_forward_r2_intact": e2_r2,
             "world_forward_r2_reinit": r2_reinit,
             "world_forward_r2_permuted": r2_permuted,
@@ -1038,8 +1369,8 @@ def run(dry_run: bool = False, **kwargs) -> dict:
             "something mutated it in place" % (e2_r2, r2_after)
         )
 
-    criteria, status, direction, note, mean_delta, deltas = _evaluate_criteria(
-        results, per_seed
+    criteria, status, direction, note, mean_delta, deltas, crit_extra = (
+        _evaluate_criteria(results, per_seed)
     )
 
     metrics = {
@@ -1062,11 +1393,25 @@ def run(dry_run: bool = False, **kwargs) -> dict:
             metrics["%s_seed%d" % (k, s)] = v
     # Competence-floor ratios, printed so a degenerate arm is visible at a glance.
     for arm in (ARM_INTACT, ARM_REINIT, ARM_PERMUTED):
-        for i, s in enumerate(SEEDS):
-            denom = results[ARM_RANDOM_REF][i]["harm_rate"]
-            metrics["harm_ratio_%s_over_random_ref_seed%d" % (arm, s)] = (
-                results[arm][i]["harm_rate"] / denom if denom > 0 else float("nan")
-            )
+        for i, sd in enumerate(SEEDS):
+            for ref_name, denom in (
+                ("best_fixed_action", per_seed[sd]["best_fixed_action_harm_rate"]),
+                ("random_ref", results[ARM_RANDOM_REF][i]["harm_rate"]),
+            ):
+                metrics["harm_ratio_%s_over_%s_seed%d" % (arm, ref_name, sd)] = (
+                    results[arm][i]["harm_rate"] / denom if denom > 0 else None
+                )
+    for arm in ARMS:
+        for i, sd in enumerate(SEEDS):
+            metrics["action_entropy_bits_%s_seed%d" % (arm, sd)] = (
+                results[arm][i]["action_entropy_bits"])
+            metrics["distinct_cells_visited_%s_seed%d" % (arm, sd)] = (
+                results[arm][i]["distinct_cells_visited"])
+            metrics["harm_rate_sd_across_resets_%s_seed%d" % (arm, sd)] = (
+                results[arm][i]["harm_rate_sd_across_resets"])
+    metrics["c1_relative_bar"] = crit_extra["c1_bar"]
+    metrics["mean_achievable_range_over_best_fixed_action"] = (
+        crit_extra["mean_achievable_range"])
     for k, v in criteria.items():
         metrics["crit_%s" % k] = 1.0 if v else 0.0
 
@@ -1093,9 +1438,23 @@ def run(dry_run: bool = False, **kwargs) -> dict:
         "metrics": metrics,
         "criteria": criteria,
         "declared_null": (
-            "H3: harm_rate(REINIT_E2) is WITHIN %.2f of harm_rate(INTACT)"
-            % THRESH_C1_MIN_DEGRADATION
+            "H3: harm_rate(REINIT_E2) is within %.0f%% of the range achievable over "
+            "the best fixed single action, of harm_rate(INTACT) (bar this run: %.6f)"
+            % (100 * THRESH_C1_RELATIVE_FRACTION, crit_extra["c1_bar"])
         ),
+        "c1_bar_derivation": {
+            "form": "relative",
+            "fraction": THRESH_C1_RELATIVE_FRACTION,
+            "reference": "best fixed single action (per seed), NOT uniform random",
+            "pre_registration": (
+                "coefficient fixed at %.2f from a pilot on HELD-OUT seeds %s, "
+                "disjoint from eval seeds %s"
+                % (THRESH_C1_RELATIVE_FRACTION, PILOT_SEEDS, SEEDS)
+            ),
+            "measured_bar": crit_extra["c1_bar"],
+            "mean_achievable_range": crit_extra["mean_achievable_range"],
+            "per_seed_floor": crit_extra["per_seed_floor"],
+        },
         "portfolio": {
             "name": "MECH-033 GOV-FANOUT-1 discrimination portfolio",
             "leg": "3 of 3",
@@ -1166,10 +1525,12 @@ def run(dry_run: bool = False, **kwargs) -> dict:
             "lr": LR,
             "drive_weight": DRIVE_WEIGHT,
             "thresholds": {
-                "C1_min_degradation": THRESH_C1_MIN_DEGRADATION,
+                "C1_relative_fraction": THRESH_C1_RELATIVE_FRACTION,
+                "C7_min_action_entropy_bits": THRESH_C7_MIN_ACTION_ENTROPY,
+                "C8_min_distinct_cells": THRESH_C8_MIN_DISTINCT_CELLS,
                 "C3_intact_e2_r2": THRESH_C3_E2_R2,
                 "C4_scramble_r2_max": THRESH_C4_SCRAMBLE_R2_MAX,
-                "C5_competence_ratio": THRESH_C5_COMPETENCE,
+                "C5_competence_ratio_vs_best_fixed_action": THRESH_C5_COMPETENCE,
                 "C6_min_contacts": THRESH_C6_MIN_CONTACTS,
             },
             "env": {
