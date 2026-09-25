@@ -74,6 +74,27 @@
       "seeds": 3
     },
     {
+      "queue_id": "V3-EXQ-1107",
+      "title": "SD-032a trained-agent mode reversal: external_task_drive OFF vs ON on 935a-curriculum agents (3 seeds)",
+      "script": "experiments/v3_exq_1107_sd032a_trained_mode_reversal_drive.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "estimated_minutes": 1400,
+      "claim_id": "SD-032a",
+      "note": "Source: REE_assembly mode_switch_cea_mechanism_trace_20260925.md (e2bbd2a98e) single next action; GFLAG-0554; chip chip-20260925-mode-switch-trained-agent-run. PREMISE CORRECTED: 935a's config already had use_external_task_drive=True, so the arms are the SAME trained 935a-curriculum agent evaluated with the drive OFF (config lesion on a clone; modetrace A1 analogue) vs ON (935a config; A4 analogue), eval cap 2.0, paired env seed + RNG. Readouts: within-life reversals, switches INTO external_task, dacc_pe and ||z_harm_a|| at 7 training checkpoints (init..p2, RNG-restored probes; smoke with/without probes gives identical encoder hashes). PASS iff C1 (ON arm REVERSING, >=3 returns to external_task over 15 lives, on >=2/3 of >=2 testable seeds). C2 (OFF one-way) is a structural control; C3 (H-SHARED) separate. GOV-REUSE-1: 935a (run ..._20260916T095809Z_v3) has ON-arm n_switches only at swept caps, no OFF arm, no into-external counts, no dacc_pe/z_harm_a -> partially recoverable, minimal targeted run. 2.5b: SD-032a brake released for 935a (mode-governance-engagement LANDED); different manipulation, not a lettered re-test. 2.5c: SD-PP-B5 (corrupting) overlaps module-level only, defect confined to opt-in use_world_interventional (not set) -- dismissed as for 1090/1099/1104; ContextMemory entries off the DV path. Degrading on the DV path, noted: mech005-betagate-decommit-counter (beta_gate.is_elevated drives engagement), sd032b-payoff-self-feedback-integrator (dacc adapter). 2.5d: EVENT = coordinator register switch (salience_coordinator.tick trigger); DV = per-life into/out counts per arm; INSTRUMENT = wrapped tick + per-step mode read; both directions reachable (smoke: OFF ONE_WAY, ON PINNED_EXTERNAL; 935a trained cells locked 15/15 and reversing 54-182). Also feeds the NATIVE drive_level (clip(1-energy)) live in eval -- 935a's frozen-goal eval had it frozen at 0 (only writer update_z_goal, agent.py:12870) -- so not like-for-like with 935a. red-team (fable): BLOCKING -> fixed (C2 was an arithmetic identity of the frozen-drive harness; demoted to structural control with reachability counter + counterfactual logit margin, PASS on C1 alone, F2 spread floor, F5 >=2 seeds, F6 cap-2 labels); round 2 (fable): CLEAR, minor notes fixed. Smoke (Mac, 2 threads, peak RSS ~410 MB, 130 s): PASS. Estimate from 935a's 165148 s / 5 seeds with 105 vs 58 eval episodes per seed.",
+      "status": "pending",
+      "claim_ids": [
+        "SD-032a",
+        "MECH-157"
+      ],
+      "conditions": 1,
+      "episodes_per_run": 293,
+      "experiment_purpose": "diagnostic",
+      "experiment_type": "v3_exq_1107_sd032a_trained_mode_reversal_drive",
+      "predecessor": "V3-EXQ-935a (curriculum + config source; not superseded)",
+      "seeds": 3
+    },
+    {
       "queue_id": "V3-EXQ-1067",
       "title": "MECH-266/SD-032a: squash-vs-clamp affinity bounding-operator cap sweep with gain-matched control arm (diagnostic)",
       "script": "experiments/v3_exq_1067_mech266_squash_vs_clamp_cap_sweep.py",
@@ -131,27 +152,6 @@
       "episodes_per_run": 100,
       "experiment_type": "v3_exq_1099_contamination_truncation_extension_probe",
       "seeds": 1
-    },
-    {
-      "queue_id": "V3-EXQ-1107",
-      "title": "SD-032a trained-agent mode reversal: external_task_drive OFF vs ON on 935a-curriculum agents (3 seeds)",
-      "experiment_type": "v3_exq_1107_sd032a_trained_mode_reversal_drive",
-      "script": "experiments/v3_exq_1107_sd032a_trained_mode_reversal_drive.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "status": "pending",
-      "estimated_minutes": 1400,
-      "episodes_per_run": 293,
-      "seeds": 3,
-      "conditions": 1,
-      "claim_ids": [
-        "SD-032a",
-        "MECH-157"
-      ],
-      "claim_id": "SD-032a",
-      "experiment_purpose": "diagnostic",
-      "predecessor": "V3-EXQ-935a (curriculum + config source; not superseded)",
-      "note": "Source: REE_assembly mode_switch_cea_mechanism_trace_20260925.md (e2bbd2a98e) single next action; GFLAG-0554; chip chip-20260925-mode-switch-trained-agent-run. PREMISE CORRECTED: 935a's config already had use_external_task_drive=True, so the arms are the SAME trained 935a-curriculum agent evaluated with the drive OFF (config lesion on a clone; modetrace A1 analogue) vs ON (935a config; A4 analogue), eval cap 2.0, paired env seed + RNG. Readouts: within-life reversals, switches INTO external_task, dacc_pe and ||z_harm_a|| at 7 training checkpoints (init..p2, RNG-restored probes; smoke with/without probes gives identical encoder hashes). PASS iff C1 (ON arm REVERSING, >=3 returns to external_task over 15 lives, on >=2/3 of >=2 testable seeds). C2 (OFF one-way) is a structural control; C3 (H-SHARED) separate. GOV-REUSE-1: 935a (run ..._20260916T095809Z_v3) has ON-arm n_switches only at swept caps, no OFF arm, no into-external counts, no dacc_pe/z_harm_a -> partially recoverable, minimal targeted run. 2.5b: SD-032a brake released for 935a (mode-governance-engagement LANDED); different manipulation, not a lettered re-test. 2.5c: SD-PP-B5 (corrupting) overlaps module-level only, defect confined to opt-in use_world_interventional (not set) -- dismissed as for 1090/1099/1104; ContextMemory entries off the DV path. Degrading on the DV path, noted: mech005-betagate-decommit-counter (beta_gate.is_elevated drives engagement), sd032b-payoff-self-feedback-integrator (dacc adapter). 2.5d: EVENT = coordinator register switch (salience_coordinator.tick trigger); DV = per-life into/out counts per arm; INSTRUMENT = wrapped tick + per-step mode read; both directions reachable (smoke: OFF ONE_WAY, ON PINNED_EXTERNAL; 935a trained cells locked 15/15 and reversing 54-182). Also feeds the NATIVE drive_level (clip(1-energy)) live in eval -- 935a's frozen-goal eval had it frozen at 0 (only writer update_z_goal, agent.py:12870) -- so not like-for-like with 935a. red-team (fable): BLOCKING -> fixed (C2 was an arithmetic identity of the frozen-drive harness; demoted to structural control with reachability counter + counterfactual logit margin, PASS on C1 alone, F2 spread floor, F5 >=2 seeds, F6 cap-2 labels); round 2 (fable): CLEAR, minor notes fixed. Smoke (Mac, 2 threads, peak RSS ~410 MB, 130 s): PASS. Estimate from 935a's 165148 s / 5 seeds with 105 vs 58 eval episodes per seed."
     }
   ]
 }
