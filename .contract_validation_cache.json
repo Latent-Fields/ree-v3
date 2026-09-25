@@ -30,6 +30,16 @@
       "result": "pass",
       "tier": "ree-v3-contracts-full-suite"
     },
+    "ac13ed4febadf4bc13c6a5e971ec213b8b0d151a293e533d16a6b21e95f6eb6c": {
+      "machine_class": "darwin-arm64-py3.13-torch2.12.0",
+      "n_files": 221,
+      "recorded_at": "2026-09-25T07:32:13Z",
+      "recorded_by_commit": "6de633cea57c64da500712ede9061475336ef954",
+      "recorded_by_session_id": null,
+      "relevant_hash": "34111eed93ef9b75166edacaa527d9d6b77be07752e1b735986702ea9f314331",
+      "result": "pass",
+      "tier": "ree-v3-contracts-full-suite"
+    },
     "dd072158907f7a4552208a08162287c36cdcd8cd636f063ecbd2b2dd8ae859b7": {
       "machine_class": "darwin-arm64-py3.13-torch2.12.0",
       "n_files": 217,
