@@ -2372,6 +2372,12 @@ PROBED = {
     # byte-identical to the pre-change path) against W3-03 (ON: e2_world group receives
     # gradient and moves, guard PASS) and W3-04 (ON with a disconnected loss: raises).
     "waking_trainer_e2_world_enabled",
+    # W6a world-encoder member (2026-09-25, session bt0925-w6a; branch
+    # integration/coupled-loop-repair). Probed by tests/contracts/
+    # test_w6a_world_encoder_member.py: W6a-01 (OFF: never imported or constructed; ON
+    # trainer without the knob byte-identical) against W6a-03/04 (ON: the sense-path group
+    # receives gradient and moves, guard PASS, the next sense() output changes).
+    "waking_trainer_world_encoder_enabled",
     # Structured babbling source (2026-09-25, session bt0925-t1w2a; campaign W2a).
     # Probed by tests/contracts/test_structured_babbling.py: B1/B2 (OFF: never imported
     # or constructed; rollout byte-identical to the pre-change path) against B3 (ON: the
