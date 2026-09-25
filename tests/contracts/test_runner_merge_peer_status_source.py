@@ -122,6 +122,52 @@ REAL_EVIDENCE_PRESENT = EVIDENCE_DIR.is_dir()
 KNOWN_COMPLETED_ID = "V3-EXQ-1025"
 
 
+def _require_corpus_under_test():
+    """Skip -- as an explicit CANNOT-DETERMINE, never a pass -- when the
+    evidence dir the MODULE UNDER TEST resolves is not the real corpus and
+    holds no files at all. Added 2026-09-25
+    (chip-20260925-remote-staging-evidence-corpus).
+
+    WHY. `REAL_EVIDENCE_PRESENT` above asks about a hardcoded Mac path, but
+    validate_queue resolves its OWN candidate list, sibling-of-the-queue
+    first. On a remote_pytest.sh staged tree that sibling
+    (<STAGE_ROOT>/REE_assembly/evidence/experiments) exists but ships only
+    its scripts/ subdir, so the module resolves an EMPTY dir. On ree-worker-4
+    -- the one fleet box that also mirrors /Users/dgolden/REE_Working --
+    the hardcoded guard therefore did not skip, and C3/C4 went red on every
+    remotely-gated commit (measured 2026-09-25: resolved dir 0 files, 0 ids,
+    guard path present), pushing sessions to --no-verify; C5/C6 passed there
+    only vacuously.
+
+    WHY THIS CANNOT HIDE A REAL BREAK (the test half). The skip is decided by
+    a RAW listing (any regular file at all), never by the parser under test,
+    and ONLY when the resolved dir is not EVIDENCE_DIR itself:
+      * resolved == the real corpus (the Mac, main checkout or a worktree)
+        -> strict, whatever it contains: a parse/regex regression still
+        FAILS C3, and a corpus that vanished still fails.
+      * resolved is None -> strict: the test's own "candidate paths have
+        drifted" assertion fires.
+      * resolved elsewhere but holding >=1 file -> strict: zero parsed ids
+        from a non-empty listing is exactly the silent-empty mode C3 pins.
+    """
+    resolved = validate_queue._find_evidence_dir()
+    if resolved is None:
+        return
+    try:
+        if resolved.resolve() == EVIDENCE_DIR.resolve():
+            return
+        has_any_file = any(p.is_file() for p in resolved.iterdir())
+    except OSError:
+        has_any_file = False
+    if not has_any_file:
+        pytest.skip(
+            "CANNOT DETERMINE (not a pass): validate_queue resolves its "
+            "evidence dir to %s, which holds no files -- a remote_pytest.sh "
+            "staged tree ships only that dir's scripts/ subdir. The "
+            "real-corpus verdict for this test is the Mac run against %s."
+            % (resolved, EVIDENCE_DIR))
+
+
 @pytest.fixture
 def missing_evidence_source(monkeypatch):
     """Point validate_queue's evidence-dir candidates at a path that does
@@ -181,6 +227,7 @@ def test_c3_source_resolves_and_is_non_empty_on_the_real_corpus(tmp_path):
     stub: calls the guard's real resolution against the real, live
     REE_Working checkout's evidence tree, exactly as the runner would at
     dispatch time on this machine."""
+    _require_corpus_under_test()
     status_path = tmp_path / "runner_status" / "TESTMACHINE.json"
     result = merge_peer_status(status_path)
     assert result.available is True, (
@@ -208,6 +255,7 @@ def test_c3_source_resolves_and_is_non_empty_on_the_real_corpus(tmp_path):
     reason="needs the real REE_assembly evidence tree",
 )
 def test_c4_real_completed_id_is_skipped_without_force_rerun(tmp_path):
+    _require_corpus_under_test()
     status_path = tmp_path / "runner_status" / "TESTMACHINE.json"
     result = merge_peer_status(status_path)
     item = {"queue_id": KNOWN_COMPLETED_ID}
@@ -219,6 +267,7 @@ def test_c4_real_completed_id_is_skipped_without_force_rerun(tmp_path):
     reason="needs the real REE_assembly evidence tree",
 )
 def test_c4b_force_rerun_still_overrides(tmp_path):
+    _require_corpus_under_test()
     status_path = tmp_path / "runner_status" / "TESTMACHINE.json"
     result = merge_peer_status(status_path)
     item = {"queue_id": KNOWN_COMPLETED_ID, "force_rerun": True}
@@ -230,6 +279,7 @@ def test_c4b_force_rerun_still_overrides(tmp_path):
     reason="needs the real REE_assembly evidence tree",
 )
 def test_c5_never_completed_id_is_not_in_the_set(tmp_path):
+    _require_corpus_under_test()
     status_path = tmp_path / "runner_status" / "TESTMACHINE.json"
     result = merge_peer_status(status_path)
     assert "V3-EXQ-999999z" not in result.queue_ids
