@@ -238,9 +238,18 @@ class PAGFreezeGate:
     def set_phase(self, phase: str) -> None:
         """MECH-287: label episodes finalised from now on (e.g. "warmup" / "eval").
 
+        KNOWN DEFECT (red-team 2026-09-25, re-measured). The label is stamped
+        at FINALIZE time, not at episode start, so under a RESET-AT-START
+        driver (`for ep: agent.reset(); rollout()`) the last episode of the
+        old phase is still in progress here and is finalised under the NEW
+        label. Measured on a 60-warmup/5-eval shape: warmup 59, eval 6, with
+        the contaminating episode being an ends-frozen one. Safe only under a
+        RESET-AT-END driver. Not fixed here because the fix is bundled with
+        the owed DV decision (see episode_diagnostics).
+
         Applies to the CURRENTLY in-progress episode and every later one, so
-        call it at a phase boundary (immediately before the first episode of
-        the new phase). Purely a readout label: no behavioural effect.
+        call it at a phase boundary. Purely a readout label: no behavioural
+        effect.
         """
         self._phase = str(phase)
 
@@ -477,8 +486,11 @@ class PAGFreezeGate:
             "duration_above_threshold": int(self._duration_above_threshold),
             "ticks_in_freeze": int(self._ticks_in_freeze),
         }
-        # Additive MECH-287 keys, so manifest writers that dump this dict
-        # wholesale pick up the repaired DV without any driver change.
+        # Additive MECH-287 keys. NOTE (red-team 2026-09-25): these are
+        # ALL-PHASE aggregates -- episode_diagnostics() is called with no
+        # phase=, so at a 60-warmup/5-eval shape warmup dominates 12:1. Use
+        # episode_diagnostics(phase="eval") for a phase-scoped read; do not
+        # treat these keys as one. They also omit dv_measurable.
         ep = self.episode_diagnostics()
         for k in (
             "n_episodes",
@@ -507,11 +519,39 @@ class PAGFreezeGate:
                 Default True because nothing calls reset() after a run's LAST
                 episode, so a post-loop read would otherwise silently drop it.
 
-        Returns a dict whose headline field is `recommits_per_release` --
-        re-commits that followed a release in the same episode, per release.
-        Unlike n_commits / n_releases it does not move with episode count.
+        !! REFUSED AS A DV -- READ THIS BEFORE USING recommits_per_release !!
+
+        An adversarial red-team returned BLOCKING on this field on 2026-09-25
+        and the finding was independently re-measured. Do NOT put it in an
+        experiment's criteria until the owed decision is made (decision chip
+        chip-20260925-mech287-dv-choice; findings:
+        REE_assembly/evidence/planning/mech287_readout_redteam_findings_20260925.md).
+
+        Why: a commit fires only from the inactive state and a release only
+        from the active state, so within an episode every re-commit is
+        preceded by exactly one release. Hence recommits <= releases ALWAYS
+        and this ratio is bounded in [0, 1] -- it cannot be compared with
+        V3-EXQ-475's "~12.9". Worse, it reduces to
+
+            recommits_per_release = 1 - (episodes with >=1 release that ended
+                                         NOT frozen) / (total releases)
+
+        so it is PINNED AT EXACTLY 1.0, with zero variance, whenever every
+        episode ends frozen -- which is precisely V3-EXQ-475's phenotype
+        (1000/1000 freeze-active steps) and the comparator regime MECH-287's
+        non-degeneracy precondition requires. Measured: 1.0000 at 1, 2, 5 and
+        10 re-commit cycles per episode. And where episodes DO end released it
+        moves with episode LENGTH (1 - 1/cycles: 0.0 / 0.5 / 0.75 / 0.875 /
+        0.95 at 1/2/4/8/20 cycles). So the episode-count artifact was
+        re-parameterised, not removed.
+
+        `recommits_per_episode` is unbounded and does not saturate, but
+        whether IT (or something else) is MECH-287's DV is a registered-
+        falsifier question for governance, not a choice this module may make.
+
+        Returns a dict whose fields are per-episode deltas.
         `episodes_ending_frozen` is reported alongside because it is exactly
-        the quantity the old ratio was confounded WITH.
+        the quantity the old cumulative ratio was confounded WITH.
         """
         agg = _empty_agg()
         for ph, a in self._episode_agg.items():

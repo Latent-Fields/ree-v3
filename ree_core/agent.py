@@ -3788,15 +3788,33 @@ class REEAgent(nn.Module):
         Args:
             phase: restrict to episodes labelled with this phase. None = all.
 
-        The peak fields are what a post-loop get_stats() read cannot recover:
-        `staleness_peak_over_episodes` is the max across episodes, whereas the
-        live accumulator only ever holds the current (usually final) one.
+        !! staleness_peak_over_episodes / mean_staleness_peak ARE MISNAMED --
+        red-team BLOCKING 2026-09-25, re-measured. They are the max ACROSS
+        episodes of each episode's END-OF-EPISODE value, NOT a within-episode
+        peak. StalenessAccumulator.tick_leak() multiplies every region by
+        leak_factor (default 0.995) on EVERY tick, and drops rows below
+        drop_epsilon=1e-6 entirely. Over a 1000-step episode a peak of 0.4325
+        decays to 0.00288 -- 0.67% of it -- and after ~2589 quiet ticks the
+        map is empty and max_staleness is exactly 0.0. So these fields do NOT
+        recover the 0.432 the V3-EXQ-1097 dry run measured with a genuine
+        within-episode peak tracker; they reproduce the 0.000 that motivated
+        this build. A real peak needs a running max where integrate() /
+        tick_leak() run, which is a hippocampal-module change and is part of
+        the owed decision (chip-20260925-mech287-dv-choice).
+
+        The COUNT fields (n_broadcast_total, n_suppressed_total,
+        n_integrations_total, episodes_with_*) are monotone counters and ARE
+        sound -- the capture-before-erase ordering repair works for them.
 
         `instrument_present` is an explicit cannot-determine flag. When it is
         False the zeros below mean "nothing was constructed to measure with",
         NOT "the mechanism was silent" -- with use_invalidation_trigger=False
         the trigger is never built, so n_broadcast is 0 BY CONSTRUCTION.
         """
+        # KNOWN DEFECT (red-team 2026-09-25): unlike PAGFreezeGate, which
+        # keeps exact aggregates separate from its bounded record list, this
+        # aggregates FROM the deque(maxlen=8192). Past 8192 episodes every
+        # total here is silently truncated with no dropped-row count.
         rows = [
             r for r in self._mech287_episode_snapshots
             if phase is None or r.get("phase") == phase
