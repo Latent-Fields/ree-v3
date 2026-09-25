@@ -39,6 +39,42 @@ _ALPHA_WORLD_IMPLICIT_WARNED = False
 _ALPHA_WORLD_UNSET = object()
 
 
+def _causal_grid_world_stay_action_class() -> int:
+    """The CausalGridWorld action index whose displacement is (0, 0) -- "stay".
+
+    Derived from the environment's own canonical ACTIONS table rather than
+    written as a literal, so the MECH-279 PAG freeze / SD-099 defensive-orienting
+    "hold still" action cannot silently drift away from the class that actually
+    holds the agent still. Until 2026-09-25 that default was the literal 0, which
+    is (-1, 0) -- a MOVE -- so every freeze-gated run walked the agent one cell
+    per frozen tick into a wall (REE_assembly
+    evidence/planning/mech287_lock_dv_inert_pag_path_20260925.md, GFLAG-0506).
+
+    causal_grid_world imports nothing from ree_core, so this import cannot cycle.
+    Exactly one zero-displacement class is required; anything else raises rather
+    than guessing. NOTE: this is the CANONICAL map. world_rule_shift permutes an
+    env instance's EFFECTIVE _action_map at runtime and the agent cannot see that;
+    under a shift the stay class may move and a frozen tick may move the agent.
+    """
+    from ree_core.environment.causal_grid_world import CausalGridWorld
+
+    stay = [
+        int(k)
+        for k, d in CausalGridWorld.ACTIONS.items()
+        if tuple(d) == (0, 0)
+    ]
+    if len(stay) != 1:
+        raise RuntimeError(
+            "CausalGridWorld.ACTIONS must contain exactly one (0, 0) stay action; "
+            f"found {stay!r}"
+        )
+    return stay[0]
+
+
+# MECH-279 / SD-099 default no-op ("hold still") action class. See the helper.
+CAUSAL_GRID_WORLD_STAY_ACTION_CLASS: int = _causal_grid_world_stay_action_class()
+
+
 def _warn_alpha_world_implicit_default() -> None:
     """Emit the SD-008 implicit-alpha_world warning once per process (ASCII-only)."""
     global _ALPHA_WORLD_IMPLICIT_WARNED
@@ -7113,10 +7149,13 @@ class REEConfig:
     pag_min_freeze_duration: int = 0
     pag_max_freeze_duration: int = 0
     # When freeze is active, the action selector emits a no-op action. The
-    # no-op action class index defaults to 0 (typically a stay-in-place action
-    # in CausalGridWorldV2). Override per env if the no-op action sits at a
+    # no-op action class index defaults to the CausalGridWorld (V2) STAY class,
+    # derived from CausalGridWorld.ACTIONS (the (0, 0) entry, index 4). It was
+    # the literal 0 until 2026-09-25 -- which is (-1, 0), a MOVE, so a frozen
+    # agent walked into the top wall (GFLAG-0506). SD-099 defensive orienting
+    # reuses this same setting. Override per env if its stay action sits at a
     # different index.
-    pag_freeze_noop_action_class: int = 0
+    pag_freeze_noop_action_class: int = CAUSAL_GRID_WORLD_STAY_ACTION_CLASS
 
     # ----------------------------------------------------------------
     # SD-099 (MECH-489): defensive-orienting response
@@ -8910,7 +8949,7 @@ class REEConfig:
         pag_duration_input_threshold: float = 0.4,
         pag_min_freeze_duration: int = 0,
         pag_max_freeze_duration: int = 0,
-        pag_freeze_noop_action_class: int = 0,
+        pag_freeze_noop_action_class: int = CAUSAL_GRID_WORLD_STAY_ACTION_CLASS,
         # SD-099 (MECH-489): defensive-orienting response
         use_defensive_orienting: bool = False,
         orienting_surprise_ema_alpha: float = 0.02,

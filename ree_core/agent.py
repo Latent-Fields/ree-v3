@@ -41,6 +41,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ree_core.utils.config import (
+    CAUSAL_GRID_WORLD_STAY_ACTION_CLASS,
     STDLIB_RNG_STREAM_HIPPOCAMPAL_REPLAY,
     STDLIB_RNG_STREAM_SELF_MODEL_WRITEBACK,
     REEConfig,
@@ -10949,6 +10950,10 @@ class REEAgent(nn.Module):
         # MECH-094: simulation_mode=True from hypothesis_tag returns a zeroed
         # output without updating internal counters. select_action() runs on
         # the waking path so hypothesis_tag is False here.
+        # True only on a tick where MECH-279 freeze or SD-099 orienting forced
+        # the "hold still" action below. Read ONLY by the MECH-357 directed-
+        # action credit, so it is inert on any tick where neither fires.
+        _forced_hold_still = False
         if self.pag_freeze_gate is not None:
             if (
                 self._lpb_last_output is not None
@@ -11016,9 +11021,14 @@ class REEAgent(nn.Module):
             ):
                 # Constrain action to a no-op one-hot vector. Match the
                 # action's shape, dtype, and device. The no-op class index
-                # defaults to 0 (configurable via pag_freeze_noop_action_class).
+                # defaults to the CausalGridWorld STAY class (configurable via
+                # pag_freeze_noop_action_class; was 0 = a MOVE until 2026-09-25).
                 noop_class = int(
-                    getattr(self.config, "pag_freeze_noop_action_class", 0)
+                    getattr(
+                        self.config,
+                        "pag_freeze_noop_action_class",
+                        CAUSAL_GRID_WORLD_STAY_ACTION_CLASS,
+                    )
                 )
                 noop = torch.zeros_like(action)
                 if noop.dim() == 2:
@@ -11028,6 +11038,7 @@ class REEAgent(nn.Module):
                     noop_class = max(0, min(noop_class, noop.shape[0] - 1))
                     noop[noop_class] = 1.0
                 action = noop
+                _forced_hold_still = True
 
         # MECH-489 (SD-099): defensive-orienting motor arrest. Independent of
         # pag_freeze_gate (may be active even when the chronic gate is
@@ -11044,7 +11055,13 @@ class REEAgent(nn.Module):
             and self._orienting_last_output.orienting_active
             and action is not None
         ):
-            noop_class = int(getattr(self.config, "pag_freeze_noop_action_class", 0))
+            noop_class = int(
+                getattr(
+                    self.config,
+                    "pag_freeze_noop_action_class",
+                    CAUSAL_GRID_WORLD_STAY_ACTION_CLASS,
+                )
+            )
             noop = torch.zeros_like(action)
             if noop.dim() == 2:
                 noop_class = max(0, min(noop_class, noop.shape[1] - 1))
@@ -11053,16 +11070,22 @@ class REEAgent(nn.Module):
                 noop_class = max(0, min(noop_class, noop.shape[0] - 1))
                 noop[noop_class] = 1.0
             action = noop
+            _forced_hold_still = True
 
         self._cache_tpj_prediction_for_action(action)
         self._last_action = action
         # SD-058 / MECH-357: cache whether the emitted action is directed
         # (non-noop), fed to the eligibility-trace update on the next sense().
-        # A freeze (no-op) under threat is NOT credited as avoidance.
+        # A freeze (no-op) under threat is NOT credited as avoidance. The
+        # _forced_hold_still term keeps that true now that the freeze emits the
+        # STAY class (4) rather than 0: avoidance_noop_class still defaults to 0,
+        # so without it a stay-freeze would read as "directed". On any tick where
+        # no freeze/orienting fired the term is False and this is unchanged.
         if self.instrumental_avoidance is not None and action is not None:
             _ia_nc = int(self.config.avoidance_noop_class)
             self._ia_last_action_directed = bool(
                 int(action.argmax(dim=-1).flatten()[0].item()) != _ia_nc
+                and not _forced_hold_still
             )
         # SD-059 / MECH-358: cache the emitted action's first-action class, fed
         # to the bridge eligibility update on the next sense() (relief/safety
