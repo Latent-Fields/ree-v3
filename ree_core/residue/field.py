@@ -506,6 +506,44 @@ class ResidueField(nn.Module):
         self._da_bandwidth_narrowing: float = float(
             getattr(self.config, "da_bandwidth_narrowing", 0.0)
         )
+        # SD benefit-field-kernel-resolution (SD-024 / SD-025): the BENEFIT terrain
+        # may use a dedicated bandwidth instead of the shared kernel_bandwidth --
+        # the third instance of the SD-067 saturation class, after the MECH-303
+        # safety terrain and the harm field above.
+        #
+        # kernel_bandwidth 1.0 against a live z_world manifold whose MAX pairwise
+        # distance is 0.07 (measured 2026-09-24, orch0924-sd024: 180 states, 7 grid
+        # cells) makes the two most distant reachable points read
+        # exp(-0.07^2 / 2) = 0.99755 apart: compute_benefit_density returned ~11.5 at
+        # EVERY visited state with 23 active centers. SD-024's density falsifier and
+        # the SD-025 curiosity drive that follows that density therefore both read a
+        # spatial constant. None -> kernel_bandwidth, BIT-IDENTICAL to the pre-knob
+        # path (the OFF branch passes kernel_bandwidth through UNCOERCED, so its value
+        # and python type are exactly what RBFLayer received before).
+        #
+        # Resolved unconditionally (not inside the benefit_terrain_enabled block) so
+        # the realised scale is readable and assertable even with the terrain off, and
+        # so this mirrors effective_harm_bandwidth above. A plain float, NOT a buffer:
+        # state_dict / checkpoint shape is unchanged.
+        #
+        # ONE CONSTRUCTOR SITE IS THE COMPLETE WIRING HERE, and that is a measured
+        # claim rather than an assumption -- it is exactly the trap the harm knob's
+        # comment warns about. All four benefit consumers read the RBFLayer's own
+        # bandwidth: evaluate_benefit -> RBFLayer.forward -> _two_bw_sq;
+        # compute_benefit_density -> compute_local_density (bandwidth=None -> the same
+        # _two_bw_sq); add_residue (no bandwidth term); and add_residue_cluster, whose
+        # per-center narrowing is computed from float(self.bandwidth) as its base and
+        # whose center_bandwidths buffer is initialised from the constructor argument.
+        # Unlike the harm field there is NO distillation-sampling site to wire:
+        # integrate() is harm-only (self.rbf_field / self._harm_history) and the
+        # benefit field has no neural_field counterpart, so there is no second
+        # consumer that could silently keep sampling at the shared 1.0.
+        _benefit_bw = getattr(self.config, "benefit_field_bandwidth", None)
+        if _benefit_bw is None:
+            self.effective_benefit_bandwidth = self.config.kernel_bandwidth
+        else:
+            self.effective_benefit_bandwidth = float(_benefit_bw)
+
         if self.benefit_terrain_enabled:
             _benefit_centers = self.config.num_basis_functions
             if self.da_rbf_enabled:
@@ -515,7 +553,7 @@ class ResidueField(nn.Module):
             self.benefit_rbf_field = RBFLayer(
                 world_dim=self.config.world_dim,
                 num_centers=_benefit_centers,
-                bandwidth=self.config.kernel_bandwidth,
+                bandwidth=self.effective_benefit_bandwidth,
                 per_center_bandwidth=self.da_rbf_enabled,
             )
             self.register_buffer("total_benefit", torch.tensor(0.0))

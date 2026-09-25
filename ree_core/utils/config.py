@@ -3590,6 +3590,35 @@ class ResidueConfig:
     # fixed seed reused across bandwidths; it is NOT a calibrated 0.5 null. Use the
     # analytic null SE instead.
     harm_field_bandwidth: Optional[float] = None
+    # SD benefit-field-kernel-resolution (SD-024 / SD-025): the BENEFIT terrain
+    # RBF may use a dedicated bandwidth instead of the shared kernel_bandwidth.
+    # This is the THIRD instance of the SD-067 saturation class, after the MECH-303
+    # safety terrain (safety_terrain_bandwidth) and the harm field
+    # (harm_field_bandwidth immediately above). The benefit field was the remaining
+    # RBF still inheriting the shared scale.
+    #
+    # THE DEFECT (measured 2026-09-24, session orch0924-sd024, red-team BLOCKING F-1
+    # on EXP-1391): on the live untrained-encoder z_world manifold the MAX pairwise
+    # distance between visited states is 0.07 (180 states, 7 grid cells, ||z|| ~0.33).
+    # kernel_bandwidth is 1.0. With 23 allocated benefit centers the measured
+    # compute_benefit_density was ~11.5 at EVERY visited state -- the benefit map has
+    # no spatial structure at all, so SD-024's density falsifier and SD-025's
+    # curiosity drive (which follows that density) both read a constant.
+    #
+    # None -> kernel_bandwidth, BIT-IDENTICAL to the pre-knob behaviour: the OFF
+    # branch passes config.kernel_bandwidth through UNCOERCED (no float() around it),
+    # so the value AND its python type are exactly what RBFLayer received before this
+    # knob existed. Coercing only the ON branch keeps "bit-identical when off" true by
+    # identity rather than by a numerical argument.
+    #
+    # NO OPERATING VALUE IS RECOMMENDED HERE, and that omission is deliberate --
+    # do not fill it in by analogy with harm_field_bandwidth's 0.15. The scientific
+    # operating value is pre-registered by the re-queued EXP-1391 from its own P0
+    # measurement of the live manifold (user decision 2026-09-24, option B: build the
+    # knob, do NOT calibrate it). 0.15 in particular is the HARM field's value, tuned
+    # against a DIFFERENT (0.125) manifold and a different readout, and would exceed
+    # the whole 0.07 benefit manifold measured above.
+    benefit_field_bandwidth: Optional[float] = None
     # SD-024 (MECH-232): DA-modulated RBF center density on the BENEFIT terrain.
     # When a reward encounter carries a phasic dopamine signal (benefit_magnitude *
     # drive_level per SD-012), accumulate_benefit() allocates MULTIPLE closely-spaced
@@ -9156,6 +9185,16 @@ class REEConfig:
         # None -> kernel_bandwidth (bit-identical OFF). Recommended when armed: 0.15
         # (see the ResidueConfig.harm_field_bandwidth comment for the tuning surface).
         harm_field_bandwidth: Optional[float] = None,
+        # SD benefit-field-kernel-resolution: dedicated bandwidth for the BENEFIT
+        # terrain RBF. Needs all THREE wiring sites (ResidueConfig field, this
+        # signature entry, and the config.residue mirror in the body) or from_dims
+        # silently swallows it via **kwargs and the lever is inert -- see the
+        # harm_field_bandwidth note above, and the swallowed-kwarg guard in
+        # tests/contracts/test_sd_benefit_field_bandwidth.py. Placed immediately
+        # before **kwargs so no existing positional index moves.
+        # None -> kernel_bandwidth (bit-identical OFF). No recommended value: see
+        # the ResidueConfig.benefit_field_bandwidth comment for why.
+        benefit_field_bandwidth: Optional[float] = None,
         **kwargs,
     ) -> "REEConfig":
         """Create config from basic dimension specifications."""
@@ -10840,6 +10879,14 @@ class REEConfig:
         # field always exists. None -> ResidueField falls back to kernel_bandwidth
         # (bit-identical OFF).
         config.residue.harm_field_bandwidth = harm_field_bandwidth
+
+        # SD benefit-field-kernel-resolution: dedicated bandwidth for the BENEFIT
+        # terrain RBF (ResidueField.benefit_rbf_field). UNCONDITIONAL, like the harm
+        # mirror above: ResidueField resolves the effective scale whether or not
+        # benefit_terrain_enabled is set, so gating this on that flag would make the
+        # kwarg silently inert for any caller that enables the terrain afterwards.
+        # None -> ResidueField falls back to kernel_bandwidth (bit-identical OFF).
+        config.residue.benefit_field_bandwidth = benefit_field_bandwidth
 
         # MECH-108: BreathOscillator -- wire heartbeat params from from_dims().
         # breath_period=0 disables; default 50 enables periodic uncommitted windows.
