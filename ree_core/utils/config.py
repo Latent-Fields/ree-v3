@@ -4419,8 +4419,32 @@ class REEConfig:
     dacc_precision_scale: float = 500.0
     # Shenhav 2013 EVC: effort cost scalar (minimum-viable). Multiplies
     # control_required(K) when computing mode_ev[K] = payoff - control*effort.
-    # Per-trajectory effort costs are a future refinement (Croxson, Kennerley 2006).
+    # Per-trajectory effort costs: see dacc_candidate_effort_source below.
     dacc_effort_cost: float = 0.1
+    # SD-032b candidate effort proxy (sd032b-candidate-effort-proxy,
+    # IGW-20260923-222). Selects what REEAgent passes to dACC as the [K]
+    # candidate_effort vector.
+    #   "horizon"        -- legacy: c.actions.shape[1], the physical rollout
+    #                       horizon. Identical for every candidate in a
+    #                       select_action call, so control_required * effort is
+    #                       a uniform (argmin-invariant) shift and the Croxson
+    #                       harm_interaction term is identically zero
+    #                       (mech_268_dacc_saturation_form.md, Consumer A:
+    #                       0/120 ticks with effort spread > 0). Default;
+    #                       bit-identical to pre-SD-032b-effort behaviour.
+    #   "harm_a_forward" -- per-candidate harm-forward rollout cost: E2_harm_a
+    #                       rolled from the current z_harm_a over each
+    #                       candidate's own action sequence (no_grad);
+    #                       effort_k = mean_t ||z_harm_a_pred_t||_2. Requires
+    #                       use_e2_harm_a=True and a TRAINED E2_harm_a (P0
+    #                       warmup -- an untrained forward model yields a
+    #                       spread that is noise). Falls back to "horizon"
+    #                       (with a one-time warning) when E2_harm_a is absent.
+    dacc_candidate_effort_source: str = "horizon"
+    # Rollout depth for the "harm_a_forward" effort source. 0 = the candidate's
+    # full action horizon. Scores a prefix of the fixed-length physical rollout;
+    # never changes config.horizon (MECH-267 leaves the physical rollout fixed).
+    dacc_effort_rollout_steps: int = 0
     # Scholl 2017: neuromodulator-tunable learning-rate gain. When
     # dacc_drive_coupling > 0, dACC heads' effective learning rate is scaled by
     # (1.0 + dacc_drive_coupling * drive_level) from SD-012 GoalState.drive_level.
@@ -8253,6 +8277,9 @@ class REEConfig:
         dacc_suppression_memory: int = 8,
         dacc_precision_scale: float = 500.0,
         dacc_effort_cost: float = 0.1,
+        # SD-032b candidate effort proxy (see REEConfig field docs)
+        dacc_candidate_effort_source: str = "horizon",
+        dacc_effort_rollout_steps: int = 0,
         dacc_drive_coupling: float = 0.0,
         dacc_bias_max_abs: float = 0.0,
         # MECH-268: history-conditioned PE saturation
@@ -9809,6 +9836,13 @@ class REEConfig:
         config.dacc_suppression_memory = dacc_suppression_memory
         config.dacc_precision_scale = dacc_precision_scale
         config.dacc_effort_cost = dacc_effort_cost
+        if dacc_candidate_effort_source not in ("horizon", "harm_a_forward"):
+            raise ValueError(
+                "dacc_candidate_effort_source must be 'horizon' or "
+                "'harm_a_forward', got %r" % (dacc_candidate_effort_source,)
+            )
+        config.dacc_candidate_effort_source = dacc_candidate_effort_source
+        config.dacc_effort_rollout_steps = int(dacc_effort_rollout_steps)
         config.dacc_drive_coupling = dacc_drive_coupling
         config.dacc_bias_max_abs = dacc_bias_max_abs
 

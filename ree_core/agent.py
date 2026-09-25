@@ -3524,6 +3524,12 @@ class REEAgent(nn.Module):
         # Diagnostic: last dACC bundle (for experiments).
         self._dacc_last_bundle: Optional[Dict[str, Any]] = None
         self._dacc_last_bias: Optional[torch.Tensor] = None
+        # SD-032b candidate effort proxy diagnostics: the [K] candidate_effort
+        # vector actually passed to dACC on the last tick, and which source
+        # produced it ("horizon" | "harm_a_forward"). Read-only telemetry.
+        self._dacc_last_effort: Optional[torch.Tensor] = None
+        self._dacc_last_effort_source: Optional[str] = None
+        self._dacc_effort_fallback_warned: bool = False
 
         # MECH-095: pending TPJ efference-copy prediction and resolved agency
         # readout for the most recently observed transition.
@@ -4088,6 +4094,8 @@ class REEAgent(nn.Module):
         self._harm_a_pred_prev = None
         self._dacc_last_bundle = None
         self._dacc_last_bias = None
+        self._dacc_last_effort = None
+        self._dacc_last_effort_source = None
         self._tpj_predicted_z_self = None
         self._e1_predicted_next_z_self = None  # SELF-1/DR-13: clear self-recurrence anchor at episode reset
         self._tpj_last_agency_signal = None
@@ -7207,6 +7215,96 @@ class REEAgent(nn.Module):
             cand_next = e2.world_forward(z0_K, actions_K)  # [K, world_dim]
         return accumulator.readout(cand_next.detach())
 
+    def _dacc_candidate_effort(
+        self, candidates: List[Trajectory], dtype: torch.dtype
+    ) -> Tuple[torch.Tensor, str]:
+        """SD-032b candidate effort proxy (sd032b-candidate-effort-proxy).
+
+        Returns ([K] candidate_effort, source_used) for the dACC Shenhav EVC /
+        Croxson terms.
+
+        "horizon" (default): c.actions.shape[1] -- the physical rollout
+        horizon, identical across every candidate of one select_action call.
+        Kept bit-identical to the pre-existing inline build. Its known defect
+        (mech_268_dacc_saturation_form.md, Consumer A): control_required *
+        effort is then a uniform shift (argmin-invariant) and harm_interaction
+        is identically zero, so nothing pe-dependent can move E3 selection.
+
+        "harm_a_forward": the Croxson refinement the inline comment always
+        named -- a per-candidate harm-forward rollout cost. E2_harm_a (the
+        MECH-258 affective-pain forward model the dACC PE already reads) is
+        rolled from the current z_harm_a over each candidate's OWN action
+        sequence, batched over K; effort_k = mean over steps of
+        ||z_harm_a_pred_t||_2. The mean (not sum) keeps the scale independent
+        of rollout depth. The input z_harm_a is read from
+        self._current_latent (the channel E2_harm_a is trained on -- SD-019a
+        may redirect the local z_harm_a in select_action to z_harm_un).
+        Deliberately NOT routed through the MECH-269b VsRolloutGate: both
+        gate_stream() and _gate_value() advance diagnostic counters
+        (held counts, MECH-284 staleness_lookup_calls) that experiments read,
+        so a second per-tick call would double-count them. All K candidates
+        share the same start state, so gating would shift every candidate's
+        rollout origin together rather than alter which one is costlier.
+
+        no_grad, waking select_action path, no memory write: MECH-094 not
+        implicated. Falls back to "horizon" (one-time warning) when E2_harm_a
+        or the current z_harm_a is unavailable, so enabling the knob on a
+        config without use_e2_harm_a degrades to legacy rather than erroring.
+        """
+        device = self.device
+        source = str(
+            getattr(self.config, "dacc_candidate_effort_source", "horizon")
+        )
+        if source == "harm_a_forward" and len(candidates) > 0:
+            z0 = (
+                self._current_latent.z_harm_a
+                if self._current_latent is not None
+                else None
+            )
+            if self.e2_harm_a is not None and z0 is not None:
+                with torch.no_grad():
+                    z_in = z0.detach()
+                    if z_in.dim() == 1:
+                        z_in = z_in.unsqueeze(0)
+                    z_in = z_in[:1]
+                    K = len(candidates)
+                    horizon = min(int(c.actions.shape[1]) for c in candidates)
+                    steps_cfg = int(
+                        getattr(self.config, "dacc_effort_rollout_steps", 0)
+                    )
+                    T = horizon if steps_cfg <= 0 else min(steps_cfg, horizon)
+                    # [K, T, action_dim]: each candidate's own action sequence.
+                    acts = torch.stack(
+                        [c.actions[0, :T, :].detach() for c in candidates],
+                        dim=0,
+                    ).to(device=z_in.device, dtype=z_in.dtype)
+                    z = z_in.expand(K, -1)
+                    norms: List[torch.Tensor] = []
+                    for t in range(T):
+                        z = self.e2_harm_a(z, acts[:, t, :])
+                        norms.append(z.norm(dim=-1))
+                    if norms:
+                        effort = torch.stack(norms, dim=0).mean(dim=0)
+                        return (
+                            effort.detach().to(device=device, dtype=dtype),
+                            "harm_a_forward",
+                        )
+            if not self._dacc_effort_fallback_warned:
+                warnings.warn(
+                    "dacc_candidate_effort_source='harm_a_forward' but "
+                    "E2_harm_a or the current z_harm_a is unavailable "
+                    "(use_e2_harm_a=False?) -- falling back to the constant "
+                    "'horizon' effort proxy",
+                    RuntimeWarning,
+                )
+                self._dacc_effort_fallback_warned = True
+        effort = torch.tensor(
+            [float(c.actions.shape[1]) for c in candidates],
+            dtype=dtype,
+            device=device,
+        )
+        return effort, "horizon"
+
     def _candidate_world_summaries(
         self, candidates: List[Trajectory]
     ) -> Optional[torch.Tensor]:
@@ -8262,13 +8360,16 @@ class REEAgent(nn.Module):
                 payoffs = -self.e3.last_scores.detach().float()
             else:
                 payoffs = torch.zeros(K, device=self.device)
-            # Per-candidate effort proxy: trajectory length / horizon. Future
-            # refinement (Croxson): harm-forward rollout cost.
-            effort = torch.tensor(
-                [float(c.actions.shape[1]) for c in candidates],
-                dtype=payoffs.dtype,
-                device=self.device,
+            # Per-candidate effort proxy. Default "horizon" = trajectory
+            # length (constant across candidates -> argmin-invariant);
+            # "harm_a_forward" = the Croxson harm-forward rollout cost
+            # (SD-032b sd032b-candidate-effort-proxy). See
+            # _dacc_candidate_effort / REEConfig.dacc_candidate_effort_source.
+            effort, _effort_src = self._dacc_candidate_effort(
+                candidates, payoffs.dtype
             )
+            self._dacc_last_effort = effort.detach().clone()
+            self._dacc_last_effort_source = _effort_src
             # Action-class tags for MECH-260 suppression: argmax of first action.
             action_classes = [
                 int(c.actions[0, 0].argmax().item()) for c in candidates
