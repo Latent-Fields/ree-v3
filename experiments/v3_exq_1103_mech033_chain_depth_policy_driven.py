@@ -105,7 +105,11 @@ PROTOCOL
 --------
 3 seeds x (600 warmup episodes shared per seed) + 3 eval arms x 50 episodes
 x 100 steps/episode. Warmup is SHARED across arms within a seed, so training is
-matched by construction. Estimated runtime ~35-50 min (lightweight CPU).
+matched by construction.
+
+Runtime ~18 min, MEASURED not guessed: steady-state 0.00494 s/step train,
+0.00156 (K1) / 0.00494 (K3) / 0.00128 (RANDOM_REF) s/step eval, probed on
+ree-cloud-5 2026-09-25 over 20 real warmup episodes + 3 eval episodes per arm.
 """
 
 import sys

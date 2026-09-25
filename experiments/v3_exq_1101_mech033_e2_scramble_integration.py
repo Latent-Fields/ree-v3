@@ -98,7 +98,11 @@ Evidence-direction logic (evaluated in this order):
 PROTOCOL
 --------
 3 seeds x 600 shared warmup episodes + 4 eval arms x 50 episodes x 100
-steps/episode. Estimated runtime ~45-60 min (lightweight CPU).
+steps/episode.
+
+Runtime ~21 min, MEASURED not guessed: steady-state 0.00431 s/step train and
+~0.0051 s/step for each of the three planning arms, probed on ree-cloud-5
+2026-09-25 over 20 real warmup episodes + 3 eval episodes per arm.
 """
 
 import sys

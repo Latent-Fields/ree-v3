@@ -142,8 +142,13 @@ PROTOCOL
 3 seeds (055 used 1, which the autopsy's GOV-REUSE-1 note flagged) x 600 warmup
 episodes x 200 steps/episode, then 4 eval arms x 50 episodes. Env and REEConfig
 are V3-EXQ-055's verbatim. Warmup budget 600 episodes matches the control
-MECH-033's own what_would_answer specifies. This is the expensive leg --
-estimated ~4-7 h; route to a cloud worker, not the laptop.
+MECH-033's own what_would_answer specifies -- it is NOT reduced for runtime.
+
+Runtime ~3.9 h (~78 min/seed), MEASURED not guessed: steady-state 0.0361 s/step
+train, 0.0154 s/step eval for the two CEM planning arms, 0.0047 (SELF_CHAIN) and
+0.0015 (RANDOM_REF), probed on ree-cloud-5 2026-09-25 over 12 real warmup
+episodes + 3 eval episodes per arm. This is the expensive leg -- route it to a
+cloud worker, not the laptop.
 """
 
 import sys
