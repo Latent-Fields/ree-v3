@@ -2529,6 +2529,40 @@ class E3Config:
     # action, not a re-read of the state you are already in.
     dualsystem_habit_depth: int = 2
 
+    # W4 E3 aggregation (coupled loop-repair campaign, GFLAG-0485/0486,
+    # `e3-outcome-informative-planned-pathway` leg (ii); probe N3 proper,
+    # REE_assembly n3_e3_aggregation_probe_20260925.md, 9608f3117a).
+    #
+    # Measured fact this fixes: > 98% of E3's across-candidate score variance
+    # comes from rollout steps > 5, where the E2 world head no longer beats
+    # persistence, so the full-horizon read J_full tracks true consequence at
+    # rho -0.18..0.01 while a depth-1 read tracks it at 0.24..0.53. With the
+    # REAL W3 member head, a geometric discount gamma 0.5 over E3's OWN
+    # per-depth scores passed N3 gate (a) on 4/5 seeds (REAL minus
+    # fixed-permutation twin Spearman +0.10..+0.95) where FULL passed 3/5.
+    #
+    # When True, the PLANNED (full-horizon, _score_depth_limit None) read of
+    # score_trajectory() becomes
+    #     J_disc = J_2 + sum_{d=2}^{Lmax-1} gamma^(d-1) * (J_{d+1} - J_d)
+    # where J_L is the SAME scorer evaluated with _score_depth_limit = L (the
+    # SD-081 truncation knob) and Lmax = the z_world sequence length. That is
+    # exactly N3's DISC_gamma, computed in float64 in the probe's own order.
+    # gamma = 1 telescopes to J_Lmax == J_full. The HABIT read (score depth
+    # max(2, dualsystem_habit_depth), set by _arbitrate_dual_system) is NOT
+    # touched: any call made with _score_depth_limit already set bypasses the
+    # aggregation. The planned read still reads every depth up to Lmax, so its
+    # nominal depth stays > habit depth (SD-081 P1) and it differs from the
+    # habit pick at 40-65% of N3 states. The commit gate (ARC-016) and channel
+    # weighting are untouched.
+    #
+    # Cost: Lmax - 1 scorer calls per planned score instead of 1.
+    # False (default) -> score_trajectory is byte-identical to pre-W4.
+    use_e3_discounted_aggregation: bool = False
+    # Geometric discount on the per-depth increments. Read only when
+    # use_e3_discounted_aggregation is True. Must lie in (0, 1]: 0 collapses
+    # the planned read onto the habit read (SD-081 P1 fails by construction).
+    e3_aggregation_gamma: float = 0.5
+
     # E3-last-scores-pre-arbitration-staleness repair (2026-08-20). last_scores
     # is published (e3_selector.select(), ~line 3239) from the additive-authority
     # `scores` field BEFORE the shortlist-then-modulate (use_modulatory_shortlist_
@@ -9529,6 +9563,11 @@ class REEConfig:
         dualsystem_arbitration_bias: float = 0.0,
         dualsystem_uncertainty_ema_alpha: float = 0.05,
         dualsystem_habit_depth: int = 2,
+        # W4 E3 aggregation (DISC_gamma over E3's own per-depth scores).
+        # Default off -> byte-identical. Signature entry is load-bearing
+        # (from_dims swallows unknown kwargs).
+        use_e3_discounted_aggregation: bool = False,
+        e3_aggregation_gamma: float = 0.5,
         # E3-last-scores-pre-arbitration-staleness repair (2026-08-20). No-op
         # default; bit-identical OFF.
         use_post_arbitration_last_scores: bool = False,
@@ -11353,6 +11392,10 @@ class REEConfig:
         config.e3.dualsystem_arbitration_bias = dualsystem_arbitration_bias
         config.e3.dualsystem_uncertainty_ema_alpha = dualsystem_uncertainty_ema_alpha
         config.e3.dualsystem_habit_depth = dualsystem_habit_depth
+
+        # W4 E3 aggregation. On E3Config (the selector's config), like SD-081.
+        config.e3.use_e3_discounted_aggregation = use_e3_discounted_aggregation
+        config.e3.e3_aggregation_gamma = e3_aggregation_gamma
 
         # E3-last-scores-pre-arbitration-staleness repair (2026-08-20).
         config.e3.use_post_arbitration_last_scores = use_post_arbitration_last_scores

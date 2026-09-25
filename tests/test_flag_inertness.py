@@ -2378,6 +2378,13 @@ PROBED = {
     # trainer without the knob byte-identical) against W6a-03/04 (ON: the sense-path group
     # receives gradient and moves, guard PASS, the next sense() output changes).
     "waking_trainer_world_encoder_enabled",
+    # W4 E3 aggregation (2026-09-25, session bt0925-w4; branch
+    # integration/coupled-loop-repair). Probed by tests/contracts/
+    # test_w4_e3_aggregation.py: W4-01 (OFF: planned read byte-identical to the full-depth
+    # read, gamma unread, default and explicit-OFF agents act identically) against W4-02
+    # (ON: equals N3's DISC_0.5 re-scoring on a recorded pool) and W4-04 (ON changes the
+    # recorded gate-(a) ranking where the full read fails).
+    "use_e3_discounted_aggregation",
     # Structured babbling source (2026-09-25, session bt0925-t1w2a; campaign W2a).
     # Probed by tests/contracts/test_structured_babbling.py: B1/B2 (OFF: never imported
     # or constructed; rollout byte-identical to the pre-change path) against B3 (ON: the
