@@ -131,6 +131,26 @@ _PROMOTION_EXEMPT_SOURCES = _SYNTHETIC_CANDIDATE_SOURCES + (
 )
 
 
+
+class _StraightThroughOneHot(torch.autograd.Function):
+    """Forward: exact one-hot of argmax(logits). Backward: the softmax Jacobian.
+
+    W1 codec part (2) (``HippocampalModule._bounded_onehot``). Draws no RNG.
+    """
+
+    @staticmethod
+    def forward(ctx, logits: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
+        soft = torch.softmax(logits, dim=-1)
+        ctx.save_for_backward(soft)
+        return torch.zeros_like(logits).scatter_(
+            -1, logits.argmax(dim=-1, keepdim=True), 1.0
+        )
+
+    @staticmethod
+    def backward(ctx, grad_out: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
+        (soft,) = ctx.saved_tensors
+        return soft * (grad_out - (grad_out * soft).sum(dim=-1, keepdim=True))
+
 class HippocampalModule(nn.Module):
     """
     HippocampalModule — action-object space trajectory proposal.
@@ -668,7 +688,60 @@ class HippocampalModule(nn.Module):
         )
         flat = action_objects.reshape(batch * horizon, ao_dim)
         actions_flat = self.action_object_decoder(flat)
+        # W1 codec part (2): bounded decode (default OFF -> raw logits, unchanged).
+        if getattr(self.config, "use_codec_bounded_decode", False):
+            actions_flat = self._bounded_onehot(actions_flat)
         return actions_flat.reshape(batch, horizon, self.config.action_dim)
+
+    @staticmethod
+    def _bounded_onehot(logits: torch.Tensor) -> torch.Tensor:
+        """Straight-through one-hot of ``argmax(logits)`` (W1 codec part (2)).
+
+        Forward values are an EXACT one-hot (norm 1, the action space E2's world head
+        is trained on); the backward pass is the softmax's, so any gradient path that
+        reached the raw logits still reaches the decoder. A custom autograd function,
+        not ``hard + soft - soft.detach()``, because that expression rounds: its
+        forward values are 1 +- ulp, not exactly one-hot. argmax is deterministic and
+        draws no RNG (unlike ``torch.multinomial``, whose category differs across the
+        fleet's machine classes).
+        """
+        return _StraightThroughOneHot.apply(logits)
+
+    def _encoder_image_init(
+        self,
+        z_world: torch.Tensor,
+        action_bias: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Iteration-0 CEM (mean, std) fit to E2's action-object image (W1 part (3)).
+
+        The image at this state is ``{E2.action_object(z_world, onehot(c), action_bias)}``
+        over the ``action_dim`` classes -- the same map the rollout re-encodes every
+        executed action with (so the same points the elite refit moves toward). Returns
+        mean = the image centroid and std = the per-dim population spread across
+        classes (floored at 1e-6), each broadcast over the horizon:
+        ``[batch, horizon, action_object_dim]``. Computed under no_grad; draws no RNG.
+        """
+        A = int(self.config.action_dim)
+        batch = z_world.shape[0]
+        with torch.no_grad():
+            eye = torch.eye(A, device=z_world.device, dtype=z_world.dtype)
+            zw = z_world.detach().unsqueeze(1).expand(batch, A, z_world.shape[-1])
+            acts = eye.unsqueeze(0).expand(batch, A, A)
+            bias = None
+            if action_bias is not None:
+                bias = action_bias.detach().unsqueeze(1).expand(
+                    batch, A, action_bias.shape[-1]).reshape(batch * A, -1)
+            codes = self.e2.action_object(
+                zw.reshape(batch * A, -1), acts.reshape(batch * A, A), action_bias=bias,
+            ).reshape(batch, A, -1)
+            mean = codes.mean(dim=1)
+            std = codes.std(dim=1, unbiased=False).clamp_min(1e-6)
+        H = int(self.config.horizon)
+        self._last_codec_image_norm_median = float(codes.norm(dim=-1).median())
+        return (
+            mean.unsqueeze(1).expand(batch, H, mean.shape[-1]).contiguous(),
+            std.unsqueeze(1).expand(batch, H, std.shape[-1]).contiguous(),
+        )
 
     @staticmethod
     def _stack_std(stacked: torch.Tensor) -> torch.Tensor:
@@ -2553,6 +2626,10 @@ class HippocampalModule(nn.Module):
         if _asp_on:
             ao_mean = None
             ao_std = None
+        elif getattr(self.config, "use_codec_iter0_image_match", False):
+            # W1 codec part (3): iteration-0 sampling matched to the encoder image
+            # (default OFF -> the terrain_prior branch below, unchanged).
+            ao_mean, ao_std = self._encoder_image_init(z_world, action_bias)
         else:
             ao_mean = self._get_terrain_action_object_mean(z_world, e1_prior=e1_prior)
             ao_std  = torch.ones_like(ao_mean)

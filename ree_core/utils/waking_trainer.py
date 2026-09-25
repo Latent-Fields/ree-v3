@@ -29,8 +29,10 @@ What this landing contains (and deliberately does not)
   ``compute_e2_loss`` over the member's OWN transitions, design section 2 (i) point 3)
   behind ``waking_trainer_e2_self_enabled``. Both default OFF; with them OFF an ON
   trainer is the C1 trainer exactly (one member).
+* ``CodecMember`` (``waking_trainer_codec.py``; W1 codec part (1), integration branch)
+  behind ``waking_trainer_codec_enabled`` (default OFF).
 * NOT registered here (the coupled campaign's branch work): E2-world, SD-070 P0, ZSelfP0,
-  the codec, the terrain prior. ``WakingTrainer.register`` is the seam they plug into.
+  the terrain prior. ``WakingTrainer.register`` is the seam they plug into.
 
 Retained-graph hazard (design section 2 (iii)): ``agent._last_action`` is NOT detached by
 default and carries the previous tick's selection graph (SD-007 reafference); an
@@ -339,6 +341,17 @@ class WakingTrainer:
                     lr=float(getattr(config, "waking_trainer_e2_self_lr", 1e-3)),
                     batch_size=batch_size,
                     buffer_max=buffer_max,
+                ))
+            # W1 codec member (coupled-loop-repair campaign plan sec 3 W1 part (1)):
+            # behind its own default-OFF knob, read defensively; OFF -> never imported.
+            if bool(getattr(config, "waking_trainer_codec_enabled", False)):
+                from ree_core.utils.waking_trainer_codec import CodecMember
+                members.append(CodecMember(
+                    agent,
+                    lr=float(getattr(config, "waking_trainer_codec_lr", 1e-3)),
+                    batch_size=int(getattr(config, "waking_trainer_batch_size", 16)),
+                    buffer_max=int(getattr(config, "waking_trainer_buffer_max", 2000)),
+                    code_l2=float(getattr(config, "waking_trainer_codec_code_l2", 1e-3)),
                 ))
         for m in members:
             self.register(m)

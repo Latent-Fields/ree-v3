@@ -2809,6 +2809,14 @@ PROBED = {
     # action-space candidates (bytes differ, every candidate tagged
     # action_space_cem); test_off_is_bit_identical_... pins OFF identity.
     "use_action_space_proposals",
+    # W1 codec parts (1)-(3) (integration/coupled-loop-repair). Probed by
+    # tests/contracts/test_w1_codec.py: test_p_each_knob_on_changes_what_it_controls
+    # (each hippocampal knob ON changes the pool's actions) plus GA/GB (the codec member
+    # ON trains e2.action_object_head + hippocampal.action_object_decoder, guard PASS);
+    # test_k2_off_is_the_pre_build_codec_path pins OFF.
+    "use_codec_bounded_decode",
+    "use_codec_iter0_image_match",
+    "waking_trainer_codec_enabled",
     # SP-CEM support-preserving repair. Probed by
     # test_hippocampal_candidate_support.py: under an artificially collapsed
     # decoder, ON repairs first-action class diversity (>=2 classes); OFF
