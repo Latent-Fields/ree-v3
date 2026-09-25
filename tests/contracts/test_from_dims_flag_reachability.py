@@ -209,6 +209,17 @@ DIMS = dict(body_obs_dim=10, world_obs_dim=20, action_dim=4, self_dim=16, world_
 # is the count of call sites already using the working idiom, which is the
 # evidence that it works.
 REACHABLE_BY_ALTERNATIVE_IDIOM = {
+    "alpha_world_explicit": (
+        "latent; SD-008 audit flag (REE_Working/.scratch/orch-20260924-1707/"
+        "QUESTIONS.md, 'OPEN for user: from_dims alpha_world default "
+        "(SD-008)', option (c)). There is no from_dims kwarg named "
+        "alpha_world_explicit to pass -- it records whether the "
+        "ALREADY-EXISTING alpha_world kwarg was itself passed explicitly on "
+        "this call, so from_dims sets it by direct attribute assignment "
+        "(config.latent.alpha_world_explicit = ...) on every call, exactly "
+        "like use_resource_encoder above. Proving call site: "
+        "tests/contracts/test_from_dims_alpha_world_warning.py."
+    ),
     "benefit_terrain_enabled": "residue; 16 drivers + 5 tests set it directly",
     "benefit_terrain_live_producer": "residue; 2 drivers + 1 test",
     "beta_gate_bistable": "heartbeat; 160 drivers + 4 lib + 11 tests set it directly",

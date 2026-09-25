@@ -12,11 +12,48 @@ V3 changes vs V2:
 """
 
 import sys
+import warnings
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional
 
 from ree_core.goal import GoalConfig
 from ree_core.neuromodulation.serotonin import SerotoninConfig
+
+
+# SD-008: from_dims() alpha_world implicit-default warning. WARN-ONLY (CLAUDE.md
+# "OPEN for user: from_dims alpha_world default (SD-008)", option (b)) -- the
+# from_dims kwarg default and the LatentStackConfig field default both stay 0.3;
+# this only makes a caller that never set alpha_world explicitly find out. A
+# module-level once-flag (not warnings' own "default" per-(message,module,lineno)
+# filter) so the warning fires exactly once per PROCESS regardless of which of the
+# 462+ call sites measured under SD-008 (REE_Working/.scratch/orch-20260924-1707/
+# QUESTIONS.md) triggers it first, and regardless of pytest's -W handling.
+_ALPHA_WORLD_IMPLICIT_WARNED = False
+
+# Sentinel distinguishing "caller did not pass alpha_world=" from "caller passed
+# alpha_world=0.3 explicitly" at the from_dims() call site -- a plain `float = 0.3`
+# default cannot make that distinction. Using this as the parameter default (instead
+# of 0.3) changes NOTHING about from_dims()'s resolved behaviour: from_dims() still
+# sets config.latent.alpha_world = 0.3 when the sentinel is seen (see the "unset"
+# branch below), matching the pre-existing LatentStackConfig field default exactly.
+_ALPHA_WORLD_UNSET = object()
+
+
+def _warn_alpha_world_implicit_default() -> None:
+    """Emit the SD-008 implicit-alpha_world warning once per process (ASCII-only)."""
+    global _ALPHA_WORLD_IMPLICIT_WARNED
+    if _ALPHA_WORLD_IMPLICIT_WARNED:
+        return
+    _ALPHA_WORLD_IMPLICIT_WARNED = True
+    warnings.warn(
+        "REEConfig.from_dims() called without an explicit alpha_world= kwarg: "
+        "defaulting to alpha_world=0.3. SD-008 requires alpha_world >= 0.9 for a "
+        "stable operating point (encoder EMA double-smoothing suppresses event "
+        "responses below that floor). This does not change behaviour -- pass "
+        "alpha_world= explicitly (0.3 to keep current behaviour, >= 0.9 for the "
+        "SD-008 floor) to silence this warning.",
+        stacklevel=3,
+    )
 
 
 # Stream ids for derive_stdlib_rng_seed. Each stdlib-`random` consumer in
@@ -83,6 +120,14 @@ class LatentStackConfig:
     # alpha_self can remain low (body state is highly autocorrelated).
     alpha_world: float = 0.3   # SD-008: set to 0.9+ to fix event suppression
     alpha_self: float = 0.3
+
+    # SD-008 audit (option (c), REE_Working/.scratch/orch-20260924-1707/
+    # QUESTIONS.md): True/False once REEConfig.from_dims() has run and set
+    # alpha_world explicitly or left it on the implicit 0.3 default; None means
+    # this config was never built via from_dims() (e.g. a bare REEConfig()) and
+    # the flag was never set. Auditable retroactively from any manifest whose
+    # `config` field carries the full config snapshot (e.g. dataclasses.asdict).
+    alpha_world_explicit: Optional[bool] = None
 
     # SD-036: harm-stream decay recurrence -- gives the GABAergic decay
     # regulator TEMPORAL authority over z_harm (SD-010) and z_harm_a (SD-011).
@@ -7837,7 +7882,7 @@ class REEConfig:
         world_dim: int = 32,
         action_object_dim: int = 16,
         harm_dim: int = 0,
-        alpha_world: float = 0.3,
+        alpha_world: float = _ALPHA_WORLD_UNSET,  # type: ignore[assignment]
         alpha_self: float = 0.3,
         reafference_action_dim: int = 0,
         use_event_classifier: bool = False,
@@ -9264,8 +9309,17 @@ class REEConfig:
         config.latent.world_dim = world_dim
         config.latent.harm_dim = harm_dim  # MECH-099: 0 = lateral head disabled
 
-        # SD-008: temporal EMA alphas
+        # SD-008: temporal EMA alphas. alpha_world uses a sentinel default (not a
+        # plain 0.3) so this classmethod can tell "caller passed alpha_world=0.3
+        # explicitly" apart from "caller never passed alpha_world=" -- behaviour is
+        # identical either way (both resolve to 0.3), but only the implicit path
+        # warns and only the implicit path records alpha_world_explicit=False.
+        alpha_world_was_explicit = alpha_world is not _ALPHA_WORLD_UNSET
+        if not alpha_world_was_explicit:
+            alpha_world = 0.3  # matches LatentStackConfig.alpha_world's own default
+            _warn_alpha_world_implicit_default()
         config.latent.alpha_world = alpha_world
+        config.latent.alpha_world_explicit = alpha_world_was_explicit
         config.latent.alpha_self = alpha_self
 
         # SD-007: reafference correction
