@@ -1639,7 +1639,22 @@ def record_chip(conn, chip, now=None):
         return ("error", {})
 
 
-def _claim_note_history_after(row, new_note, superseded_at):
+def _row_get(row, key):
+    """row[key], or None when the row shape has no such column.
+
+    sqlite3.Row raises IndexError on an unknown name and a dict raises
+    KeyError; both expose keys(). Used by the claim-note history writer for
+    host columns, so an unexpected row shape degrades that one field to None
+    rather than aborting the claim/unclaim transaction around it."""
+    try:
+        keys = row.keys()
+    except AttributeError:
+        keys = ()
+    return row[key] if key in keys else None
+
+
+def _claim_note_history_after(row, new_note, superseded_at,
+                              superseded_by=None, superseded_by_host=None):
     """The claim_note_history_json value to write alongside a claim_note
     overwrite: the row's existing history plus ONE entry preserving the prior
     note, appended iff that note is non-empty and would actually change.
@@ -1655,11 +1670,32 @@ def _claim_note_history_after(row, new_note, superseded_at):
     2026-09-14 (REE_Working e0b4ef7a46), but under the coordinator-armed
     default that git write is SUPPRESSED and this DB row is what the
     materializer renders, so without this the common path still lost the
-    note. Entry shape is byte-for-byte the CLI's, so a history started on
+    note. Entry shape is byte-for-byte the CLI's (scripts/chip_ledger.py
+    cmd_claim / cmd_unclaim), so a history started on
     either path continues on the other. Same load -> append -> dump idiom
     as resolve_chip's resolution_note_history_json. Returns None when there
     is still nothing to keep, so a never-overwritten chip never grows the
     key (the CLI's absent-not-empty contract).
+
+    TRANSITION FIELDS (2026-09-26, metaworker-learning; plan of record
+    REE_assembly/evidence/planning/xdispatch_detector_learning_staged_
+    20260926.md section 4 Step 2). Besides the original four keys, each
+    appended entry also records:
+      - previous_claimed_host: the OUTGOING claimant's host as reported
+        (claimed_host_raw, falling back to the canonical claimed_host).
+        REE_Working 3d90bd2e4 added this key on the CLI's git path only, so
+        under the coordinator-armed default -- where this row is what the
+        materializer renders -- it was never written at all;
+      - superseded_by / superseded_by_host: the INCOMING claimant and its
+        host as reported (try_claim_chip), or None/None for a release
+        (unclaim_chip). hygiene_routine_tick's cross-dispatch detector needs
+        the successor to classify a transition (self-release vs. takeover by
+        a different session vs. a different box); without it every entry had
+        an unknown successor.
+    The new keys follow the original four, in the same order the CLI writes
+    them. The append predicate is deliberately UNCHANGED: an entry is still
+    written only when a non-empty prior note is replaced, so a silent claimant
+    change with no note still leaves no entry (open question 1 of that doc).
     """
     history = []
     if row["claim_note_history_json"]:
@@ -1674,6 +1710,10 @@ def _claim_note_history_after(row, new_note, superseded_at):
             "previous_note": prior,
             "previous_claimed_by": row["claimed_by"],
             "previous_claimed_at": row["claimed_at"],
+            "previous_claimed_host": (_row_get(row, "claimed_host_raw")
+                                      or _row_get(row, "claimed_host")),
+            "superseded_by": superseded_by,
+            "superseded_by_host": superseded_by_host,
         })
     return json.dumps(history) if history else None
 
@@ -1730,7 +1770,9 @@ def try_claim_chip(conn, chip_ref=None, task_id=None, claimed_by=None,
         new_note = note or ""
         # Additive only: the mutex verdict above and claim_note's own
         # semantics are untouched; see _claim_note_history_after.
-        history_json = _claim_note_history_after(row, new_note, stamp)
+        history_json = _claim_note_history_after(
+            row, new_note, stamp, superseded_by=claimed_by,
+            superseded_by_host=claimed_host)
         conn.execute(
             "UPDATE chip_ledger SET claimed_by=?, claimed_at=?, claim_note=?, "
             "claimed_host=?, claimed_host_raw=?, claim_note_history_json=?, "
@@ -1765,7 +1807,9 @@ def unclaim_chip(conn, chip_ref=None, task_id=None, note=None, now=None):
         # The OTHER call site that overwrote claim_note with no trace -- a
         # dispatcher's release note commonly carries findings from the
         # aborted attempt. See _claim_note_history_after.
-        history_json = _claim_note_history_after(row, new_note, now)
+        # A release has no successor: superseded_by/_host are None.
+        history_json = _claim_note_history_after(
+            row, new_note, now, superseded_by=None, superseded_by_host=None)
         conn.execute(
             "UPDATE chip_ledger SET claimed_by=NULL, claimed_at=NULL, "
             "claim_note=?, claimed_host=NULL, claimed_host_raw=NULL, "

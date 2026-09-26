@@ -34,6 +34,18 @@ T1 = "2026-08-27T11:00:00Z"
 # 7h after T0 -- past the 6h default stale threshold.
 T_STALE = "2026-08-27T17:30:00Z"
 
+# The claim_note_history entry's key sequence, stated ONCE for every
+# assertion below. Order matters, not just membership: the hub's entry must be
+# byte-identical to the one scripts/chip_ledger.py cmd_claim/cmd_unclaim write
+# on the git path (a history started on either path continues on the other).
+# The cross-path equality is asserted from BOTH modules' executed code in
+# REE_Working scripts/test_chip_ledger_claim.py (it can see both repos; this
+# file runs on a worker that has only ree-v3).
+CLAIM_NOTE_HISTORY_ENTRY_KEYS = (
+    "superseded_at", "previous_note", "previous_claimed_by",
+    "previous_claimed_at", "previous_claimed_host", "superseded_by",
+    "superseded_by_host")
+
 
 class Base(unittest.TestCase):
     def setUp(self):
@@ -748,6 +760,134 @@ class TestChips(Base):
             self.assertEqual(history[0]["previous_claimed_by"], "old-sess")
         finally:
             conn.close()
+
+    # ---- claim_note_history transition fields (2026-09-26) -----------------
+    # REE_Working 3d90bd2e4 added previous_claimed_host on the CLI's git path
+    # only, so on the coordinator path (the armed default, whose row is what
+    # the materializer renders) it was never written. The cross-dispatch
+    # detector also needs the SUCCESSOR to classify a transition. Plan of
+    # record: REE_assembly/evidence/planning/
+    # xdispatch_detector_learning_staged_20260926.md section 4 Step 2.
+
+    def test_claim_over_stale_records_host_and_successor(self):
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        db.try_claim_chip(self.conn, chip_ref="c1", claimed_by="worker-a",
+                          claimed_host="DLAPTOP-5.local", claimed_at=T0, now=T0,
+                          note="first finding")
+        verdict, payload = db.try_claim_chip(
+            self.conn, chip_ref="c1", claimed_by="worker-b",
+            claimed_host="ree-cloud-5", claimed_at=T_STALE, now=T_STALE,
+            note="second attempt")
+        self.assertEqual(verdict, "ok")
+        history = self.chip_entry("c1")["claim_note_history"]
+        self.assertEqual(len(history), 1)
+        h = history[0]
+        self.assertEqual(tuple(h.keys()), CLAIM_NOTE_HISTORY_ENTRY_KEYS)
+        self.assertEqual(h["previous_claimed_host"], "DLAPTOP-5.local",
+                         "the OUTGOING claimant's host, as reported (raw)")
+        self.assertEqual(h["superseded_by"], "worker-b")
+        self.assertEqual(h["superseded_by_host"], "ree-cloud-5",
+                         "the INCOMING claimant's host, as reported (raw)")
+        # The ack's echoed entry (what the CLI trusts under suppression)
+        # carries the same fields.
+        self.assertEqual(payload["entry"]["claim_note_history"], history)
+
+    def test_refreshed_own_claim_names_itself_as_successor(self):
+        """A same-session refresh with a changed note is the self-transition
+        signature the detector must NOT count: successor == predecessor."""
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        db.try_claim_chip(self.conn, chip_ref="c1", claimed_by="worker-a",
+                          claimed_host="DLAPTOP", claimed_at=T0, now=T0,
+                          note="note 1")
+        db.try_claim_chip(self.conn, chip_ref="c1", claimed_by="worker-a",
+                          claimed_host="DLAPTOP", claimed_at=T1, now=T1,
+                          note="note 2")
+        h = self.chip_entry("c1")["claim_note_history"][0]
+        self.assertEqual(tuple(h.keys()), CLAIM_NOTE_HISTORY_ENTRY_KEYS)
+        self.assertEqual(h["previous_claimed_by"], h["superseded_by"])
+        self.assertEqual(h["previous_claimed_host"], h["superseded_by_host"])
+
+    def test_unclaim_records_host_and_no_successor(self):
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        db.try_claim_chip(self.conn, chip_ref="c1", claimed_by="worker-a",
+                          claimed_host="DLAPTOP-5.local", claimed_at=T0, now=T0,
+                          note="worktree X")
+        verdict, payload = db.unclaim_chip(self.conn, chip_ref="c1",
+                                           note="aborted", now=T1)
+        self.assertEqual(verdict, "ok")
+        h = self.chip_entry("c1")["claim_note_history"][0]
+        self.assertEqual(tuple(h.keys()), CLAIM_NOTE_HISTORY_ENTRY_KEYS)
+        self.assertEqual(h["previous_claimed_host"], "DLAPTOP-5.local")
+        self.assertIsNone(h["superseded_by"], "a release has no successor")
+        self.assertIsNone(h["superseded_by_host"])
+        self.assertEqual(payload["entry"]["claim_note_history"],
+                         self.chip_entry("c1")["claim_note_history"])
+
+    def test_transition_fields_do_not_widen_the_append_predicate(self):
+        """Still appended ONLY when a non-empty prior note is replaced: a
+        claimant change over an empty note leaves no entry at all."""
+        db.record_chip(self.conn, _chip("c1"), now=T0)
+        db.try_claim_chip(self.conn, chip_ref="c1", claimed_by="worker-a",
+                          claimed_host="DLAPTOP", claimed_at=T0, now=T0)
+        db.try_claim_chip(self.conn, chip_ref="c1", claimed_by="worker-b",
+                          claimed_host="ree-cloud-5", claimed_at=T_STALE,
+                          now=T_STALE, note="takeover")
+        self.assertNotIn("claim_note_history", self.chip_entry("c1"))
+
+    def test_previous_host_falls_back_to_canonical_then_none(self):
+        """claimed_host_raw first; canonical claimed_host when raw is NULL or
+        the row shape lacks the column; None when neither is there -- never a
+        KeyError/IndexError inside the claim transaction."""
+        base = {"claim_note_history_json": None, "claim_note": "old",
+                "claimed_by": "a", "claimed_at": T0}
+        cases = (
+            (dict(base, claimed_host="DLAPTOP",
+                  claimed_host_raw="DLAPTOP-5.local"), "DLAPTOP-5.local"),
+            (dict(base, claimed_host="DLAPTOP", claimed_host_raw=None),
+             "DLAPTOP"),
+            (dict(base, claimed_host="DLAPTOP"), "DLAPTOP"),
+            (dict(base), None),
+        )
+        for row, want in cases:
+            out = json.loads(db._claim_note_history_after(row, "new", T1))
+            self.assertEqual(out[0]["previous_claimed_host"], want, row)
+            self.assertEqual(tuple(out[0].keys()),
+                             CLAIM_NOTE_HISTORY_ENTRY_KEYS)
+        # A real sqlite3.Row (what _find_chip_row returns) missing the
+        # column entirely: exercises the keys() guard on the live row type.
+        mem = sqlite3.connect(":memory:")
+        mem.row_factory = sqlite3.Row
+        row = mem.execute(
+            "SELECT NULL AS claim_note_history_json, 'old' AS claim_note,"
+            " 'a' AS claimed_by, ? AS claimed_at, 'box-9' AS claimed_host",
+            (T0,)).fetchone()
+        mem.close()
+        out = json.loads(db._claim_note_history_after(
+            row, "new", T1, superseded_by="b", superseded_by_host="box-2"))
+        self.assertEqual(out[0]["previous_claimed_host"], "box-9")
+        self.assertEqual(out[0]["superseded_by"], "b")
+        self.assertEqual(out[0]["superseded_by_host"], "box-2")
+
+    def test_legacy_history_entries_are_carried_verbatim(self):
+        """Entries written before this change (4- or 5-key, from either path)
+        are NOT back-filled or rewritten; only the newly appended entry has
+        the full key set."""
+        legacy = [{"superseded_at": T0, "previous_note": "from git",
+                   "previous_claimed_by": "git-sess",
+                   "previous_claimed_at": T0}]
+        db.upsert_chip(self.conn, _chip(
+            "c1", claimed_by="git-sess-2", claimed_at=T0,
+            claimed_host="DLAPTOP-5.local", claim_note="second on git",
+            claim_note_history=legacy), now=T0)
+        db.try_claim_chip(self.conn, chip_ref="c1", claimed_by="db-sess",
+                          claimed_host="ree-cloud-5", claimed_at=T_STALE,
+                          now=T_STALE, note="third on db")
+        history = self.chip_entry("c1")["claim_note_history"]
+        self.assertEqual(history[0], legacy[0])
+        self.assertEqual(tuple(history[1].keys()),
+                         CLAIM_NOTE_HISTORY_ENTRY_KEYS)
+        self.assertEqual(history[1]["previous_claimed_host"], "DLAPTOP-5.local")
+        self.assertEqual(history[1]["superseded_by"], "db-sess")
 
     def test_resolve_marks_done(self):
         db.record_chip(self.conn, _chip("c1"), now=T0)
