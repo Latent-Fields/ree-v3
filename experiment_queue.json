@@ -6,5 +6,23 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": []
+  "items": [
+    {
+      "queue_id": "V3-EXQ-1109",
+      "title": "DCD2 probe F: freeze/veto earliest edge -- z_harm_a validity (F0), PAG freeze on/off lock confirmer (F1), MECH-449 veto with freeze off (F3), 1107 harness, 3 seeds",
+      "experiment_type": "v3_exq_1109_pag_freeze_veto_earliest_edge",
+      "script": "experiments/v3_exq_1109_pag_freeze_veto_earliest_edge.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 240,
+      "episodes_per_run": 319,
+      "seeds": 3,
+      "conditions": 1,
+      "claim_ids": [],
+      "experiment_purpose": "diagnostic",
+      "predecessor": "V3-EXQ-1107 (harness + seeds; not superseded)",
+      "note": "DCD2 probe F (plan dynamic_control_discrimination_plan_20260926.md 41cfe94841 sec 4.2); absorbs chip-20260926-pag-freeze-lock-confirmer (its two arms + decision rule kept verbatim as F1). Code: ree-v3 main 436a988742 (pin_recording_substrate at process start). claim_ids [] diagnostic; bears on MECH-279, SD-011, MECH-449, ARC-155, ARC-156, Q-111, GFLAG-0508. F3 is Q-111 leg-1 PRECONDITION DATA, not a Q-111 test. PRE-REGISTERED: F0 (load-bearing) held-out ridge R^2 of z_harm_a -> hazard distance / hazard field under a scripted walk: HOLDS >=0.25; H-SV <0.10 (ENCODER_INSENSITIVE if R2_fid<0.10, STREAM_CHOICE if R2_fid>=0.25 and input R^2<0.10). F1: collapse = mean len<=15 or executed-STAY>=0.9; LOCK = FZ_ON collapses with freeze_active>=0.9 and FZ_OFF does not; BOTH + F0 ENCODER_INSENSITIVE -> saturated latent. F3: VETO_OFF entropy<1 bit -> STARVED_BY_FAMILY_C; attributable paired divergence>=0.5 and true-hazard contact down>=20% -> H3_WEAKENED; no candidate contrast -> NO_CANDIDATE_CONTRAST; else H3_LIVE. Majority >=2/3 seeds. PASS = F0 decisive and F1 non-MIXED (question answered, not agent healthy). Step 2.4: checked 1107 (frozen z_harm_a summary only), 1090 (freeze on, pre-STAY-fix), 1106 (100% frozen), 935a (no z_harm_a), CeA reprobe (untrained, limb-damage-OFF stream): decisive readout absent -> run. Step 2.5c: SD-PP-B5 (corrupting) overlaps at file level only -- compute_world_interventional_loss is never called by this curriculum; MECH-279 (degrading) is the gate under test. red-team (fable): CONTESTED, 7 findings verified + fixed. Key red-team findings: (a) limb damage accrues ONLY on moves, so a frozen agent's harm_obs_a (and 1107's 90 identical z_harm_a ticks) is constant by construction; (b) the 6-step freeze-ON lives are standing-still self-contamination deaths (agent_caused_hazard), not hazard contacts -- contacts now split true-hazard vs contamination; (c) harm_obs_a here is 7-d BODY DAMAGE (limb_damage_enabled, SD-022), not proximity; resting ||z_harm_a|| 2.2-2.8 > theta_freeze 0.8 makes the freeze exit unreachable at any input (gate_input_independent readout). Smoke (dry-run, 1 seed): PASS after fixes -- lock reproduced (FZ_ON len 6, freeze 1.0, 4 contamination / 0 true-hazard contacts; FZ_OFF len 26.5, 55% wall-pressing), R2_fid 0.996, resting_norm/theta 2.77."
+    }
+  ]
 }
