@@ -40,6 +40,16 @@
       "result": "pass",
       "tier": "ree-v3-contracts-full-suite"
     },
+    "6ae9682fffa286770d0994655750a2f695f484b7665b22a6983fb2677f858ec3": {
+      "machine_class": "darwin-arm64-py3.13-torch2.12.0",
+      "n_files": 225,
+      "recorded_at": "2026-09-26T14:49:45Z",
+      "recorded_by_commit": "436a988742df6d4a62de9c6c22ce182ddd73df81",
+      "recorded_by_session_id": null,
+      "relevant_hash": "c82678a233cbcc12fa76e671ec7ffa4f4d4a133b52c35804e0a99500143daed5",
+      "result": "pass",
+      "tier": "ree-v3-contracts-full-suite"
+    },
     "c112356c5be4d958e9d342797d3babaa1bf1b16a463227d9aa86d2836d283390": {
       "machine_class": "darwin-arm64-py3.13-torch2.12.0",
       "n_files": 225,
@@ -50,6 +60,16 @@
       "result": "pass",
       "tier": "ree-v3-contracts-full-suite"
     },
+    "c17dd3c7017d542bdfd7180df71dc28d0411d38b0c9449ac6833328da0921509": {
+      "machine_class": "darwin-arm64-py3.13-torch2.12.0",
+      "n_files": 225,
+      "recorded_at": "2026-09-26T17:02:17Z",
+      "recorded_by_commit": "03c25a4e010ac46368dd701a64730718ff7a2120",
+      "recorded_by_session_id": null,
+      "relevant_hash": "ee1eecbfa47c31185766019df5229db50af8fb41b54a2abf7293c557f8fba637",
+      "result": "pass",
+      "tier": "ree-v3-contracts-full-suite"
+    },
     "e1a8925d6b6b542cccb168bb70301c8810e1d4ddc3ba93607cab81ab661e06b6": {
       "machine_class": "darwin-arm64-py3.13-torch2.12.0",
       "n_files": 225,
@@ -57,16 +77,6 @@
       "recorded_by_commit": "298cb8ffd300eb66fb30133bea16e38fa19eb9f9",
       "recorded_by_session_id": null,
       "relevant_hash": "78abbcfbf294e75d9659248fec16193f28619777468e7f42d17790837ef3f235",
-      "result": "pass",
-      "tier": "ree-v3-contracts-full-suite"
-    },
-    "6ae9682fffa286770d0994655750a2f695f484b7665b22a6983fb2677f858ec3": {
-      "machine_class": "darwin-arm64-py3.13-torch2.12.0",
-      "n_files": 225,
-      "recorded_at": "2026-09-26T14:49:45Z",
-      "recorded_by_commit": "436a988742df6d4a62de9c6c22ce182ddd73df81",
-      "recorded_by_session_id": null,
-      "relevant_hash": "c82678a233cbcc12fa76e671ec7ffa4f4d4a133b52c35804e0a99500143daed5",
       "result": "pass",
       "tier": "ree-v3-contracts-full-suite"
     }
