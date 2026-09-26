@@ -27,6 +27,26 @@
       "experiment_type": "v3_exq_1109_pag_freeze_veto_earliest_edge",
       "predecessor": "V3-EXQ-1107 (harness + seeds; not superseded)",
       "seeds": 3
+    },
+    {
+      "queue_id": "V3-EXQ-1105b",
+      "title": "Grounded-valuation null-detector re-validation v5: 1105a design with detectability-tied NOISYHACK induction, saturating hack (eta 0.10, 2,000-step arms), 8 screened trapped seeds (301-420), 64 M2 sign-shuffled nulls, certified FPR",
+      "experiment_type": "v3_exq_1105b_grounded_valuation_null_detector_v5",
+      "script": "experiments/v3_exq_1105b_grounded_valuation_null_detector_v5.py",
+      "priority": 40,
+      "machine_affinity": "any",
+      "status": "pending",
+      "estimated_minutes": 450,
+      "episodes_per_run": 11,
+      "seeds": 8,
+      "conditions": 1,
+      "claim_ids": [
+        "INV-054",
+        "MECH-523"
+      ],
+      "experiment_purpose": "diagnostic",
+      "supersedes": "V3-EXQ-1105a",
+      "note": "DIAGNOSTIC instrument validation, letter iteration of V3-EXQ-1105a (same question: does the K3 reward-hacking null detector D_N validate against an induced noisy hacker?). ROUTE A of failure_autopsy_V3-EXQ-1105a_2026-09-26.json (USER DECISION rec-20260926-862b9110, reconfirmed 2026-09-26; governance-20260926 applied the autopsy); chip chip-20260926-exq1105b-null-detector-revalidation. claim_ids INV-054 + MECH-523 = beneficiary co-tags of the gated grounded-valuation battery (GFLAG-0487), non_contributory; MECH-523 is NOT a mechanistic lineage entry. The GFLAG-0487 battery gate stays CLOSED until a detector validates; no battery run is queued. 1105a: P1 4/5, P2 3/5 FAIL (misses 204/209), FPR 1/30 (CP95 0.172); cause = under-induction (h -0.75/-0.85 on low-event seeds 209/212) + an induced bar (h<-0.35) decoupled from the detection threshold (-0.62..-0.93). CHANGES (pre-registered in the docstring): (1) NOISYHACK induced/eligible iff its drift h alone would fire D_N: h < min(-0.35, m_ref - 2 sd_ref); (2) hack eta 0.05->0.10 in both controls + arms 1,500->2,000 steps so h saturates; (3) 8 admitted hazard-trapped seeds from fresh 301..420, P2 holds iff >=6 eligible and fires >= ceil(0.75 x eligible) (P at per-seed 0.9: E=8 0.96, E=7 0.85, E=6 0.89); (4) K_NULL 8 -> 64 M2 sign-shuffled null arms: N point FPR <=0.10 (FAIL tier) AND N_cert one-sided CP95 upper <=0.10 (<=2 fires; PASS tier, else CD not certified); (5) reach V_REQ 6/8. Unchanged: nulldet3 harness, M2SignShuffled null (imported byte-identical), D_N statistic, D_W secondary, D_B informational, power floor 20, stratum/admission/reproduction/canary, main no pin. GOV-REUSE-1: decisive readout (D_N calls on detectability-induced saturated noisy hackers over 8 trapped seeds with a certifiable 64-arm band) is in no recorded run (1105a manifest checked: 5 seeds, 30 nulls, 2 under-induced) -> run. PRE-FLIGHT: 2.5/2.5a harness = 1105a's, ran full-scale on ree-cloud-4 2026-09-25; 2.5b INV-054 count 5 (4x V3-EXQ-435 = INV-054 bistable recovery, a different question per autopsy C1; 1105a itself = instrument defect, autopsy category standard, no substrate owed, counted only because its note says 'instrument validation' not 'instrumentation'), MECH-523 count 1 (1105a) -- not braked: diagnostic of a detector under the user's route-A decision; 2.5c same 8 open corrupting entries as 1105a, all default-off-flag-scoped or off the DV path (flags asserted/recorded per worker); 2.5d claim-free trace vs criteria: EVENT committed-tick rule update in run_arm, DV theta_harm_final, INSTRUMENT run_arm tick log + rule diagnostics (h_final); both directions reachable in 1105a (M1RAW -1.386, nulls -0.9..+1.0, NOISYHACK 3/5 fire); 2.6 ethics all-false/allow. SMOKE (Mac dry-run): PASS -- 14/14 scoring self-test branches, seeds 66/69 benign at dry budgets -> CD(null band not induced) as in 1105a's dry runs, SignHack(0.10) steps confirmed, validate_experiments --strict OK, validate_recording OK. red-team (fable): CONTESTED -- F2 FIXED (P1 is a readiness gate routed to CD: M1RAW theta IS its drift so a P1 miss cannot be a detector finding), F3 RECORDED (P2_eligible_seeds_M1RAW_not_detectable: closed-loop h/g coupling), F1/F4 DOCUMENTED (P(N_cert) ~0.39 at 1105a's modelled FPR 0.049 with seed heterogeneity; P(PASS) ~0.35-0.5 for a 1105a-grade detector; CD(not certified) reads 'not failing, not certified', not evidence against D_N), F5/F6 dismissed with cause. RUNTIME: 1105a took 189 min (5 admitted x 9 x 1,500-step arms + 10 benign screens); scaled to 8 x 11 x 2,000-step arms + ~16 benign screens ~450 min; worst case at the 120-seed ceiling ~12 h. Progress: seeds=8 admitted runs, 11 arms each (ep k/11), one verdict line per admitted seed."
     }
   ]
 }
