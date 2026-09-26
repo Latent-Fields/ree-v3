@@ -48,6 +48,14 @@ try:
 except ImportError:  # pragma: no cover -- checker absent is not fatal
     daemon_code_drift = None
 
+# machine_identity.py lives at the ree-v3 root, two directories up.
+sys.path.insert(1, os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))))
+try:
+    import machine_identity
+except ImportError:  # pragma: no cover -- no merge, rows shown raw
+    machine_identity = None
+
 
 DEFAULT_COORDINATOR_URL = "http://10.8.0.1:8787"
 DEFAULT_QUEUE_PATH = "/home/ree/REE_Working/ree-v3/experiment_queue.json"
@@ -120,6 +128,58 @@ def _age_str(last_seen_iso, now):
     if secs < 5400:
         return "%dm" % int(secs // 60)
     return "%.1fh" % (secs / 3600.0)
+
+
+def merge_alias_rows(machines):
+    """One row per physical machine, keyed on canonical identity.
+
+    The coordinator keeps a row per raw machine name, so a box that was
+    renamed keeps its old row forever. Concretely: the Mac reported as
+    `DLAPTOP-4.local` until the 2026-08-15 identity fix and as `DLAPTOP`
+    since, and the old row still says state=running on V3-EXQ-906c (finished
+    2026-08-10) because nothing ever wrote to that key again. Rendered raw,
+    FLEET_STATUS.md showed the laptop running an experiment that ended weeks
+    ago.
+
+    Same rule as REE_assembly serve.py `_merge_by_canonical_machine`: freshest
+    last_seen wins, ties go to the row already named canonically. The numbered
+    cloud fleet never collapses (machine_identity is an allowlist). Returns
+    (rows, hidden) where hidden lists (raw_name, canonical, last_seen) for
+    every row that lost, so the snapshot can say what it dropped. This is a
+    DISPLAY merge only; fleet_status.json keeps the raw rows, which the
+    cloud-scaler looks up by exact machine name.
+    """
+    if machine_identity is None:
+        return list(machines), []
+    floor = datetime.min.replace(tzinfo=timezone.utc)
+    best, rank, hidden = {}, {}, []
+    for m in machines:
+        raw = m.get("machine") or ""
+        key = machine_identity.canonical_machine_name(raw) or raw
+        this = (parse_utc(m.get("last_seen")) or floor, raw == key)
+        if key not in best:
+            best[key], rank[key] = m, this
+            continue
+        loser = m
+        if this > rank[key]:
+            loser = best[key]
+            best[key], rank[key] = m, this
+        hidden.append((loser.get("machine") or "?", key,
+                       loser.get("last_seen")))
+    return [best[k] for k in best], hidden
+
+
+def _state_cell(m):
+    """State as reported, flagged when the coordinator calls the row stale.
+
+    A stale row keeps whatever state it last reported, so "running" can
+    outlive the run by weeks. Flag it rather than rewrite it: stale is not
+    the same as abandoned (a heartbeat-stale box may still be running).
+    """
+    state = m.get("state") or "?"
+    if m.get("lifecycle_state") == "stale" and state != "offline":
+        return "%s (stale)" % state
+    return state
 
 
 def _progress_cell(m):
@@ -201,7 +261,7 @@ def build_markdown(status_doc, queue_items, now, drift_lines=None):
         lines.extend(drift_lines or [])
         return "\n".join(lines) + "\n"
 
-    machines = status_doc.get("machines") or []
+    machines, hidden = merge_alias_rows(status_doc.get("machines") or [])
     running = [m for m in machines if m.get("current_exq")]
     lines.append("## Workers (%d total, %d running)"
                  % (len(machines), len(running)))
@@ -212,12 +272,18 @@ def build_markdown(status_doc, queue_items, now, drift_lines=None):
     for m in sorted(machines, key=lambda x: x.get("machine") or ""):
         lines.append("| %s | %s | %s | %s | %s | %s ago |" % (
             m.get("machine") or "?",
-            m.get("state") or "?",
+            _state_cell(m),
             m.get("current_exq") or "--",
             _progress_cell(m),
             _eta_cell(m),
             _age_str(m.get("last_seen"), now),
         ))
+    if hidden:
+        lines.append("")
+        lines.append("_Older rows for the same machine, not shown: %s._" % (
+            "; ".join("%s (last seen %s ago) -> %s"
+                      % (raw, _age_str(seen, now), key)
+                      for raw, key, seen in hidden)))
     lines.append("")
 
     pending = [i for i in queue_items if i.get("status") == "pending"]
