@@ -1549,6 +1549,14 @@ class LatentStack(nn.Module):
         alpha_self   = getattr(self.config, "alpha_self",  0.3)
         alpha_world  = getattr(self.config, "alpha_world", 0.3)
         alpha_shared = 0.3  # z_beta/theta/delta use a shared alpha (body + world integrated)
+        # SD-008 reset-init (default OFF): on the first encode() after a reset
+        # prev_state is init_state() (timestamp 0, z_world = zeros), so the EMA
+        # would blend against a hard-zero prior and scale ||z_world(t0)|| by
+        # alpha_world. ON -> that tick takes the instantaneous encode as the EMA
+        # state instead. Same t==0 test as the SD-007 skip above.
+        zworld_reset_init = bool(
+            getattr(self.config, "use_zworld_ema_reset_init", False)
+        ) and (prev_state.timestamp or 0) == 0
 
         # SELF-1 / DR-13: z_self temporal depth. Default OFF -> the legacy
         # fixed-alpha EMA below (single-MLP + EMA body snapshot). ON -> the
@@ -1624,6 +1632,8 @@ class LatentStack(nn.Module):
                 g_eff = 0.0
             alpha_eff = min(max(alpha_eff, 0.0), 1.0)
             g_eff = min(max(g_eff, 0.0), 1.0)
+            if zworld_reset_init:
+                alpha_eff = 1.0  # reset tick: no blend against the zero prior
             z_world = alpha_eff * z_world + (1 - alpha_eff) * prev_state.z_world
             anchor_present = False
             anchor_capped = False
@@ -1671,6 +1681,8 @@ class LatentStack(nn.Module):
                 "dist_to_obs": dist_to_obs,
                 "dist_to_pred": dist_to_pred,
             }
+        elif zworld_reset_init:
+            pass  # reset tick: z_world(t0) = instantaneous (post-SD-007) encode
         else:
             z_world = alpha_world * z_world + (1 - alpha_world) * prev_state.z_world
 

@@ -157,6 +157,23 @@ class LatentStackConfig:
     alpha_world: float = 0.3   # SD-008: set to 0.9+ to fix event suppression
     alpha_self: float = 0.3
 
+    # SD-008 reset-init (bt0926-emainit, 2026-09-26): init_state() zeroes
+    # z_world at every episode reset and SD-007 reafference is skipped at t=0,
+    # so the first encode() after a reset blends against a hard-zero prior:
+    # ||z_world(t0)|| = alpha_world * ||raw(t0)|| exactly. At alpha_world=0.3
+    # that manufactures a 0-1st-percentile ||z_world|| spike on 100% of reset
+    # ticks (21.9x enrichment) from an unremarkable raw encode -- measured in
+    # REE_assembly/evidence/planning/zworld_near_collapse_rootcause_20260926.md.
+    # True: the first encode() after reset (prev_state.timestamp == 0) sets the
+    # z_world EMA state to the instantaneous encode (z_world(t0) = raw(t0));
+    # t>=1 blends exactly as before. Also applies inside the MECH-157
+    # mode-routing branch (alpha_eff forced to 1.0 on the reset tick).
+    # z_world ONLY: z_self (alpha_self) and z_beta/z_theta/z_delta (shared 0.3)
+    # carry the same zero-init pattern but are deliberately left alone here.
+    # Default False (bit-identical). Default-ON is a user decision: any
+    # experiment comparing first-tick behaviour across the fix is confounded.
+    use_zworld_ema_reset_init: bool = False
+
     # SD-008 audit (option (c), REE_Working/.scratch/orch-20260924-1707/
     # QUESTIONS.md): True/False once REEConfig.from_dims() has run and set
     # alpha_world explicitly or left it on the implicit 0.3 default; None means
@@ -8215,6 +8232,7 @@ class REEConfig:
         harm_dim: int = 0,
         alpha_world: float = _ALPHA_WORLD_UNSET,  # type: ignore[assignment]
         alpha_self: float = 0.3,
+        use_zworld_ema_reset_init: bool = False,
         reafference_action_dim: int = 0,
         use_event_classifier: bool = False,
         use_resource_proximity_head: bool = False,
@@ -9691,6 +9709,8 @@ class REEConfig:
         config.latent.alpha_world = alpha_world
         config.latent.alpha_world_explicit = alpha_world_was_explicit
         config.latent.alpha_self = alpha_self
+        # SD-008 reset-init: z_world EMA starts from the first encode, not zeros.
+        config.latent.use_zworld_ema_reset_init = bool(use_zworld_ema_reset_init)
 
         # SD-007: reafference correction
         config.latent.reafference_action_dim = reafference_action_dim

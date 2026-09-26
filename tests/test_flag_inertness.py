@@ -2876,6 +2876,13 @@ PROBED = {
     # change moves both the sensory-gain blend and the E2-prediction pull; C7
     # pins the agent-level override/coordinator -> E2 anchor -> encode path.
     "use_mode_precision_routing",
+    # SD-008 reset-init: z_world EMA starts from the first encode after reset,
+    # not from init_state()'s zeros. Probed by
+    # tests/contracts/test_zworld_ema_reset_init.py: C1 pins OFF bit-identical
+    # to the default config (and the legacy alpha-scaled reset tick); C2 pins
+    # ON -> ||z_world(t0)|| == ||z_world_raw(t0)|| at every agent reset; C4
+    # pins the U4 reset-tick enrichment of the low-norm bucket falling < 3x.
+    "use_zworld_ema_reset_init",
     # SD-031 E2WorldForward. Probed by test_e2_world_forward.py: C1 pins
     # bit-identical OFF (agent.e2_world is None, action stream unchanged from
     # explicit-False); C4 pins the ON module is not an identity map and is
