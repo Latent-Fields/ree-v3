@@ -1557,6 +1557,28 @@ class LatentStack(nn.Module):
         zworld_reset_init = bool(
             getattr(self.config, "use_zworld_ema_reset_init", False)
         ) and (prev_state.timestamp or 0) == 0
+        # Sibling-EMA reset-init (default OFF, bt0926-emasib): the same zero-prior
+        # degeneracy applies to every other stream init_state() zeroes and then
+        # EMA-blends against. One knob per family so each can be turned on
+        # independently; each keys on the same t==0 test. ON -> the reset tick
+        # takes that family's instantaneous encode as its EMA state.
+        #   use_zself_ema_reset_init  -- z_self legacy alpha_self EMA (the
+        #       SELF-1 GRU path, use_self_recurrence, is NOT an EMA and is left
+        #       untouched: a zero initial hidden state is the GRU's convention).
+        #   use_shared_ema_reset_init -- z_beta / z_theta / z_delta (alpha_shared).
+        #   use_zharm_ema_reset_init  -- SD-036 harm-stream blend (only live when
+        #       gaba_harm_state_recurrence is on; z_harm blends against
+        #       init_state()'s zeros whenever harm_dim > 0 and shapes match).
+        _reset_tick = (prev_state.timestamp or 0) == 0
+        zself_reset_init = _reset_tick and bool(
+            getattr(self.config, "use_zself_ema_reset_init", False)
+        )
+        shared_reset_init = _reset_tick and bool(
+            getattr(self.config, "use_shared_ema_reset_init", False)
+        )
+        zharm_reset_init = _reset_tick and bool(
+            getattr(self.config, "use_zharm_ema_reset_init", False)
+        )
 
         # SELF-1 / DR-13: z_self temporal depth. Default OFF -> the legacy
         # fixed-alpha EMA below (single-MLP + EMA body snapshot). ON -> the
@@ -1598,6 +1620,8 @@ class LatentStack(nn.Module):
                 "e1_coupling": coupling,
                 "anchor_present": bool(anchor_present),
             }
+        elif zself_reset_init:
+            pass  # reset tick: z_self(t0) = instantaneous encode (sibling reset-init)
         else:
             z_self  = alpha_self  * z_self  + (1 - alpha_self)  * prev_state.z_self
         # MECH-157 option A: mode-conditioned precision routing on z_world.
@@ -1694,9 +1718,10 @@ class LatentStack(nn.Module):
             z_self = z_unified
             z_world = z_unified
 
-        z_beta  = alpha_shared * z_beta  + (1 - alpha_shared) * prev_state.z_beta
-        z_theta = alpha_shared * z_theta + (1 - alpha_shared) * prev_state.z_theta
-        z_delta = alpha_shared * z_delta + (1 - alpha_shared) * prev_state.z_delta
+        if not shared_reset_init:  # reset-init ON + reset tick: keep the instantaneous encode
+            z_beta  = alpha_shared * z_beta  + (1 - alpha_shared) * prev_state.z_beta
+            z_theta = alpha_shared * z_theta + (1 - alpha_shared) * prev_state.z_theta
+            z_delta = alpha_shared * z_delta + (1 - alpha_shared) * prev_state.z_delta
 
         # SD-010: dedicated nociceptive stream — overrides MECH-099 lateral head z_harm.
         # HarmEncoder output is NOT perspective-corrected (spinothalamic analogue).
@@ -1753,7 +1778,11 @@ class LatentStack(nn.Module):
         # across simulation ticks -- agent.sense() stores _current_latent
         # unconditionally. Gating only the harm streams would make them the
         # odd ones out, not safer.
-        if getattr(self.config, "gaba_harm_state_recurrence", False):
+        # Sibling reset-init (use_zharm_ema_reset_init): on the reset tick skip the
+        # blend so the harm streams start from the instantaneous encode, not from
+        # init_state()'s zero z_harm (z_harm_a's prev is None there and already
+        # fails open, so for it ON is a no-op on the agent path).
+        if getattr(self.config, "gaba_harm_state_recurrence", False) and not zharm_reset_init:
             if getattr(self.config, "gaba_recurrence_z_harm_s", True):
                 z_harm = self._gaba_state_blend(
                     z_harm,

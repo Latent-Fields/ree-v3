@@ -174,6 +174,27 @@ class LatentStackConfig:
     # experiment comparing first-tick behaviour across the fix is confounded.
     use_zworld_ema_reset_init: bool = False
 
+    # Sibling-EMA reset-init (bt0926-emasib, 2026-09-26): the same zero-prior
+    # degeneracy as use_zworld_ema_reset_init, for the other streams
+    # init_state() zeroes and encode() then EMA-blends against. One knob per
+    # family, each independent, each default False (bit-identical). True: on
+    # the first encode() after reset (prev_state.timestamp == 0) that family's
+    # EMA state is its instantaneous encode; t>=1 blends exactly as before.
+    #   use_zself_ema_reset_init  -- z_self legacy EMA (alpha_self). Without it
+    #       ||z_self(t0)|| = alpha_self * ||raw||. Does NOT touch the SELF-1
+    #       GRU path (use_self_recurrence), which is not an EMA.
+    #   use_shared_ema_reset_init -- z_beta / z_theta / z_delta (hard-coded
+    #       alpha_shared = 0.3 -> each reset tick is 0.3 * raw).
+    #   use_zharm_ema_reset_init  -- the SD-036 harm-stream blend (live only
+    #       when gaba_harm_state_recurrence is on); z_harm blends against
+    #       init_state()'s zeros when harm_dim > 0 and the shapes match.
+    # Default-ON is a user decision; first-tick comparisons across it are
+    # confounded. Record: REE_assembly/evidence/planning/
+    # sibling_ema_reset_init_build_20260926.md.
+    use_zself_ema_reset_init: bool = False
+    use_shared_ema_reset_init: bool = False
+    use_zharm_ema_reset_init: bool = False
+
     # SD-008 audit (option (c), REE_Working/.scratch/orch-20260924-1707/
     # QUESTIONS.md): True/False once REEConfig.from_dims() has run and set
     # alpha_world explicitly or left it on the implicit 0.3 default; None means
@@ -8233,6 +8254,9 @@ class REEConfig:
         alpha_world: float = _ALPHA_WORLD_UNSET,  # type: ignore[assignment]
         alpha_self: float = 0.3,
         use_zworld_ema_reset_init: bool = False,
+        use_zself_ema_reset_init: bool = False,
+        use_shared_ema_reset_init: bool = False,
+        use_zharm_ema_reset_init: bool = False,
         reafference_action_dim: int = 0,
         use_event_classifier: bool = False,
         use_resource_proximity_head: bool = False,
@@ -9711,6 +9735,10 @@ class REEConfig:
         config.latent.alpha_self = alpha_self
         # SD-008 reset-init: z_world EMA starts from the first encode, not zeros.
         config.latent.use_zworld_ema_reset_init = bool(use_zworld_ema_reset_init)
+        # Sibling-EMA reset-init (z_self / shared latents / SD-036 harm streams).
+        config.latent.use_zself_ema_reset_init = bool(use_zself_ema_reset_init)
+        config.latent.use_shared_ema_reset_init = bool(use_shared_ema_reset_init)
+        config.latent.use_zharm_ema_reset_init = bool(use_zharm_ema_reset_init)
 
         # SD-007: reafference correction
         config.latent.reafference_action_dim = reafference_action_dim

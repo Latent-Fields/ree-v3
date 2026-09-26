@@ -2883,6 +2883,14 @@ PROBED = {
     # ON -> ||z_world(t0)|| == ||z_world_raw(t0)|| at every agent reset; C4
     # pins the U4 reset-tick enrichment of the low-norm bucket falling < 3x.
     "use_zworld_ema_reset_init",
+    # Sibling-EMA reset-init (z_self / z_beta,z_theta,z_delta / SD-036 z_harm).
+    # Probed by tests/contracts/test_sibling_ema_reset_init.py: C1 pins OFF
+    # bit-identical to the default config; C2 pins ON -> each family's reset
+    # tick equals its instantaneous encode (||x(t0)|| == ||raw_x(t0)||); C3 pins
+    # the t>=1 blend unchanged and ON == OFF from a non-reset prev_state.
+    "use_zself_ema_reset_init",
+    "use_shared_ema_reset_init",
+    "use_zharm_ema_reset_init",
     # SD-031 E2WorldForward. Probed by test_e2_world_forward.py: C1 pins
     # bit-identical OFF (agent.e2_world is None, action stream unchanged from
     # explicit-False); C4 pins the ON module is not an identity map and is
