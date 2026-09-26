@@ -4184,6 +4184,21 @@ def _run_axis_count(value, field_name: str) -> int:
     raise TypeError(f"{field_name} must be an int or list, got {type(value).__name__}")
 
 
+def _release_pid_file() -> None:
+    """Remove runner.pid only if it records THIS process's pid.
+
+    REE_assembly/serve.py (_runner_pid) reads runner.pid to decide whether a
+    runner is up. An unconditional unlink let any other runner.py process on
+    the box (a --dry-run, or a second instance) delete a live runner's pid
+    file on its way out. Never raises.
+    """
+    try:
+        if PID_FILE.read_text().strip() == str(os.getpid()):
+            PID_FILE.unlink()
+    except (OSError, ValueError):
+        pass
+
+
 def save_script_timing(script: str, actual_secs: float, seeds, conditions, episodes: int) -> None:
     try:
         seed_count = _run_axis_count(seeds, "seeds")
@@ -4197,7 +4212,21 @@ def save_script_timing(script: str, actual_secs: float, seeds, conditions, episo
     actual_ms_per = round((actual_secs * 1000) / total_ep_cond, 1)
     timing = load_script_timing()
     timing[script] = actual_ms_per
-    SCRIPT_TIMING_FILE.write_text(json.dumps(timing, indent=2))
+    # tmp + replace, never write_text on the live file: write_text truncates
+    # first, so a crash mid-write left script_timing.json empty/partial and
+    # load_script_timing() then silently fell back to {} (every script's ETA
+    # calibration lost). The pid suffix keeps two writers off one tmp path.
+    tmp = SCRIPT_TIMING_FILE.with_name(
+        f"{SCRIPT_TIMING_FILE.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps(timing, indent=2), encoding="utf-8")
+        os.replace(tmp, SCRIPT_TIMING_FILE)
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
     print(f"[runner] Calibration updated: {script} -> {actual_ms_per:.0f} ms/ep-cond", flush=True)
 
 
@@ -4983,7 +5012,8 @@ def main():
         type=str,
         default=None,
         help="Machine identity for experiment claiming (default: hostname). "
-             "Use 'any' to disable affinity filtering.",
+             "Items whose machine_affinity is 'any' (or unset) run on every "
+             "machine; others run only where this identity matches.",
     )
     parser.add_argument(
         "--skip-preflight",
@@ -5163,7 +5193,10 @@ def main():
     _peer_status = merge_peer_status(status_path)
     _peer_ids = _peer_status.queue_ids
 
-    PID_FILE.write_text(str(os.getpid()))
+    # --dry-run is a read-only listing: it must not claim runner.pid, or it
+    # would clobber (and on exit delete) a live runner's pid file.
+    if not args.dry_run:
+        PID_FILE.write_text(str(os.getpid()))
 
     # Track active claim so signal handler can release it
     _current_claim: list[str] = []  # 0 or 1 elements (mutable container for closure)
@@ -5245,8 +5278,7 @@ def main():
                 write_status(s, status_path)
             except Exception:
                 pass
-        if PID_FILE.exists():
-            PID_FILE.unlink()
+        _release_pid_file()
 
     def handle_signal(sig, frame):
         is_sigint = sig == signal.SIGINT
@@ -5353,8 +5385,6 @@ def main():
             mine = "*" if _affinity_matches(item, machine) else f"x({affinity})"
             print(f"  {mine} {item['queue_id']} {(item.get('claim_id') or ''):12s} ~{(mins or 0):.0f}min  "
                   f"{'READY' if runnable else 'NEEDS_SCRIPT'}: {item.get('title', item['queue_id'])}{claim_str}")
-        if PID_FILE.exists():
-            PID_FILE.unlink()
         return
 
     print(f"[runner] PID {os.getpid()} -- {len(items)} experiments queued", flush=True)
@@ -6204,8 +6234,7 @@ def main():
     if args.auto_sync and ree_assembly_path:
         git_push_results(ree_assembly_path, _result_files_this_pass or None)
 
-    if PID_FILE.exists():
-        PID_FILE.unlink()
+    _release_pid_file()
 
 
 if __name__ == "__main__":
