@@ -693,6 +693,14 @@ class REEAgent(nn.Module):
                 dacc_saturation_grace=getattr(
                     config, "dacc_saturation_grace", 2
                 ),
+                # dacc-pe-scale-normalisation (IGW-219): default-off scale
+                # normaliser on the raw affective PE (see DACCConfig).
+                dacc_pe_norm_enabled=getattr(
+                    config, "dacc_pe_norm_enabled", False
+                ),
+                dacc_pe_norm_target=getattr(config, "dacc_pe_norm_target", 0.5),
+                dacc_pe_norm_alpha=getattr(config, "dacc_pe_norm_alpha", 0.001),
+                dacc_pe_norm_floor=getattr(config, "dacc_pe_norm_floor", 0.1),
             )
             self.dacc = DACCAdaptiveControl(dacc_cfg)
             # STOPGAP adapter -- still the score_bias source until SD-033

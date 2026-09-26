@@ -140,6 +140,44 @@ class DACCConfig:
     dacc_saturation_strength: float = 0.3
     dacc_saturation_grace: int = 2
 
+    # dacc-pe-scale-normalisation (IGW-20260925-219; user decision
+    # dec-20260923T185804-MECH-268, option 2). Divisive normalisation of the
+    # RAW affective quantity pe_u by a slow running mean of itself, applied
+    # BEFORE the MECH-258 precision gain, the SD-034 cap and MECH-268 f_sat:
+    #
+    #     k       = "pred" if z_harm_a_pred is not None else "nopred"
+    #     scale_k = running mean of pe_u over ticks of statistic k
+    #               (alpha = max(dacc_pe_norm_alpha, 1/n_k): exact cumulative
+    #               mean for the first 1/alpha updates, then an EMA)
+    #     pe_u   <- dacc_pe_norm_target * pe_u / max(scale_k, dacc_pe_norm_floor)
+    #
+    # Why each piece (full reasoning + red-team record in
+    # REE_assembly/docs/architecture/dacc_pe_scale_normalisation.md):
+    #   - pre-precision: removes z_harm_a's arbitrary representational unit
+    #     (the seed-fragile factor in V3-EXQ-1089) and leaves MECH-258's
+    #     precision gain intact rather than dividing it out;
+    #   - the estimator reads pe_u only, never the capped or saturated value,
+    #     so it cannot undo the SD-034 cap or MECH-268 saturation;
+    #   - one scale PER STATISTIC: without E2HarmAForward (the 1089/729/468
+    #     configs) every tick is a no-prediction tick (pe_u = ||z_harm_a||);
+    #     a single estimator that skipped those would never update;
+    #   - alpha 0.001 (~1000 ticks) is >= 10x slower than the 8-tick
+    #     saturation window and the ~20-tick foraging EMA, so it tracks the
+    #     operating point, not the dynamics MECH-268 carries;
+    #   - the floor stops a near-zero stream being amplified to full scale.
+    # Default False = bit-identical (the estimator buffers exist but are never
+    # read or written).
+    dacc_pe_norm_enabled: bool = False
+    dacc_pe_norm_target: float = 0.5
+    dacc_pe_norm_alpha: float = 0.001
+    dacc_pe_norm_floor: float = 0.1
+
+
+# Buffer index per pe_u statistic (dacc-pe-scale-normalisation).
+_PE_NORM_NOPRED = 0
+_PE_NORM_PRED = 1
+_PE_NORM_BUFFERS = ("_pe_norm_scale", "_pe_norm_count")
+
 
 class DACCAdaptiveControl(nn.Module):
     """SD-032b dACC/aMCC-analog adaptive control.
@@ -171,6 +209,82 @@ class DACCAdaptiveControl(nn.Module):
         self._last_outcome_recurrence: int = 0
         # Stable diagnostic counters for experiment scripts.
         self._n_forward_calls: int = 0
+        # dacc-pe-scale-normalisation: per-statistic running scale of pe_u
+        # (index _PE_NORM_NOPRED / _PE_NORM_PRED). Registered UNCONDITIONALLY
+        # so a normaliser-ON snapshot strict-loads into a normaliser-OFF module
+        # and vice versa (V3-EXQ-1089-style shared-P0 arms); never touched when
+        # the flag is off. _load_from_state_dict tolerates their absence so
+        # checkpoints written before this build still strict-load. A
+        # cross-episode operating-point estimate: NOT cleared by reset(),
+        # reset_episode_pe() or reset_outcome_history().
+        self.register_buffer(
+            "_pe_norm_scale", torch.zeros(2, dtype=torch.float64)
+        )
+        self.register_buffer(
+            "_pe_norm_count", torch.zeros(2, dtype=torch.int64)
+        )
+        self._pe_norm_frozen: bool = False
+        self._last_pe_norm_divisor: Optional[float] = None
+        self._last_pe_norm_updates: int = 0
+        self._last_pe_prenorm: Optional[float] = None
+
+    def _load_from_state_dict(
+        self, state_dict, prefix, local_metadata, strict,
+        missing_keys, unexpected_keys, error_msgs,
+    ):
+        # dacc-pe-scale-normalisation: a checkpoint written before the
+        # normaliser existed has no estimator buffers. Fill them from this
+        # module (a fresh estimator) so strict loads of old checkpoints keep
+        # working. Every other key is loaded exactly as before.
+        for name in _PE_NORM_BUFFERS:
+            key = prefix + name
+            if key not in state_dict:
+                state_dict[key] = getattr(self, name).detach().clone()
+        super()._load_from_state_dict(
+            state_dict, prefix, local_metadata, strict,
+            missing_keys, unexpected_keys, error_msgs,
+        )
+
+    def freeze_pe_norm(self, frozen: bool = True) -> None:
+        """Stop (or resume) updating the pe_u scale estimate.
+
+        For evaluation arms that share one trained snapshot: freeze after
+        loading so every arm divides by the same scale (V3-EXQ-1089a).
+        Scale is still APPLIED while frozen.
+        """
+        self._pe_norm_frozen = bool(frozen)
+
+    @property
+    def pe_norm_scale(self) -> List[float]:
+        """Current [nopred, pred] running scales of pe_u (0.0 = never updated)."""
+        return [float(v) for v in self._pe_norm_scale.tolist()]
+
+    @property
+    def pe_norm_updates(self) -> List[int]:
+        """Number of estimator updates per statistic [nopred, pred]."""
+        return [int(v) for v in self._pe_norm_count.tolist()]
+
+    def _normalise_pe_u(self, pe_u: float, has_pred: bool) -> float:
+        """dacc-pe-scale-normalisation transform on the raw affective PE.
+
+        Updates the running scale of this tick's statistic from pe_u (unless
+        frozen) and returns target * pe_u / max(scale, floor). Called only
+        when dacc_pe_norm_enabled.
+        """
+        k = _PE_NORM_PRED if has_pred else _PE_NORM_NOPRED
+        if not self._pe_norm_frozen:
+            n = int(self._pe_norm_count[k].item()) + 1
+            a = max(float(self.config.dacc_pe_norm_alpha), 1.0 / n)
+            old = float(self._pe_norm_scale[k].item())
+            self._pe_norm_scale[k] = (1.0 - a) * old + a * float(pe_u)
+            self._pe_norm_count[k] = n
+        divisor = max(
+            float(self._pe_norm_scale[k].item()),
+            float(self.config.dacc_pe_norm_floor),
+        )
+        self._last_pe_norm_divisor = divisor
+        self._last_pe_norm_updates = int(self._pe_norm_count[k].item())
+        return float(self.config.dacc_pe_norm_target) * float(pe_u) / divisor
 
     def reset(self) -> None:
         """Clear per-episode state. Call on env.reset()."""
@@ -215,6 +329,11 @@ class DACCAdaptiveControl(nn.Module):
         else:
             pe = float((z_harm_a - z_harm_a_pred).norm().item())
         prec_norm = min(precision / self.config.dacc_precision_scale, 3.0)
+        if self.config.dacc_pe_norm_enabled:
+            # dacc-pe-scale-normalisation: pre-precision, pre-cap,
+            # pre-saturation (see DACCConfig).
+            self._last_pe_prenorm = pe * (1.0 + prec_norm)
+            pe = self._normalise_pe_u(pe, has_pred=z_harm_a_pred is not None)
         pe_out = pe * (1.0 + prec_norm)
         # MECH-268 / SD-034: absolute post-closure precision-weighted PE cap.
         cap = self.config.dacc_pe_cap
@@ -471,7 +590,7 @@ class DACCAdaptiveControl(nn.Module):
         # disables this entirely (backward compat default).
         drive_gain = 1.0 + self.config.dacc_drive_coupling * eff_drive_for_dacc
 
-        return {
+        bundle = {
             "mode_ev": mode_ev,
             "choice_difficulty": choice_difficulty,
             "foraging_value": float(foraging_value),
@@ -502,6 +621,16 @@ class DACCAdaptiveControl(nn.Module):
             "saturation_factor": float(self._last_saturation_factor),
             "outcome_recurrence": int(self._last_outcome_recurrence),
         }
+        if self.config.dacc_pe_norm_enabled:
+            # dacc-pe-scale-normalisation diagnostics (ON only, so the OFF
+            # bundle's keys are unchanged): the precision-weighted value this
+            # tick WOULD have had without normalisation, the divisor applied,
+            # and the update count of this tick's statistic (a readiness gate
+            # can assert the estimator actually moved).
+            bundle["pe_prenorm_unsaturated"] = float(self._last_pe_prenorm)
+            bundle["pe_norm_scale"] = float(self._last_pe_norm_divisor)
+            bundle["pe_norm_updates"] = int(self._last_pe_norm_updates)
+        return bundle
 
 
 class DACCtoE3Adapter(nn.Module):

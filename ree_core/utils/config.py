@@ -4541,6 +4541,24 @@ class REEConfig:
     # functional form (reciprocal / integer excess / grace / window),
     # which is a separate live question.
     dacc_saturation_thread_current_class: bool = False
+    # dacc-pe-scale-normalisation (IGW-20260925-219, user decision
+    # dec-20260923T185804-MECH-268 option 2): divisively normalise the raw
+    # affective quantity pe_u (||z_harm_a - pred||, or ||z_harm_a|| when no
+    # E2HarmAForward prediction exists) by a slow running mean of itself,
+    # BEFORE the MECH-258 precision gain, so MECH-268's fixed f_sat floor sits
+    # in register with the SD-032a mode register across trained seeds (V3-EXQ-1089:
+    # unsaturated pe p50 2.1-5.6 across seeds, so any fixed floor was
+    # seed-fragile). At steady state pe_u -> target, so a precision-capped
+    # agent's unsaturated dacc_pe ~ target * 4. For the s-floor to release a
+    # register whose critical margin is ~C (~external_task_bias in the trained
+    # 1089 regime) you want target * 4 * floor(s) < C < target * 4; the 0.5
+    # default gives ~2.0 unsaturated, ~0.71 at the s=0.3 floor. Move the target
+    # if you move external_task_bias. Default False = bit-identical.
+    # Design: REE_assembly/docs/architecture/dacc_pe_scale_normalisation.md
+    dacc_pe_norm_enabled: bool = False
+    dacc_pe_norm_target: float = 0.5
+    dacc_pe_norm_alpha: float = 0.001
+    dacc_pe_norm_floor: float = 0.1
     # Precision normalisation scale (matches SD-020 pattern).
     # precision_norm = min(e3.current_precision / dacc_precision_scale, 3.0).
     # Higher scale -> more modest precision weighting.
@@ -8515,6 +8533,11 @@ class REEConfig:
         dacc_saturation_strength: float = 0.3,
         dacc_saturation_grace: int = 2,
         dacc_saturation_thread_current_class: bool = False,
+        # dacc-pe-scale-normalisation (MECH-268 calibration, IGW-219)
+        dacc_pe_norm_enabled: bool = False,
+        dacc_pe_norm_target: float = 0.5,
+        dacc_pe_norm_alpha: float = 0.001,
+        dacc_pe_norm_floor: float = 0.1,
         # SD-032a: salience-network coordinator
         use_salience_coordinator: bool = False,
         salience_switch_threshold: float = 1.0,
@@ -10121,6 +10144,11 @@ class REEConfig:
         config.dacc_saturation_thread_current_class = (
             dacc_saturation_thread_current_class
         )
+        # dacc-pe-scale-normalisation (MECH-268 calibration, IGW-219)
+        config.dacc_pe_norm_enabled = dacc_pe_norm_enabled
+        config.dacc_pe_norm_target = dacc_pe_norm_target
+        config.dacc_pe_norm_alpha = dacc_pe_norm_alpha
+        config.dacc_pe_norm_floor = dacc_pe_norm_floor
 
         # SD-032a: salience-network coordinator
         config.use_salience_coordinator = use_salience_coordinator

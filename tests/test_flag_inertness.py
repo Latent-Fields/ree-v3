@@ -2352,6 +2352,14 @@ def test_use_loop_local_eligibility_traces_excludes_the_losing_loops_channel():
 
 # Flags with a behavioural probe in this file (asserting ON changes an observable).
 PROBED = {
+    # dacc-pe-scale-normalisation (2026-09-26, IGW-20260925-219; design record
+    # REE_assembly docs/architecture/dacc_pe_scale_normalisation.md). Probed by
+    # tests/contracts/test_dacc_pe_scale_normalisation.py: OFF bundle and pe stream
+    # bit-identical to the default, against ON (scale-invariant pe converging to
+    # target * precision gain) and the live-agent probe
+    # test_liveness_live_agent_on_changes_salience_input (a real rollout: the
+    # SalienceCoordinator's dacc_pe input differs ON vs OFF).
+    "dacc_pe_norm_enabled",
     # Native waking trainer (2026-09-25, session bt0925-wtrainer; design record
     # REE_assembly evidence/planning/native_waking_trainer_design_20260925.md).
     # Probed by tests/contracts/test_waking_trainer.py, not here: W1/W2 (OFF builds
