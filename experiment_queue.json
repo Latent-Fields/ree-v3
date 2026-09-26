@@ -6,26 +6,5 @@
     "calibrated_at": "2026-03-16",
     "calibration_note": "With hazard_harm=0.02, avg episode ~182 steps (was ~18 with 0.5). Actual episode time higher."
   },
-  "items": [
-    {
-      "queue_id": "V3-EXQ-1108",
-      "title": "N2 full dose (post 1200) on the fleet: W3 retained-replay L2R bar while W6a trains the encoder (frozen / reencode / stored x real/shuf twin), seeds 811-815, ree_core pinned 9b322d5",
-      "script": "experiments/v3_exq_1108_n2_replay_encoder_full_dose_pinned.py",
-      "priority": 40,
-      "machine_affinity": "any",
-      "estimated_minutes": 360,
-      "note": "DIAGNOSTIC campaign probe N2 (coupled_loop_repair plan sec 4 N2 row; P8/Q4c), claim credit none: does W3's retained replay keep the L2R bar while W6a trains the world encoder through the read path? AMENDMENT A1 of the N2 record (REE_assembly evidence/planning/n2_replay_encoder_probe_20260925.md sec 4, pre-registered fc5c0795221 before this entry): the Mac run (prereg 025fc6a5cfe, result bbccb5d1416) was CANNOT_DETERMINE because its pre-registered post-600 dose cut removed the W3 post-phase gain (control missed (a) 4/5); this re-runs the SAME design at post 1200 (W3 dose) on fresh seeds 811-815. Rule, thresholds, arms (frozen/reencode/stored x real/shuf twin), B0, readouts unchanged. SUBSTRATE PIN: ree_core from 9b322d5c8e (tag archive/coupled-loop-repair-9b322d5) via experiments/_lib/substrate_pin.py (full sha; one-tag fetch fallback; SubstratePinError -> ERROR, never a silent main run); pin resolves on ree-worker-4 and the hub (re-measured 2026-09-26). OUTCOME PASS iff verdict HOLDS-*. 35 child runs (5 seeds x 7 conditions), per-run progress lines; seeds in parallel when cores allow (N2_JOBS). Est. 5-7 h on cpx22, 2-3 h on cx43. Step 2.4: readout (post-1200 current-space disc4/k under W6a) recorded in no manifest (Mac N2 ran post 600 only) -> run. Step 2.5c: SD-PP-B5 (corrupting) overlaps latent/stack.py + causal_grid_world.py at module level; DISMISSED -- its defect is the use_world_interventional margin loss (config default False at the pin, config.py:1043), which this driver never enables; SD-018/SD-106/SD-091/others degrading/cosmetic noted. Smoke PASS (Mac, lock): vendoring canary s106 frozen p1200 reproduced W3 exactly (0.5233/k10, ret 1.711, B0 0.3067); s811 p200 all 7 runs rc 0, DV moves across arms. DV symmetry: disc4/k invariant to uniform latent rescale, the manipulation reaches them through head TRAINING (stale vs re-encoded z), not the metric; shuf permutes labels, which argmin-class disc4 is not invariant to. red-team (fable): CONTESTED -- F1 leg (e) fails on W6a-ON twins too -> secondary keeps_bar_excluding_e + pre-stated reading rule, (e) still gates; F2 missing twin -> INCOMPLETE (fixed); F3 (b) sign flip if pre<B0 -> recorded + precondition. Session bt0926-n2q, chip chip-20260926-n2-full-dose-cloud-queue, delegation rec-20260924-fb429c72.",
-      "status": "claimed",
-      "claimed_by": {
-        "machine": "ree-cloud-2",
-        "claimed_at": "2026-09-26T02:10:48Z"
-      },
-      "claim_ids": [],
-      "conditions": 7,
-      "episodes_per_run": 1,
-      "experiment_purpose": "diagnostic",
-      "experiment_type": "v3_exq_1108_n2_replay_encoder_full_dose_pinned",
-      "seeds": 5
-    }
-  ]
+  "items": []
 }
