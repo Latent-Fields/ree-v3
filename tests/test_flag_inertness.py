@@ -2424,6 +2424,19 @@ PROBED = {
     # 2026-09-07 by chip-20260902-preexisting-corpus-reds-repin, which found
     # test_flag_registry_is_current red on trunk.
     "use_selection_entropy_floor",
+    # SD-050 comparator event latch (suffering-derivative-comparator-refractory,
+    # 2026-09-26, IGW-20260924-224). Gates the re-arm-on-rise latch inside
+    # SufferingDerivativeComparator. Probed by
+    # tests/contracts/test_suffering_derivative_comparator_refractory.py, not by a
+    # probe in this file: test_r2_latch_off_matches_legacy_oracle (OFF is
+    # tick-identical to the pre-latch comparator) against
+    # test_r3_one_event_per_descent (ON emits exactly one fire per damage->heal
+    # descent where OFF emits a train of > 3 per descent), and
+    # test_r1_from_dims_reaches_agent_comparator (the flag reaches
+    # agent.suffering_comparator.latch_enabled through from_dims). Only reachable
+    # with use_suffering_derivative_comparator=True, so a 15-step default probe
+    # here could not exercise it.
+    "suffering_event_latch_enabled",
     "sws_enabled",  # SD-017 schema pass: writes -> E1 ContextMemory
     "rem_enabled",  # SD-017 attribution pass: rollouts -> HippocampalModule.replay
     # MECH-122 content-packaging half (V3 proxy, IGW-20260801-197). Probed by

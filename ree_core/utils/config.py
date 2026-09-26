@@ -4971,6 +4971,21 @@ class REEConfig:
     # Magnitude written to VALENCE_LIKING at the current z_world location when
     # the relief_completion_event fires (MECH-094 categorical tag write).
     relief_completion_weight: float = 1.0
+    # suffering-derivative-comparator-refractory (2026-09-26): one event per
+    # descent. False (default) = legacy per-tick firing, bit-identical: every
+    # tick whose window drop clears the threshold fires, so one damage->heal
+    # trajectory emits a TRAIN of events (~9-17 per injection in V3-EXQ-517d).
+    # True = re-arm-on-rise latch: after a fire the comparator latches, tracks
+    # the trough since the fire, and re-arms (restarting its window) only when
+    # the norm rises suffering_rearm_rise above that trough. First event of a
+    # descent fires on the same tick as unlatched; latched events are a strict
+    # subset of unlatched events. See ree-v3/docs/substrate/
+    # SD-050-suffering-comparator-event-latch.md.
+    suffering_event_latch_enabled: bool = False
+    # Rise above the post-fire trough required to re-arm. None -> use
+    # suffering_drop_threshold (a new rise the size of a counted descent).
+    # Only read when suffering_event_latch_enabled=True.
+    suffering_rearm_rise: Optional[float] = None
 
     # SD-051 / MECH-304: cue-specific conditioned safety prediction store.
     # ConditionedSafetyStore maintains an EMA prototype of z_world at MECH-302
@@ -9596,6 +9611,8 @@ class REEConfig:
         suffering_drop_threshold: float = 0.10,
         suffering_min_initial_norm: float = 0.05,
         relief_completion_weight: float = 1.0,
+        suffering_event_latch_enabled: bool = False,
+        suffering_rearm_rise: Optional[float] = None,
         use_conditioned_safety_store: bool = False,
         safety_store_ema_alpha: float = 0.1,
         safety_store_decay_rate: float = 0.001,
@@ -11446,6 +11463,8 @@ class REEConfig:
         config.suffering_drop_threshold = suffering_drop_threshold
         config.suffering_min_initial_norm = suffering_min_initial_norm
         config.relief_completion_weight = relief_completion_weight
+        config.suffering_event_latch_enabled = suffering_event_latch_enabled
+        config.suffering_rearm_rise = suffering_rearm_rise
 
         # SD-051 / MECH-304: conditioned safety store
         config.use_conditioned_safety_store = use_conditioned_safety_store

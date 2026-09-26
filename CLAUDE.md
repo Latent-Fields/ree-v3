@@ -387,7 +387,9 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
     - [drive-coupling amend: kappa-scale + standing differential depletion (V3-EXQ-514r, MECH-436) (2026-06-17)](docs/substrate/SD-049-drive-coupling-amend-kappa-scale.md) *(~1,498 tok)*
     - [drive-coupling amend: BOUNDED kappa raise + deeper standing spread (V3-EXQ-514s, MECH-436) (2026-06-19)](docs/substrate/SD-049-drive-coupling-amend-bounded-kappa.md) *(~1,525 tok)*
     - [density-preserving spawn: per-type resource density held constant across arms (V3-EXQ-693a) (2026-07-20)](docs/substrate/SD-049-density-preserving-spawn-per-type.md) *(~1,093 tok)*
-- **[SD-050](docs/substrate/SD-050-suffering-derivative-comparator.md)** — Suffering-Derivative Comparator (2026-05-04) *(~511 tok)*
+- **SD-050** — 2 records, ~1,711 tok total.
+    - [Suffering-Derivative Comparator (2026-05-04)](docs/substrate/SD-050-suffering-derivative-comparator.md) *(~511 tok)*
+    - [Suffering-Comparator Event Latch: one relief event per descent (2026-09-26)](docs/substrate/SD-050-suffering-comparator-event-latch.md) *(~1,200 tok)*
 - **[SD-051](docs/substrate/SD-051-conditioned-safety-store.md)** — Conditioned Safety Store (2026-05-04) *(~621 tok)*
 - **[SD-052](docs/substrate/SD-052-contextual-passive-safety-terrain.md)** — Contextual Passive Safety Terrain (2026-05-04) *(~588 tok)*
 - **SD-054** — 2 records, ~2,549 tok total.

@@ -955,6 +955,8 @@ class REEAgent(nn.Module):
                 window_length=getattr(config, "suffering_window_length", 5),
                 drop_threshold=getattr(config, "suffering_drop_threshold", 0.10),
                 min_initial_norm=getattr(config, "suffering_min_initial_norm", 0.05),
+                latch_enabled=getattr(config, "suffering_event_latch_enabled", False),
+                rearm_rise=getattr(config, "suffering_rearm_rise", None),
             )
         # Event flag: set by sense(), consumed and cleared by select_action().
         self._relief_completion_event: bool = False
