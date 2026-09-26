@@ -123,6 +123,26 @@ Always-core fields it stamps (standard 3b)
                      copy-pasted per script) rather than overloading it -- see the
                      investigation doc section 8 for why the two fields answer different
                      questions and neither should absorb the other's job.
+  torch_num_threads, torch_num_interop_threads : torch.get_num_threads() /
+                     torch.get_num_interop_threads() read at STAMP time -- the TRUE
+                     values, after any torch.set_num_threads() the driver made (e.g.
+                     v3_exq_1108, v3_exq_1021). BLAS reduction order depends on the
+                     intra-op count, so this is a reproducibility variable, and before
+                     2026-09-26 nothing recorded it: a machine_affinity "any" item ran
+                     at 8 threads on a cx43 and 2 on a cpx22 with no trace
+                     (REE_assembly evidence/planning/
+                     runner_multislot_design_spike_20260926.md, premise P4, hazards
+                     H3/H4). Read only when torch is ALREADY imported (sys.modules) --
+                     this module keeps its no-torch import guarantee, and a process that
+                     never imported torch ran no torch op the count could affect; both
+                     keys are then OMITTED, never fabricated. RECORD-ONLY: deliberately
+                     NOT part of machine_class or the arm-reuse fingerprint (open user
+                     decision D3 in that design doc). Also NOT in ALWAYS_CORE_KEYS, for
+                     the same legacy-corpus reason as the fields above.
+  thread_env_requested : {"OMP_NUM_THREADS": str|None, "MKL_NUM_THREADS": str|None} --
+                     the env-REQUESTED counts (None = unset), so intent vs the torch
+                     truth above is visible side by side. Always stamped (stdlib-only).
+                     Also NOT in ALWAYS_CORE_KEYS.
   machine          : socket.gethostname() (or a caller override -- the hub records
                      "ree-cloud-1" although its hostname is "ree-worker-1").
   machine_class    : arm_fingerprint.machine_class() -- fingerprint equality is
@@ -1052,6 +1072,36 @@ def _utc_delta_seconds(earlier: Optional[str], later: Optional[str]) -> Optional
     return int((t1 - t0).total_seconds())
 
 
+# Env vars that REQUEST a BLAS/OpenMP thread count. Recorded beside the torch truth
+# so a reader can tell "asked for 2, got 8" from "never asked".
+_THREAD_ENV_VARS: Sequence[str] = ("OMP_NUM_THREADS", "MKL_NUM_THREADS")
+
+
+def torch_thread_provenance() -> Dict[str, Any]:
+    """Return the thread-count provenance block for the current process.
+
+    Always contains `thread_env_requested` ({var: value-or-None}). Contains
+    `torch_num_threads` / `torch_num_interop_threads` only when torch is ALREADY
+    imported -- read from sys.modules, never imported here, so this module keeps
+    its stdlib-only guarantee. Never raises: a torch that fails to answer simply
+    leaves its keys out. See the module docstring for why this is record-only.
+    """
+    out: Dict[str, Any] = {
+        "thread_env_requested": {k: os.environ.get(k) for k in _THREAD_ENV_VARS},
+    }
+    torch_mod = sys.modules.get("torch")
+    if torch_mod is not None:
+        try:
+            out["torch_num_threads"] = int(torch_mod.get_num_threads())
+        except Exception:
+            pass
+        try:
+            out["torch_num_interop_threads"] = int(torch_mod.get_num_interop_threads())
+        except Exception:
+            pass
+    return out
+
+
 def stamp_recording_core(
     manifest: Dict[str, Any],
     config: Optional[Mapping[str, Any]] = None,
@@ -1424,6 +1474,13 @@ def stamp_recording_core(
     except Exception:
         pass
 
+    # torch_num_threads / torch_num_interop_threads / thread_env_requested -- the
+    # thread counts the run's BLAS reductions actually used, read at stamp time so a
+    # driver's own torch.set_num_threads() is reflected. Record-only; see
+    # torch_thread_provenance() and the module docstring.
+    for _k, _v in torch_thread_provenance().items():
+        _fill(_k, _v)
+
     # elapsed_seconds -- explicit value wins; else derive from started_at.
     if elapsed_seconds is not None:
         _fill("elapsed_seconds", float(elapsed_seconds))
@@ -1499,6 +1556,7 @@ __all__ = [
     "enabled_default_off_flags_for_agents",
     "enabled_default_off_flags_from_observed",
     "stamp_recording_core",
+    "torch_thread_provenance",
     "missing_core_fields",
     "missing_mandatory_core_fields",
 ]
