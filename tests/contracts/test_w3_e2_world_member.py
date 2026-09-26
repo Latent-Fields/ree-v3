@@ -28,10 +28,14 @@ evidence/planning/w3_e2_world_member_build_20260925.md. Build: ree_core/utils/wa
   W3-09 A1 O15: export_retained -> append_external round-trips byte-identically into a fresh
         agent (source 'external'), re-encodes to the same z and trains; schedule_external
         releases each record at its logged step index.
-  W3-10 the L2R bar (plan W3 gate (a), disc4_h1 >= 0.47 and k == 10) on a small FIXED
-        dataset: W2a babbling + a monostrategy on-policy stream with 25% retained replay
-        meets it; the shuffled-action twin (FIXED class relabelling of the retained
-        actions, plan Decision log 14:19Z (3)) does NOT.
+  W3-10 the L2R bar (plan W3 gate (a), disc4_h1 >= 0.47 ALONE -- plan decision log
+        2026-09-26T09:33Z; k is reported, not gated) on a small FIXED dataset: W2a babbling
+        + a monostrategy on-policy stream with 25% retained replay meets it; the
+        shuffled-action twin (FIXED class relabelling of the retained actions, plan
+        Decision log 14:19Z (3)) does NOT.
+  W3-10b pins that decision: a synthetic fixture whose disc4_h1 clears the bar while its
+        fidelity k < 10 PASSES gate (a); its first-action-permuted twin (disc4_h1 ~ 0.07,
+        below chance) does not (non-vacuity).
   W3-11 knobs plumb through REEConfig.from_dims; bad values raise; a TRAIN-mode rollout
         with the member ON has no autograd error.
 
@@ -505,6 +509,16 @@ L2R_BAR = 0.47
 PERM = [1, 2, 3, 4, 0]
 
 
+def _w3_gate_a(res) -> bool:
+    """W3 member gate (a): disc4_h1 >= L2R_BAR ALONE (coupled plan decision log
+    2026-09-26T09:33Z, provisional/revisable). The former k == 10 conjunct (beats persistence
+    at every horizon) is dropped: it was carried by reset-tick artefacts
+    (REE_assembly evidence/planning/w3_k_excluding_reset_ticks_20260926.md; GFLAG-0560).
+    k stays in ``res`` as a non-gating readout."""
+    d = res.get("disc4_h1")
+    return res.get("verdict") == PASS and d is not None and d >= L2R_BAR
+
+
 def _l2r_head(shuffle: bool):
     """W2a babbling (2400) -> 3000 member updates -> 1200 monostrategy on-policy steps with
     8 member updates per step at the 25% retained mix; returns the held-out discrimination."""
@@ -566,10 +580,57 @@ def test_w3_10_l2r_bar_met_by_member_and_not_by_shuffled_twin():
     assert tr.guard_results["e2_world"].status == PASS
     assert m.n_drawn_retained > 0 and m.n_drawn_on_policy > 0
     assert real["verdict"] == PASS, real
-    assert real["disc4_h1"] >= L2R_BAR and real["k"] == 10, real
+    assert _w3_gate_a(real), real                  # k is a readout only: see _w3_gate_a
+    print("W3-10 readout: real disc4_h1=%.3f k=%d" % (real["disc4_h1"], real["k"]))
     twin, _tr, _m = _l2r_head(shuffle=True)
     assert twin["verdict"] == FAIL, twin
-    assert not (twin["disc4_h1"] >= L2R_BAR and twin["k"] == 10), twin
+    assert not _w3_gate_a(twin), twin              # the twin must NOT meet the disc4 bar
+    print("W3-10 readout: twin disc4_h1=%.3f k=%d" % (twin["disc4_h1"], twin["k"]))
+
+
+def _k_short_fixture(permute_first: bool):
+    """Synthetic held-out set + predictor: z_{t+1} = z_t + E[a_t] (5 distinct unit
+    displacements, 8-d). The predictor is exact for the first two steps and then adds a large
+    constant drift, so its median error beats persistence at h = 1, 2 only (k == 2), while
+    swapping the FIRST action is perfectly discriminated (disc4_h1 == 1). permute_first
+    relabels the first action through PERM inside the predictor (disc4_h1 ~ 0.07)."""
+    D, T, n_ep = 8, 30, 6
+    emb = torch.zeros(5, D)
+    emb[torch.arange(5), torch.arange(5)] = 1.0
+    g = torch.Generator().manual_seed(11)
+    eps = []
+    for _ in range(n_ep):
+        a = torch.randint(0, 5, (T,), generator=g)
+        z = torch.zeros(T + 1, D)
+        z[0] = torch.randn(D, generator=g)
+        for t in range(T):
+            z[t + 1] = z[t] + emb[a[t]]
+        eps.append({"z": z, "a": a})
+
+    def predict(x0, acts):
+        cls = acts[0].argmax(-1)
+        if permute_first:
+            cls = cls.clone()
+            cls[0] = PERM[int(cls[0])]
+        out = [x0]
+        cur = x0.clone()
+        for h in range(1, acts.shape[1] + 1):
+            cur = cur + emb[cls[h - 1]]
+            out.append(cur + (100.0 if h >= 3 else 0.0))
+        return out
+
+    return CA.action_discrimination(predict, eps, action_dim=5, max_starts=150, seed=3,
+                                    bar_disc4_h1=L2R_BAR)
+
+
+def test_w3_10b_gate_a_passes_on_disc4_even_when_k_is_short():
+    res = _k_short_fixture(permute_first=False)
+    assert res["k"] == 2, res                      # the fixture really is k-short
+    assert res["disc4_h1"] >= L2R_BAR, res
+    assert _w3_gate_a(res), res                    # decision 2026-09-26T09:33Z: disc4 alone
+    twin = _k_short_fixture(permute_first=True)
+    assert twin["disc4_h1"] < L2R_BAR, twin
+    assert not _w3_gate_a(twin), twin              # the gate is not vacuous
 
 
 # --- W3-11: knobs, bad values, retained graph -------------------------------------------------
