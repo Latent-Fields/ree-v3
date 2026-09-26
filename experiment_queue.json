@@ -34,17 +34,17 @@
     {
       "queue_id": "V3-EXQ-1110",
       "title": "SD-050 suffering-comparator event latch validation: one relief event per shadow burst (latch OFF vs ON, paired shadow-unlatched DV)",
-      "experiment_type": "v3_exq_1110_sd050_comparator_event_latch_validation",
       "script": "experiments/v3_exq_1110_sd050_comparator_event_latch_validation.py",
       "priority": 25,
       "machine_affinity": "any",
-      "status": "pending",
       "estimated_minutes": 240,
-      "episodes_per_run": 40,
-      "seeds": 3,
-      "conditions": 2,
       "claim_id": "SD-050",
-      "note": "Substrate validation for suffering-derivative-comparator-refractory (IGW-20260924-224; ree-v3 docs/substrate/SD-050-suffering-comparator-event-latch.md). Diagnostic, claim_ids [SD-050]. GOV-REUSE-1: decisive readout = latched fires per shadow burst on the SAME norm stream; no prior run has suffering_event_latch_enabled (new flag) -> run. Regime: num_hazards=1, contamination_spread=0.0 (517d's num_hazards=3 kills every episode before any heal descent on the current substrate: 517d driver = 0 events in both arms, INERT). Calibration on held-out seeds 42/43 (20 eps): OFF 57/590 fires, ON 7/20, bursts 8/20 -> fires/burst 0.875/1.0; run seeds 45/46/47. Step 2.5c: open corrupting substrate_queue entries overlap only at module level (SD-PP-B5 validated_negative instrument; SD-hazard-aware-policy-decomposition: use_policy_decomposition default False; contextmemory-write-path + sd_cm_livetap: default-OFF ContextMemory paths / probe instrument) -- none on the z_harm_a -> comparator -> event chain; degrading overlaps: suffering-derivative-comparator-refractory (the entry this validates), mech005-betagate, MECH-279/SD-091 select_action. DV symmetry: C1/C2 read a count ratio per arm; the manipulation (latch) changes the count, not a rank or a uniform offset, so it is not invariant under the DV. red-team (fable): CONTESTED -> F1 fixed (C5 = relief-block CALLS; VALENCE_LIKING writes are no-ops in this loop, recorded separately -- also true of 517c/517d 'writes'), F2 fixed (PASS = one event per shadow burst; bursts delimited by norm rises), F3/F4 dismissed as tripwires (contract R2 carries legacy identity), F5 fixed (C5 split per arm)."
+      "note": "Substrate validation for suffering-derivative-comparator-refractory (IGW-20260924-224; ree-v3 docs/substrate/SD-050-suffering-comparator-event-latch.md). Diagnostic, claim_ids [SD-050]. GOV-REUSE-1: decisive readout = latched fires per shadow burst on the SAME norm stream; no prior run has suffering_event_latch_enabled (new flag) -> run. Regime: num_hazards=1, contamination_spread=0.0 (517d's num_hazards=3 kills every episode before any heal descent on the current substrate: 517d driver = 0 events in both arms, INERT). Calibration on held-out seeds 42/43 (20 eps): OFF 57/590 fires, ON 7/20, bursts 8/20 -> fires/burst 0.875/1.0; run seeds 45/46/47. Step 2.5c: open corrupting substrate_queue entries overlap only at module level (SD-PP-B5 validated_negative instrument; SD-hazard-aware-policy-decomposition: use_policy_decomposition default False; contextmemory-write-path + sd_cm_livetap: default-OFF ContextMemory paths / probe instrument) -- none on the z_harm_a -> comparator -> event chain; degrading overlaps: suffering-derivative-comparator-refractory (the entry this validates), mech005-betagate, MECH-279/SD-091 select_action. DV symmetry: C1/C2 read a count ratio per arm; the manipulation (latch) changes the count, not a rank or a uniform offset, so it is not invariant under the DV. red-team (fable): CONTESTED -> F1 fixed (C5 = relief-block CALLS; VALENCE_LIKING writes are no-ops in this loop, recorded separately -- also true of 517c/517d 'writes'), F2 fixed (PASS = one event per shadow burst; bursts delimited by norm rises), F3/F4 dismissed as tripwires (contract R2 carries legacy identity), F5 fixed (C5 split per arm).",
+      "status": "pending",
+      "conditions": 2,
+      "episodes_per_run": 40,
+      "experiment_type": "v3_exq_1110_sd050_comparator_event_latch_validation",
+      "seeds": 3
     }
   ]
 }
