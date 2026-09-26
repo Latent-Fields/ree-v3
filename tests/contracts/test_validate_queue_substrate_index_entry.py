@@ -259,6 +259,41 @@ def test_only_docs_substrate_links_are_followed(tmp_path, monkeypatch):
 
 
 # ------------------------------------------------------------------
+# (6b) the index's own file (docs/substrate_index.md, since 2026-09-26)
+# ------------------------------------------------------------------
+def test_index_in_its_own_file_is_read_beside_claude_md(tmp_path, monkeypatch):
+    """The index moved out of CLAUDE.md into docs/substrate_index.md. A CLAUDE.md
+    with NO index plus an index file beside it must still resolve an id's entry
+    (and follow its docs/substrate/ link) -- the pre-move reader saw only
+    CLAUDE.md and would read every id as unbuilt, silently arming the brake."""
+    claude_md = tmp_path / "CLAUDE.md"
+    claude_md.write_text("# ree-v3\n\n## Substrate feature index\n\nNow in docs/substrate_index.md.\n",
+                         encoding="utf-8")
+    (tmp_path / "docs" / "substrate").mkdir(parents=True)
+    (tmp_path / "docs" / "substrate" / "SD-MOVED-x.md").write_text(
+        "- SD-MOVED: x -- IMPLEMENTED 2026-09-26.\n", encoding="utf-8")
+    (tmp_path / "docs" / "substrate_index.md").write_text(
+        "## Substrate feature index\n\n"
+        + _single("SD-MOVED", "docs/substrate/SD-MOVED-x.md", "x (2026-09-26)"),
+        encoding="utf-8")
+    monkeypatch.setattr(validate_queue, "_REE_V3_CLAUDE_MD_CANDIDATES", [claude_md])
+    text = validate_queue._read_ree_v3_claude_md()
+    assert "SD-MOVED" in text
+    assert validate_queue._substrate_is_built("SD-MOVED", text) is True
+    assert validate_queue._substrate_is_built("SD-ABSENT", text) is False
+
+
+def test_real_repo_index_is_reachable():
+    """Guard the derivation against the live tree: the real CLAUDE.md +
+    docs/substrate_index.md must expose index entries (a broken path would make
+    every id read as unbuilt)."""
+    text = validate_queue._read_ree_v3_claude_md()
+    assert text, "no ree-v3/CLAUDE.md readable"
+    entries = [l for l in text.splitlines() if validate_queue._SUBSTRATE_INDEX_ENTRY_RE.match(l)]
+    assert len(entries) > 100, len(entries)
+
+
+# ------------------------------------------------------------------
 # (7) end to end through validate()
 # ------------------------------------------------------------------
 def _write_autopsy(planning_dir: Path, slug: str, date: str, claim: str, upstream: str) -> None:

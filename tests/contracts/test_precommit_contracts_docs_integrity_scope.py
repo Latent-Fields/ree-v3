@@ -124,6 +124,7 @@ def _stage(repo, relpath, text):
 @pytest.mark.parametrize("relpath", [
     "docs/substrate/SD-001-thing.md",
     "docs/substrate/MECH-018-brand-new-record.md",
+    "docs/substrate_index.md",
     "CLAUDE.md",
 ])
 def test_staged_substrate_docs_trigger_the_lint(fake_repo, py_shim, relpath):

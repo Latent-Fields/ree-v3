@@ -101,6 +101,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SUBSTRATE_DIR = REPO_ROOT / "docs" / "substrate"
 CLAUDE_MD = REPO_ROOT / "CLAUDE.md"
+# The index moved out of CLAUDE.md into docs/substrate_index.md on 2026-09-26
+# (outside docs/substrate/ on purpose, so the per-record globs below never see it).
+SUBSTRATE_INDEX = REPO_ROOT / "docs" / "substrate_index.md"
 
 _LINK_RE = re.compile(r"\(docs/substrate/([\w.\-]+\.md)\)")
 
@@ -112,12 +115,18 @@ _BULLET_ID_RE = re.compile(r"^- ((?:SD|MECH|ARC)-[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+
 
 
 def _index_section_text() -> str:
-    text = CLAUDE_MD.read_text(encoding="utf-8")
+    src = SUBSTRATE_INDEX if SUBSTRATE_INDEX.is_file() else CLAUDE_MD
+    text = src.read_text(encoding="utf-8")
     marker = "## Substrate feature index"
     assert marker in text, (
-        f"{CLAUDE_MD}: no {marker!r} section -- has the index been renamed or "
+        f"{src}: no {marker!r} section -- has the index been renamed or "
         "removed? This test cannot audit a section it cannot find.")
-    return text[text.index(marker):]
+    section = text[text.index(marker):]
+    # Guard the derivation: an index that lost its entries would make the
+    # bijection checks below vacuously pass.
+    assert len(_LINK_RE.findall(section)) > 100, (
+        f"{src}: fewer than 100 docs/substrate links in the index section")
+    return section
 
 
 def _substrate_files():

@@ -904,15 +904,33 @@ def _ree_v3_claude_md_path() -> "Path | None":
     return None
 
 
+# The substrate feature index moved out of CLAUDE.md into docs/substrate_index.md
+# on 2026-09-26 (it was 71% of the file every ree-v3 session loads). Its path is
+# resolved against the same directory as the CLAUDE.md that was read, so the
+# docs/substrate/ record links inside it keep resolving via _read_substrate_doc.
+_SUBSTRATE_INDEX_RELPATH = "docs/substrate_index.md"
+
+
 def _read_ree_v3_claude_md() -> str:
-    """Read ree-v3/CLAUDE.md text; '' (fail-soft) if it cannot be read."""
+    """Read ree-v3/CLAUDE.md text PLUS docs/substrate_index.md beside it (the
+    index's home since 2026-09-26), concatenated so every caller's index-entry
+    lookup and flat fallback see both; '' (fail-soft) if CLAUDE.md cannot be read.
+    A missing index file contributes nothing (pre-move checkouts keep working:
+    their index is still inside CLAUDE.md)."""
     cand = _ree_v3_claude_md_path()
     if cand is None:
         return ""
     try:
-        return cand.read_text(encoding="utf-8", errors="ignore")
+        text = cand.read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return ""
+    try:
+        idx = cand.parent / _SUBSTRATE_INDEX_RELPATH
+        if idx.is_file():
+            text = text + "\n" + idx.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        pass
+    return text
 
 
 # Per-feature substrate records live under ree-v3/docs/substrate/ since the

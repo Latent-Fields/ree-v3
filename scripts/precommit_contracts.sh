@@ -489,14 +489,14 @@ fi
 # are covered post-push by .github/workflows/docs-integrity.yml instead.
 #
 # See tests/contracts/test_precommit_contracts_docs_integrity_scope.py.
-STAGED_SUBSTRATE_DOCS=$(echo "$STAGED" | grep -E '^(docs/substrate/[^/]+\.md|CLAUDE\.md)$' || true)
+STAGED_SUBSTRATE_DOCS=$(echo "$STAGED" | grep -E '^(docs/substrate/[^/]+\.md|docs/substrate_index\.md|CLAUDE\.md)$' || true)
 if [ -n "$STAGED_SUBSTRATE_DOCS" ]; then
     echo "[precommit_contracts] staged substrate docs -- checking substrate index integrity" >&2
     stage_commit_tree || :
     if ! (cd "$RUN_ROOT" && "$PY" -m pytest -q --tb=short tests/docs_integrity/test_wi1_substrate_split_index_integrity.py) >&2; then
         echo "[precommit_contracts] substrate index integrity failed -- blocking commit" >&2
-        echo "[precommit_contracts] a bullet opening with an id its file's heading does not own: lead with a word (e.g. 'Note: ') if it is prose, or give the record its own docs/substrate file + CLAUDE.md index entry" >&2
-        echo "[precommit_contracts] an unlinked/broken/duplicated index entry: fix CLAUDE.md's 'Substrate feature index' section" >&2
+        echo "[precommit_contracts] a bullet opening with an id its file's heading does not own: lead with a word (e.g. 'Note: ') if it is prose, or give the record its own docs/substrate file + docs/substrate_index.md entry" >&2
+        echo "[precommit_contracts] an unlinked/broken/duplicated index entry: fix the 'Substrate feature index' in docs/substrate_index.md" >&2
         echo "[precommit_contracts] or run with --no-verify to bypass" >&2
         if [ "$NO_BLOCK" = "1" ]; then
             :
