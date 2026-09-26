@@ -343,6 +343,16 @@ class HippocampalModule(nn.Module):
                     posterior_threshold=sc.posterior_threshold,
                     top_k=sc.bocpd_top_k,
                     prior_var=sc.bocpd_prior_var,
+                    # MECH-288 relative slow-scale trigger (default-off). getattr
+                    # defaults equal the Scale defaults, i.e. the canonical
+                    # detector, for any scale config object that predates them.
+                    scale_mode=getattr(sc, "bocpd_scale_mode", "absolute"),
+                    prior_scale_k=getattr(sc, "bocpd_prior_scale_k", 6.0),
+                    scale_alpha=getattr(sc, "bocpd_scale_alpha", 0.05),
+                    rel_floor=getattr(sc, "bocpd_rel_floor", 1e-3),
+                    implausible_z=getattr(sc, "bocpd_implausible_z", 6.0),
+                    readout=getattr(sc, "bocpd_readout", "p0"),
+                    readout_lag=getattr(sc, "bocpd_readout_lag", 3),
                 )
                 for sc in seg_cfg.scales
             ]

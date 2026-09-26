@@ -17,6 +17,18 @@ Two-level hierarchy (default):
 Cross-scale rule: when slow fires, inner resets to 0 (slow forces a
 fast reset). Fast fires increment inner only.
 
+Slow-scale trigger mode (2026-09-26, MECH288-SLOW-SCALE-BOCPD-RAIL-UNREACHABLE):
+the canonical ("absolute") BOCPD cannot fire on the in-agent z_goal stream --
+fresh runs predict with an absolute prior_var=1.0, the implausibility cutoff is
+-20 nats of log-DENSITY (scale-dependent), and P(r_t=0) equals the hazard on
+every tick (the Adams-MacKay likelihoods cancel), so the posterior readout never
+clears 0.5. Scale.scale_mode="relative" + Scale.readout="short_run_mass" is the
+opt-in, scale-equivariant alternative; see _BOCPDGaussianDetector and
+REE_assembly/evidence/planning/mech288_slow_scale_rail_redesign_20260926.md.
+Relative mode is applied to the OBSERVATION stream only: the MECH-321 rollout
+probe feeds the same z_goal several times per candidate, which collapses a
+relative detector's run variance (see _build_detector).
+
 MECH-094: this is enforced STRUCTURALLY, not by call-site convention.
 step() / force_boundary() / boundary_on() all take an input_stream label
 ("observation" | "rollout", default "observation"). Each stream has its
@@ -125,6 +137,18 @@ class Scale:
     posterior_threshold: Optional[float] = None
     top_k: int = 20
     prior_var: float = 1.0
+    # bocpd_gaussian trigger mode (defaults reproduce the canonical detector
+    # exactly). scale_mode="relative": fresh-run prior variance scales with a
+    # running estimate of the stream's own per-tick displacement, and the
+    # implausibility backstop tests a standardised residual. readout=
+    # "short_run_mass": fire on P(r_t <= readout_lag) instead of P(r_t = 0).
+    scale_mode: str = "absolute"          # "absolute" | "relative"
+    prior_scale_k: float = 6.0
+    scale_alpha: float = 0.05
+    rel_floor: float = 1e-3
+    implausible_z: float = 6.0
+    readout: str = "p0"                   # "p0" | "short_run_mass"
+    readout_lag: int = 3
 
 
 # ------------------------------------------------------------------ #
@@ -218,6 +242,27 @@ class _BOCPDGaussianDetector:
 
     Fires when P(r_t = 0) exceeds posterior_threshold. Posterior field
     on the emitted BoundaryEvent is P(r_t = 0) itself.
+
+    NOTE (2026-09-26): with a constant hazard, P(r_t = 0 | x_1:t) == hazard
+    on every tick (up to top-k renormalisation) -- the predictive terms
+    cancel -- so with hazard < posterior_threshold the "p0" readout never
+    fires and only the implausibility fast path can. That fast path needs
+    every run, including the fresh n<2 run predicting with the ABSOLUTE
+    prior_var, below -20 nats, i.e. a one-tick move > ~6.18 raw units.
+
+    scale_mode="relative" (opt-in) makes the detector scale-equivariant:
+      s_t        = EMA_{scale_alpha} of |x_t - x_{t-1}|  (updated AFTER the
+                   tick's predictive is computed)
+      prior_var  = (prior_scale_k * max(s_t, rel_floor*|x_t|, 1e-12))^2
+                   for fresh / zero-variance runs; run-variance floor 1e-12
+      backstop   = fire + reseed if every run finds x more than
+                   implausible_z sd away (standardised residual, not
+                   log-density, so it means the same at every scale)
+    readout="short_run_mass" (opt-in) fires on P(r_t <= readout_lag), the
+    standard lagged BOCPD readout, held off for readout_lag+1 observations
+    after stream start and after every reseed (every surviving run is short
+    then, so the mass is 1 by construction).
+    Defaults ("absolute", "p0") run the original code path unchanged.
     """
 
     def __init__(
@@ -226,11 +271,33 @@ class _BOCPDGaussianDetector:
         posterior_threshold: float,
         top_k: int = 20,
         prior_var: float = 1.0,
+        scale_mode: str = "absolute",
+        prior_scale_k: float = 6.0,
+        scale_alpha: float = 0.05,
+        rel_floor: float = 1e-3,
+        implausible_z: float = 6.0,
+        readout: str = "p0",
+        readout_lag: int = 3,
     ):
+        if scale_mode not in ("absolute", "relative"):
+            raise ValueError(f"Unknown BOCPD scale_mode: {scale_mode!r}")
+        if readout not in ("p0", "short_run_mass"):
+            raise ValueError(f"Unknown BOCPD readout: {readout!r}")
         self.hazard = float(hazard)
         self.posterior_threshold = float(posterior_threshold)
         self.top_k = max(1, int(top_k))
         self.prior_var = float(prior_var)
+        self.scale_mode = scale_mode
+        self.prior_scale_k = float(prior_scale_k)
+        self.scale_alpha = float(scale_alpha)
+        self.rel_floor = float(rel_floor)
+        self.implausible_z = float(implausible_z)
+        self.readout = readout
+        self.readout_lag = max(0, int(readout_lag))
+        # Relative-mode / readout state (untouched in the default mode).
+        self._disp_scale: Optional[float] = None
+        self._prev_x: Optional[float] = None
+        self._n_seen = 0
         # run_lengths[i] = integer run-length (0 is "just changed")
         # run_probs[i]   = posterior prob
         # run_mean[i]    = running mean of observations in that segment
@@ -247,6 +314,98 @@ class _BOCPDGaussianDetector:
         self._run_mean.clear()
         self._run_m2.clear()
         self._initialized = False
+        self._disp_scale = None
+        self._prev_x = None
+        self._n_seen = 0
+
+    def _reseed(self, x: float) -> None:
+        self._run_lengths = [0]
+        self._run_probs = [1.0]
+        self._run_mean = [x]
+        self._run_m2 = [0.0]
+        self._n_seen = 1
+
+    def _step_relative(self, agg: float) -> Tuple[bool, float]:
+        """scale_mode="relative" step (the default path is untouched)."""
+        s = self._disp_scale if self._disp_scale is not None else 0.0
+        s = max(s, self.rel_floor * abs(agg), 1e-12)
+        pv = (self.prior_scale_k * s) ** 2
+        n_runs = len(self._run_lengths)
+        pred_log: List[float] = []
+        z2_min = math.inf
+        for i in range(n_runs):
+            n = self._run_lengths[i]
+            var = pv if n < 2 else self._run_m2[i] / n
+            if var <= 0.0:
+                var = pv
+            var = max(var, 1e-12)
+            diff = agg - self._run_mean[i]
+            z2 = diff * diff / var
+            z2_min = min(z2_min, z2)
+            pred_log.append(-0.5 * (math.log(2.0 * math.pi * var) + z2))
+        # Displacement scale is updated AFTER this tick's predictive.
+        dx = abs(agg - self._prev_x) if self._prev_x is not None else 0.0
+        self._prev_x = agg
+        self._disp_scale = (
+            dx if self._disp_scale is None
+            else (1.0 - self.scale_alpha) * self._disp_scale + self.scale_alpha * dx
+        )
+        # Scale-free implausibility backstop.
+        if z2_min > self.implausible_z ** 2:
+            self._reseed(agg)
+            return True, 1.0
+        # Growth / change-point, max-subtracted for numerical stability (the
+        # normalised posterior is invariant to the common factor).
+        m = max(pred_log)
+        w = [self._run_probs[i] * math.exp(pred_log[i] - m) for i in range(n_runs)]
+        evidence = sum(w)
+        new_run_lengths = [0] + [r + 1 for r in self._run_lengths]
+        new_run_probs = [evidence * self.hazard] + [wi * (1.0 - self.hazard) for wi in w]
+        new_run_mean: List[float] = [agg]
+        new_run_m2: List[float] = [0.0]
+        for i in range(n_runs):
+            n_new = self._run_lengths[i] + 1
+            delta = agg - self._run_mean[i]
+            mu_new = self._run_mean[i] + delta / n_new
+            new_run_mean.append(mu_new)
+            new_run_m2.append(self._run_m2[i] + delta * (agg - mu_new))
+        total = sum(new_run_probs)
+        if total <= 0.0:
+            self._reseed(agg)
+            return True, 1.0
+        new_run_probs = [p / total for p in new_run_probs]
+        if len(new_run_probs) > self.top_k:
+            order = sorted(
+                range(len(new_run_probs)), key=lambda i: new_run_probs[i], reverse=True,
+            )[: self.top_k]
+            order.sort()
+            new_run_lengths = [new_run_lengths[i] for i in order]
+            new_run_probs = [new_run_probs[i] for i in order]
+            new_run_mean = [new_run_mean[i] for i in order]
+            new_run_m2 = [new_run_m2[i] for i in order]
+            total = sum(new_run_probs)
+            if total > 0.0:
+                new_run_probs = [p / total for p in new_run_probs]
+        self._run_lengths = new_run_lengths
+        self._run_probs = new_run_probs
+        self._run_mean = new_run_mean
+        self._run_m2 = new_run_m2
+        return self._readout()
+
+    def _readout(self) -> Tuple[bool, float]:
+        if self.readout == "p0":
+            try:
+                p = self._run_probs[self._run_lengths.index(0)]
+            except ValueError:
+                p = 0.0
+            return bool(p > self.posterior_threshold), float(p)
+        mass = sum(
+            p for r, p in zip(self._run_lengths, self._run_probs)
+            if r <= self.readout_lag
+        )
+        if self._n_seen <= self.readout_lag + 1:
+            return False, float(mass)       # burn-in: mass is 1 by construction
+        return bool(mass > self.posterior_threshold), float(mass)
 
     def _predictive_log_prob(self, x: float, idx: int) -> float:
         """Gaussian predictive log-prob for a given run index.
@@ -291,7 +450,14 @@ class _BOCPDGaussianDetector:
             self._run_mean = [agg]
             self._run_m2 = [0.0]
             self._initialized = True
+            self._prev_x = agg
+            self._n_seen = 1
             return False, 1.0, sources  # first tick is trivially a boundary
+
+        self._n_seen += 1
+        if self.scale_mode == "relative":
+            fired, strength = self._step_relative(agg)
+            return fired, strength, sources
 
         # 1. Predictive log-prob for every existing run.
         n_runs = len(self._run_lengths)
@@ -308,6 +474,7 @@ class _BOCPDGaussianDetector:
             self._run_probs = [1.0]
             self._run_mean = [agg]
             self._run_m2 = [0.0]
+            self._n_seen = 1
             return True, 1.0, sources
 
         # 2. Growth + change-point probabilities.
@@ -351,6 +518,7 @@ class _BOCPDGaussianDetector:
             self._run_probs = [1.0]
             self._run_mean = [agg]
             self._run_m2 = [0.0]
+            self._n_seen = 1
             return True, 1.0, sources
         new_run_probs = [p / total for p in new_run_probs]
 
@@ -377,6 +545,9 @@ class _BOCPDGaussianDetector:
         self._run_m2 = new_run_m2
 
         # 6. Fire if P(r=0) exceeds threshold.
+        if self.readout == "short_run_mass":
+            fired, strength = self._readout()
+            return fired, strength, sources
         try:
             idx_zero = self._run_lengths.index(0)
             p_zero = self._run_probs[idx_zero]
@@ -433,7 +604,10 @@ class EventSegmenter:
         # so a rollout tick can never share window/posterior state with the
         # observation stream's calibration.
         self._detectors: Dict[str, Dict[str, Any]] = {
-            stream: {sc.name: self._build_detector(sc) for sc in self.scales}
+            stream: {
+                sc.name: self._build_detector(sc, input_stream=stream)
+                for sc in self.scales
+            }
             for stream in self._STREAMS
         }
         # Track last-fire tick per (stream, scale) for min_segment_length guard.
@@ -456,7 +630,19 @@ class EventSegmenter:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _build_detector(scale: Scale) -> Any:
+    def _build_detector(scale: Scale, input_stream: str = "observation") -> Any:
+        """Build one (stream, scale) detector.
+
+        The relative BOCPD trigger is applied to the OBSERVATION stream only;
+        the rollout stream always gets the canonical detector. Reason
+        (measured 2026-09-26): the MECH-321 scale-resolved probe feeds the
+        SAME current_z_goal up to 8x per candidate per tick
+        (hippocampal/module.py _sweep_rollout_ticks), repeated identical
+        samples collapse a relative detector's run variance, and every next
+        real move becomes 'impossible' -- 1332 fires / 21624 ticks, the
+        min_segment_length ceiling. Extending relative mode to the rollout
+        stream needs its own measurement first.
+        """
         algo = scale.algorithm
         if algo == "pe_threshold":
             if scale.pe_threshold is None:
@@ -474,11 +660,25 @@ class EventSegmenter:
                     f"Scale {scale.name}: hazard and posterior_threshold "
                     "required for bocpd_gaussian algorithm"
                 )
+            if input_stream != "observation":
+                return _BOCPDGaussianDetector(
+                    hazard=scale.hazard,
+                    posterior_threshold=scale.posterior_threshold,
+                    top_k=scale.top_k,
+                    prior_var=scale.prior_var,
+                )
             return _BOCPDGaussianDetector(
                 hazard=scale.hazard,
                 posterior_threshold=scale.posterior_threshold,
                 top_k=scale.top_k,
                 prior_var=scale.prior_var,
+                scale_mode=scale.scale_mode,
+                prior_scale_k=scale.prior_scale_k,
+                scale_alpha=scale.scale_alpha,
+                rel_floor=scale.rel_floor,
+                implausible_z=scale.implausible_z,
+                readout=scale.readout,
+                readout_lag=scale.readout_lag,
             )
         raise ValueError(f"Unknown algorithm: {algo}")
 

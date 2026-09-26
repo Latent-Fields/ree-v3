@@ -499,7 +499,9 @@ When started with `--remote-control`, the runner emits a per-machine heartbeat e
 - **MECH-287** — 2 records, ~2,100 tok total.
     - [Invalidation Trigger -- Phase 2 iv (2026-04-22)](docs/substrate/MECH-287-invalidation-trigger-phase-2-iv.md) *(~1,480 tok)*
     - [PAG Descending Release -- Option B (hippocampal invalidation -> freeze exit) (2026-09-25)](docs/substrate/MECH-287-pag-descending-release-option-b.md) *(~620 tok)*
-- **[MECH-288](docs/substrate/MECH-288-event-segmenter-phase-2.md)** — Event Segmenter -- Phase 2 (2026-04-22) *(~2,202 tok)*
+- **MECH-288** — 2 records, ~2,990 tok total.
+    - [Event Segmenter -- Phase 2 (2026-04-22)](docs/substrate/MECH-288-event-segmenter-phase-2.md) *(~2,202 tok)*
+    - [Magnitude-relative slow-scale BOCPD trigger (2026-09-26)](docs/substrate/MECH-288-relative-slow-trigger.md) *(~790 tok)*
 - **[MECH-292](docs/substrate/MECH-292-ranked-ghost-goal-bank.md)** — Ranked Ghost-Goal Bank (2026-04-27) *(~1,444 tok)*
 - **[MECH-293](docs/substrate/MECH-293-waking-ghost-goal-probe-search.md)** — Waking Ghost-Goal Probe Search (2026-04-27) *(~1,687 tok)*
 - **MECH-294** — 3 records, ~5,709 tok total.
