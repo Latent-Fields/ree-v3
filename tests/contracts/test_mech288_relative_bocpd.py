@@ -172,3 +172,25 @@ def test_r9_invalid_modes_raise():
         _BOCPDGaussianDetector(hazard=HAZARD, posterior_threshold=0.5, scale_mode="log")
     with pytest.raises(ValueError):
         _BOCPDGaussianDetector(hazard=HAZARD, posterior_threshold=0.5, readout="map")
+
+
+def test_r10_from_dims_knob_reaches_slow_scale():
+    """REEConfig.from_dims(event_segmenter_slow_relative_trigger=True) must reach
+    the slow scale's detector -- from_dims silently swallows unknown kwargs
+    (MECH-307 precedent), so a missing signature entry reads as OFF with no
+    error. The fast scale and the rollout stream stay canonical."""
+    from ree_core.utils.config import REEConfig
+    from ree_core.agent import REEAgent
+
+    def dets(**kw):
+        cfg = REEConfig.from_dims(body_obs_dim=12, world_obs_dim=250, action_dim=4,
+                                  alpha_world=0.3, use_event_segmenter=True, **kw)
+        return REEAgent(cfg).hippocampal.event_segmenter._detectors
+
+    on = dets(event_segmenter_slow_relative_trigger=True)
+    assert on["observation"]["slow"].scale_mode == "relative"
+    assert on["observation"]["slow"].readout == "short_run_mass"
+    assert on["rollout"]["slow"].scale_mode == "absolute"
+    off = dets()
+    assert off["observation"]["slow"].scale_mode == "absolute"
+    assert off["observation"]["slow"].readout == "p0"

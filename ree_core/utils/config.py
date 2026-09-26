@@ -2611,6 +2611,22 @@ class EventSegmenterScaleConfig:
     posterior_threshold: float = 0.5
     bocpd_top_k: int = 20
     bocpd_prior_var: float = 1.0
+    # MECH-288 magnitude-relative slow-scale trigger (2026-09-26,
+    # MECH288-SLOW-SCALE-BOCPD-RAIL-UNREACHABLE). Defaults = the canonical
+    # detector, bit-identical. "relative": fresh-run prior sd = k x EMA of the
+    # stream's own |per-tick displacement| + a standardised-residual
+    # implausibility backstop. "short_run_mass": fire on P(r_t <= lag) --
+    # P(r_t = 0) equals the hazard on every tick, so "p0" can never clear 0.5.
+    # Applied to the OBSERVATION stream only (rollout stays canonical). See
+    # ree_core/hippocampal/event_segmenter.py _BOCPDGaussianDetector and
+    # docs/substrate/MECH-288-relative-slow-trigger.md.
+    bocpd_scale_mode: str = "absolute"
+    bocpd_prior_scale_k: float = 6.0
+    bocpd_scale_alpha: float = 0.05
+    bocpd_rel_floor: float = 1e-3
+    bocpd_implausible_z: float = 6.0
+    bocpd_readout: str = "p0"
+    bocpd_readout_lag: int = 3
 
 
 @dataclass
@@ -9215,6 +9231,7 @@ class REEConfig:
         # MECH-269 / MECH-287 / MECH-288: V_s invalidation runtime (Phase 1 + 2)
         use_per_stream_vs: bool = False,
         use_event_segmenter: bool = False,
+        event_segmenter_slow_relative_trigger: bool = False,
         use_invalidation_trigger: bool = False,
         use_anchor_sets: bool = False,
         use_per_region_vs: bool = False,
@@ -10951,6 +10968,17 @@ class REEConfig:
         # MECH-269 / MECH-287 / MECH-288: V_s invalidation runtime Phase 1 + 2 flags
         config.hippocampal.use_per_stream_vs = use_per_stream_vs
         config.hippocampal.use_event_segmenter = use_event_segmenter
+        # MECH-288 relative slow-scale trigger: switch the slow scale's BOCPD to
+        # scale_mode="relative" + readout="short_run_mass" (default False = the
+        # canonical detector). Inert unless use_event_segmenter=True AND z_goal
+        # is live (z_goal_enabled, a benefit_threshold the env reaches, and an
+        # explicit agent.update_z_goal(...) per step).
+        if event_segmenter_slow_relative_trigger:
+            _seg = config.hippocampal.event_segmenter
+            for _sc in _seg.scales:
+                if _sc.name == _seg.slow_scale_name:
+                    _sc.bocpd_scale_mode = "relative"
+                    _sc.bocpd_readout = "short_run_mass"
         config.hippocampal.use_invalidation_trigger = use_invalidation_trigger
         config.hippocampal.use_anchor_sets = use_anchor_sets
         config.hippocampal.use_per_region_vs = use_per_region_vs
