@@ -1,7 +1,7 @@
 # ree-v3 Repository Specification
 
 **Created:** 2026-03-16
-**Last updated:** 2026-09-25 (T01:10Z nightly)
+**Last updated:** 2026-09-26 (T01:06Z nightly)
 **Status:** Living specification — launch doc updated with current V3 state
 **Repo name:** `ree-v3`
 **Governance epoch:** `ree_hybrid_guardrails_v1` (same as V2 — epoch is per-architecture not per-repo)
@@ -237,6 +237,123 @@ world-pipeline result but does not transfer to the z_harm_s topology. Architectu
 
 ### Experiment Status
 
+- **2026-09-26T01:06Z nightly attestation (scheduled `/update-docs`, bot
+  identity).** ~24h window since the 2026-09-25T01:10Z snapshot -- a full
+  day covering the largest in-window build/governance day in the recent
+  band. Flat `v3_exq_*.json` manifests on disk: **1068** (+8 vs 1060 at
+  2026-09-25T01:10Z); nested per-run manifests under
+  `evidence/experiments/*/runs/`: **3004** (+8 vs 2996). **Currently
+  queued (`experiment_queue.json` items[]): 0 items** -- fully drained
+  in-window; V3-EXQ-1090 (MECH-449 endogenous-safety-veto),
+  V3-EXQ-1095 (MECH-439 residue-FED operator-ON falsifier), and
+  V3-EXQ-1067 (MECH-266/SD-032a affinity cap sweep) all cleared the
+  queue; V3-EXQ-1105 was operator-cancelled on user decision (criterion
+  N non-falsifiable by construction, redesigned as 1105a); V3-EXQ-1106
+  (MECH-287 Stage-0 precondition diagnostic) and V3-EXQ-1107 (SD-032a
+  mode-switch trained-agent, drive ON lesion vs OFF) were queued and
+  drained in-window. **Pending review (`pending_review.md`, regenerated
+  2026-09-25T12:04:20Z): 0 items** -- the five-item pending-review
+  backlog listed in yesterday's attestation was fully worked in the
+  in-window `governance-20260925` cycle. Coordinator-DB 30-day rolling
+  (per `experiment_error_rate.py` against the hub `ree@91.98.130.117`,
+  span 2026-08-27T18:47:08Z .. 2026-09-25T22:12:43Z): **68 PASS /
+  71 FAIL / 2 ERROR, ERROR rate 1.4% (2 / 141 classified runs)** --
+  -1 PASS, +8 FAIL, unchanged ERROR vs the 2026-09-24 rolling window
+  as in-window FAIL results accrued and older PASS results fell out of
+  the 30d span.
+  (a) **Meaningful substrate landings in the window** (in contrast to
+  the "no landings" band of the prior nightly): SD-105 shared entropy-
+  floor multiplier freeze/share API (2026-09-25); WAKING-TRAINER native
+  waking trainer skeleton + E1/E2-self members + `e3.harm_eval_head`
+  (T1/W2a coupled build, default-OFF); ARC-074 structured babbling
+  developmental source (default-OFF, no consumer, campaign W2a);
+  SD-032b amendment (dACC candidate-effort proxy, 2026-09-25);
+  MECH-039 two-part veto readout (interrupt vs control, instrument
+  only, default off, 2026-09-25); MECH-157 mode precision routing
+  option A (per-mode alpha_world + per-mode pull toward E2 forward,
+  default off, 2026-09-25); MECH-287 option B PAG descending release
+  (default off, 2026-09-25, ree-v3 `aa14769`).
+  (b) **`governance-20260925` cycle applied in-window** (flag-focused,
+  ~86 open GFLAGs researched by 9 read-only subagents;
+  rec-20260925-deedce42 accepted): 74 GFLAGs resolved/superseded, 12
+  left open by design; Section A closed 13 breakthrough-pass siblings
+  of GFLAG-0501 as already-addressed under
+  `coupled_loop_repair_campaign_plan.md`.
+  (c) **Two experiments queued and drained in-window**: V3-EXQ-1106
+  (MECH-287 option B Stage-0 precondition diagnostic; red-team fable
+  CONTESTED, F1/F2 fixed pre-queue) and V3-EXQ-1107 (SD-032a mode-switch
+  trained-agent 935a-curriculum lesion; premise correction on drive
+  polarity; red-team fable found C2 an arithmetic identity of the
+  frozen-drive eval, fixed pre-queue).
+  (d) **Extensive coupled_loop_repair campaign activity** on the
+  sanctioned `integration/coupled-loop-repair` branch (multi-session
+  parking exception, ree-v3): W1 codec parts (1)-(3) member gates
+  D1 PASS (branch `e4dc1a5`), W2a StructuredBabbler + T1 WakingTrainer
+  guard PASS (branch `2ea0e3c`, `d9a865e`), W3 E2WorldMember build
+  member gate 5-seed (a) 4/5, (b) 5/5, (c) twin 0/5, (d) PASS,
+  (e) bounded (branch `042895a`), W4 DISC_0.5 geometric-discount E3
+  aggregation build (default OFF, 11 contracts PASS, branch `1b013d6`
+  after W6a `9b322d5`) -- gate (c) re-spec HELD FOR USER, W4 not yet
+  gate-passed; W6a WorldEncoderMember default-OFF via world_obs_encoder
+  -> latent_stack.encode (branch `9b322d5`, rebased onto main `07b5fe6`
+  vs `042895a`). N3-pre + N3 aggregation probes ran; gate (c) pool-
+  controls diagnostic returned GENERAL (verdict). W3 step-1 rollout-
+  norm-spike attribution ran MIXED (correct-prediction + ratio-artefact
+  at small ||z0||, NOT head-defect).
+  (e) **A1 pre-registration DRAFT** iterated v2 -> v3 -> v3b in-window
+  (folding user decisions O11/O12/O13/O14/O15, floors, tie rule,
+  change-floor grounding); native-reseed probes RT-5 and A1 RT-5
+  landed; A1 not yet queued.
+  (f) **Action-space proposals design (W1-alt, ASP codec-alternative)**
+  landed with stratified one-hot first action + per-class categorical
+  CEM. ASP member gate readout on the real trained W3 head FAILed
+  gate (c) growth-leg 5/5 seeds; premise correction on ASP contract
+  H=10 vs true production horizon 30; gate (c) pool-controls
+  diagnostic confirmed the failure is GENERAL across pools (native
+  codec, native default, two no-proposer controls).
+  (g) **CeA gate probes and lit-pulls**: CeA gate calibration probe
+  (GFLAG-0556 raised MECH-046/039); CeA onset-input reprobe refuted
+  env saturation for z_harm_a in non-saturating configs (GFLAG-0557,
+  refines GFLAG-0556); SP-CEM zero-continuation check reproduced
+  F2/F3/F5 findings at trained wd32 with n=1 firing observed
+  (GFLAG-0558 supplements GFLAG-0555, both under ARC-065); IGW-243
+  MECH-109 lit-pull landed 5 entries in
+  `targeted_review_connectome_mech_109` (lit_conf 0.715); IGW-243
+  MECH-109 and IGW-240 MECH-084 both dispositioned
+  `blocked_substrate` under /queue-experiment Step 2.5d falsifier-
+  runnability STOP-GATE ABSENT.
+  (h) **Test-capacity infrastructure landed** (bt0925-capacity):
+  REE_Working P7 ree-cloud-5 resident remote_pytest slot, P4 fair
+  FIFO wait queue on the hub (WAIT_MIN 60), P3 short-lane
+  (<= 8 test files share busy hub/cloud-5 via per-run staging tree);
+  P1b clean-branch green test run recorded validation-cache pass;
+  P5 killed-on-box protocol (TERM/INT/HUP + REMOTE_PYTEST_CALLER_PID);
+  ree-v3 `61ff871`/`61f0d52` gate TERMs router on exit.
+  (i) **Coordination-plane background stable**: phase2b materializer
+  ticks (5 in-window covering `TASK_CLAIMS.json`, `TASK_CHIPS.json`,
+  `scripts/dispatch_campaigns.json`, `WORKSPACE_STATE.md`); phase3-
+  queue snapshots; igw ledger updates; metaworker-repair Healer cycle
+  fast-forwarded `REE_assembly` on ree-cloud-5 (`eb055574c0` ->
+  `fc8340fb87` via `safe_adopt_ref.py`, 3rd checkout-divergence
+  occurrence on that box).
+  This attestation itself is the last content change: `docs/ree-v3-
+  spec.md` §0 date bump + this Experiment Status entry, the paired
+  `docs/roadmap.md` snapshot, plus nav/status/goblin re-stamp.
+  **Bottleneck: unchanged in location, sharpened by the drained-queue
+  + zero-pending combination** -- the coupled_loop_repair breakthrough
+  campaign is now the dominant workstream, with W4 gate (c) re-spec
+  HELD FOR USER, A1 pre-registration draft awaiting queueing, and the
+  ASP gate (c) failure classified as GENERAL rather than head-specific.
+  H-observation-interface convergence axis remains open (SD-106
+  IMPLEMENTED-and-partially-validated, V3-EXQ-1023 FAIL adjudication
+  still owed by the next `/failure-autopsy`). Green-board target
+  2026-07-19 now **69 days overdue**. **ETHICS-PERIMETER Phase 0
+  datum** stays on the record (Phases 1-3 deferred; NON-BLOCKING).
+  Public-information-architecture impact: reviewed against
+  `docs/design/public_information_architecture.md` -- no `/api/*`
+  surface, generated visualization, or public export changed; nightly
+  snapshot + spec date bump + Experiment Status entry + roadmap
+  snapshot only; no SD table rows added, moved, or restatused.
 - **2026-09-25T01:10Z nightly attestation (scheduled `/update-docs`, bot
   identity).** ~7.5h window since the 2026-09-24T17:34Z snapshot -- a
   short overnight band. Flat `v3_exq_*.json` manifests on disk:
