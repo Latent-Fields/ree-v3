@@ -330,6 +330,28 @@ the drive. Like 1067 it GATES on the frozen goal's magnitude (P2 guard,
 STATUS AT THE TIME OF THIS NOTE: 1107's manifest landed 2026-09-25T17:53:06Z,
 `outcome=FAIL`, `evidence_direction=non_contributory`. Nothing in the script was
 touched.
+
+FAMILY GROWTH (2026-09-26). One new member: V3-EXQ-1109
+(`v3_exq_1109_pag_freeze_veto_earliest_edge.py`, ree-v3 `89976eb`,
+chip-20260926-pag-freeze-lock-confirmer, DCD2 probe F), the freeze/veto earliest-edge
+diagnostic on the 1107 harness: F0 z_harm_a information content (scripted random walk),
+F1 PAG freeze ON vs OFF, F3 MECH-449 veto ON vs OFF under freeze OFF. It arrived with
+`_FROZEN_FAMILY_SIZE` still at 36, so trunk's contract gate was red from `89976eb`
+until this note (reported by a peer session, igw-224). VERDICT: a fixed goal is
+INTENDED -- no retrofit, pin 36 -> 37.
+
+Same four questions. (1) Like 1107 it builds the curriculum once per seed and evaluates
+every arm from clones that carry `goal_state` across explicitly
+(`agent.goal_state.load_state_dict(trained.goal_state.state_dict())`), so all arms of a
+seed enter measurement with a bit-identical frozen z_goal. (2) It sets neither
+`goal_weight` nor `residue.benefit_terrain_live_producer`. (3) It calls neither
+`update_z_goal` nor `_set_goal_pipeline_frozen`; like 1107 it feeds only the native
+`goal_state._last_drive_level` scalar each eval step, which is not a z_goal write.
+(4) Its _make_config inherits 1107's ON-arm `use_external_task_drive=True`, so the
+frozen goal sits on that drive's path in every arm alike; the manipulated variables are
+the freeze gate, the veto producer and the scripted walk, none of which is the goal, so
+the identical-across-arms goal cannot produce a between-arm difference. It records the
+goal stream (`_ZG.observe`). Nothing in the script was touched.
 """
 import ast
 import sys
@@ -778,7 +800,12 @@ def test_scaffold_hands_off_with_the_goal_consumers_unfrozen():
 # shape: one curriculum per seed, both arms from goal_state-carrying _clone_for_arm
 # copies. It feeds the native drive_level scalar each eval step but never writes z_goal.
 # A fixed goal is INTENDED. Full derivation in the FAMILY GROWTH (2026-09-25) addendum.
-_FROZEN_FAMILY_SIZE = 36
+#
+# 36 -> 37 (2026-09-26): V3-EXQ-1109, the DCD2 freeze/veto earliest-edge diagnostic on
+# the 1107 harness (freeze ON/OFF, veto ON/OFF under freeze OFF, scripted walk). Same
+# clone-per-arm goal_state carry as 1107; never writes z_goal. A fixed goal is INTENDED.
+# Full derivation in the FAMILY GROWTH (2026-09-26) addendum.
+_FROZEN_FAMILY_SIZE = 37
 
 
 def test_frozen_z_goal_family_size_is_pinned():
